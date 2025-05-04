@@ -9,7 +9,13 @@ import { User as SelectUser } from "@shared/schema";
 
 declare global {
   namespace Express {
-    interface User extends SelectUser {}
+    interface User {
+      id: number;
+      username: string;
+      fullName: string;
+      role: string;
+      email?: string;
+    }
   }
 }
 
@@ -47,11 +53,18 @@ export async function setupAuth(app: Express) {
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       try {
+        // Only used for regular users, not admin
         const user = await storage.getUserByUsername(username);
         if (!user || !(await comparePasswords(password, user.password))) {
           return done(null, false);
         } else {
-          return done(null, user);
+          const userToAuth = {
+            id: user.id,
+            username: user.username,
+            fullName: user.fullName,
+            role: user.role
+          };
+          return done(null, userToAuth);
         }
       } catch (error) {
         return done(error);
@@ -69,9 +82,10 @@ export async function setupAuth(app: Express) {
     }
   });
 
-  // Fixed admin credentials - you should change these and store securely
-  const ADMIN_USERNAME = "admin";
-  const ADMIN_PASSWORD = await hashPassword("admin123"); // Change this!
+  // Fixed admin credentials - store in a secure way
+  let ADMIN_USERNAME = "admin";
+  let ADMIN_PASSWORD = await hashPassword("admin123"); // Default password
+  let ADMIN_EMAIL = "admin@example.com"; // Default email for password recovery
 
   app.post("/api/login", async (req, res) => {
     try {
@@ -90,6 +104,7 @@ export async function setupAuth(app: Express) {
         id: 1,
         username: ADMIN_USERNAME,
         fullName: "Administrator",
+        email: ADMIN_EMAIL,
         role: "admin"
       };
 
@@ -124,6 +139,53 @@ export async function setupAuth(app: Express) {
     // Update password
     ADMIN_PASSWORD = await hashPassword(newPassword);
     res.status(200).json({ message: "Password updated successfully" });
+  });
+  
+  // Update admin settings
+  app.post("/api/admin/settings", async (req, res) => {
+    if (!req.isAuthenticated() || req.user.role !== "admin") {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { username, email } = req.body;
+    
+    if (username) ADMIN_USERNAME = username;
+    if (email) ADMIN_EMAIL = email;
+    
+    const updatedUser = {
+      ...req.user,
+      username: ADMIN_USERNAME,
+      email: ADMIN_EMAIL
+    };
+    
+    res.status(200).json(updatedUser);
+  });
+  
+  // Forgot password - request reset
+  app.post("/api/forgot-password", async (req, res) => {
+    const { email } = req.body;
+    
+    if (email !== ADMIN_EMAIL) {
+      // For security, always return success even if email doesn't match
+      return res.status(200).json({ 
+        message: "If your email is in our system, you will receive a password reset link" 
+      });
+    }
+    
+    // In a real app, you would generate a token and send an email
+    // For this demo, we'll just reset to a simple password
+    const tempPassword = `temp-${Math.floor(Math.random() * 10000)}`; 
+    ADMIN_PASSWORD = await hashPassword(tempPassword);
+    
+    // Log the temp password for demo purposes
+    console.log(`SYSTEM: Temporary password for admin: ${tempPassword}`);
+    
+    res.status(200).json({ 
+      message: "If your email is in our system, you will receive a password reset link",
+      // IMPORTANT: In production, NEVER return the actual password in the response!
+      // This is only for demonstration purposes
+      tempPassword: tempPassword
+    });
   });
 
   app.post("/api/logout", (req, res, next) => {

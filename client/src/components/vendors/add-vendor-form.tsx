@@ -175,7 +175,13 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
               <FormItem>
                 <FormLabel>Location/Region</FormLabel>
                 <FormControl>
-                  <Input placeholder="e.g. North, Downtown, East" {...field} />
+                  <Input 
+                    placeholder="e.g. North, Downtown, East" 
+                    value={field.value || ""} 
+                    onChange={field.onChange} 
+                    onBlur={field.onBlur} 
+                    ref={field.ref}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -259,7 +265,13 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
               <FormItem>
                 <FormLabel>Delivery Person Name</FormLabel>
                 <FormControl>
-                  <Input placeholder="Name of delivery personnel" {...field} />
+                  <Input 
+                    placeholder="Name of delivery personnel" 
+                    value={field.value || ""} 
+                    onChange={field.onChange} 
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -273,7 +285,13 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
               <FormItem>
                 <FormLabel>Delivery Person Contact</FormLabel>
                 <FormControl>
-                  <Input placeholder="Phone number" {...field} />
+                  <Input 
+                    placeholder="Phone number" 
+                    value={field.value || ""} 
+                    onChange={field.onChange} 
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -291,7 +309,10 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
                 <Textarea 
                   placeholder="Additional information about this vendor" 
                   className="min-h-[80px]"
-                  {...field} 
+                  value={field.value || ""}
+                  onChange={field.onChange}
+                  onBlur={field.onBlur}
+                  ref={field.ref}
                 />
               </FormControl>
               <FormMessage />

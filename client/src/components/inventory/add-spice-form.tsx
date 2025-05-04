@@ -69,6 +69,7 @@ export default function AddSpiceForm({ onSuccess }: AddSpiceFormProps) {
   });
   
   // Initialize the form with default values
+  // Add more specific types for the form values to handle null
   const form = useForm<SpiceFormValues>({
     resolver: zodResolver(spiceFormSchema),
     defaultValues: {
@@ -112,7 +113,7 @@ export default function AddSpiceForm({ onSuccess }: AddSpiceFormProps) {
               <FormItem>
                 <FormLabel>Origin/Country</FormLabel>
                 <FormControl>
-                  <Input placeholder="Enter country of origin" {...field} />
+                  <Input placeholder="Enter country of origin" value={field.value || ""} onChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -159,7 +160,10 @@ export default function AddSpiceForm({ onSuccess }: AddSpiceFormProps) {
                 <Textarea 
                   placeholder="Enter spice description" 
                   className="min-h-[100px]"
-                  {...field} 
+                  value={field.value || ""} 
+                  onChange={field.onChange} 
+                  onBlur={field.onBlur}
+                  ref={field.ref}
                 />
               </FormControl>
               <FormMessage />
@@ -188,7 +192,7 @@ export default function AddSpiceForm({ onSuccess }: AddSpiceFormProps) {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Unit</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
+                <Select onValueChange={field.onChange} value={field.value || "kg"}>
                   <FormControl>
                     <SelectTrigger>
                       <SelectValue placeholder="Select unit" />

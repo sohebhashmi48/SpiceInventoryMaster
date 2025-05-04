@@ -69,29 +69,52 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/register", async (req, res, next) => {
-    try {
-      const existingUser = await storage.getUserByUsername(req.body.username);
-      if (existingUser) {
-        return res.status(400).send("Username already exists");
-      }
+  // Fixed admin credentials - you should change these and store securely
+  const ADMIN_USERNAME = "admin";
+  const ADMIN_PASSWORD = await hashPassword("admin123"); // Change this!
 
-      const user = await storage.createUser({
-        ...req.body,
-        password: await hashPassword(req.body.password),
-      });
-
-      req.login(user, (err) => {
-        if (err) return next(err);
-        res.status(201).json(user);
-      });
-    } catch (error) {
-      next(error);
+  app.post("/api/login", async (req, res) => {
+    const { username, password } = req.body;
+    
+    if (username !== ADMIN_USERNAME) {
+      return res.status(401).json({ message: "Invalid credentials" });
     }
+
+    const isValidPassword = await comparePasswords(password, ADMIN_PASSWORD);
+    if (!isValidPassword) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const user = {
+      id: 1,
+      username: ADMIN_USERNAME,
+      fullName: "Administrator",
+      role: "admin"
+    };
+
+    req.login(user, (err) => {
+      if (err) return res.status(500).json({ message: "Login failed" });
+      res.status(200).json(user);
+    });
   });
 
-  app.post("/api/login", passport.authenticate("local"), (req, res) => {
-    res.status(200).json(req.user);
+  // Change password endpoint
+  app.post("/api/change-password", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    
+    // Verify current password
+    const isValidPassword = await comparePasswords(currentPassword, ADMIN_PASSWORD);
+    if (!isValidPassword) {
+      return res.status(401).json({ message: "Current password is incorrect" });
+    }
+
+    // Update password
+    ADMIN_PASSWORD = await hashPassword(newPassword);
+    res.status(200).json({ message: "Password updated successfully" });
   });
 
   app.post("/api/logout", (req, res, next) => {

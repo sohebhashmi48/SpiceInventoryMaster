@@ -29,8 +29,13 @@ import { Loader2 } from "lucide-react";
 
 // Add more validation to the insert schema
 const spiceFormSchema = insertSpiceSchema.extend({
+  categoryId: z.coerce.number().min(1, "Please select a category"),
   price: z.coerce.number().min(0.01, "Price must be greater than 0"),
   stocksQty: z.coerce.number().int().min(0, "Stock quantity cannot be negative"),
+  unit: z.string().min(1, "Please select a unit"),
+  description: z.string().optional(),
+  origin: z.string().optional(),
+  isActive: z.boolean().default(true),
 });
 
 type SpiceFormValues = z.infer<typeof spiceFormSchema>;
@@ -48,7 +53,17 @@ export default function AddSpiceForm({ onSuccess }: AddSpiceFormProps) {
   
   const createSpiceMutation = useMutation({
     mutationFn: async (data: SpiceFormValues) => {
-      const res = await apiRequest("POST", "/api/spices", data);
+      const spiceData = {
+        ...data,
+        categoryId: Number(data.categoryId),
+        price: Number(data.price),
+        stocksQty: Number(data.stocksQty)
+      };
+      const res = await apiRequest("POST", "/api/spices", spiceData);
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to create spice");
+      }
       return await res.json();
     },
     onSuccess: () => {

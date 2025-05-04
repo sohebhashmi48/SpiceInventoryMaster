@@ -127,6 +127,39 @@ export class MemStorage implements IStorage {
 
     // Add initial categories
     this.seedCategories();
+    
+    // Create a test user
+    this.seedTestUser();
+  }
+  
+  // Create a test user for development
+  private async seedTestUser() {
+    // Import necessary function from auth.ts
+    const { scrypt, randomBytes } = await import('crypto');
+    const { promisify } = await import('util');
+    const scryptAsync = promisify(scrypt);
+    
+    const hashPassword = async (password: string) => {
+      const salt = randomBytes(16).toString("hex");
+      const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+      return `${buf.toString("hex")}.${salt}`;
+    };
+    
+    // Check if test user already exists
+    const existingUser = await this.getUserByUsername('user');
+    if (!existingUser) {
+      const hashedPassword = await hashPassword('password123');
+      const testUser: User = {
+        id: this.currentUserId++,
+        username: 'user',
+        password: hashedPassword,
+        fullName: 'Test User',
+        email: 'test@example.com',
+        role: 'manager'
+      };
+      this.users.set(testUser.id, testUser);
+      console.log('Test user created: username=user, password=password123');
+    }
   }
 
   // Seed some initial categories

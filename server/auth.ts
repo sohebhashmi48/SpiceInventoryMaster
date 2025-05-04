@@ -100,31 +100,60 @@ export async function setupAuth(app: Express) {
     try {
       const { username, password } = req.body;
       
-      if (username !== ADMIN_USERNAME) {
-        return res.status(401).json({ message: "Invalid credentials" });
-      }
-
-      const isValidPassword = await comparePasswords(password, ADMIN_PASSWORD);
-      if (!isValidPassword) {
-        return res.status(401).json({ message: "Invalid credentials" });
-      }
-
-      const user = {
-        id: 1,
-        username: ADMIN_USERNAME,
-        fullName: "Administrator",
-        email: ADMIN_EMAIL,
-        role: "admin"
-      };
-
-      await new Promise((resolve, reject) => {
-        req.login(user, (err) => {
-          if (err) reject(err);
-          else resolve(user);
+      console.log(`Login attempt - username: ${username}, ADMIN_USERNAME: ${ADMIN_USERNAME}`);
+      
+      // Allow login with standard passport.js authentication flow 
+      // for regular users stored in the database
+      const dbUser = await storage.getUserByUsername(username);
+      if (dbUser && await comparePasswords(password, dbUser.password)) {
+        console.log('Authenticating with database user');
+        await new Promise((resolve, reject) => {
+          req.login(dbUser, (err) => {
+            if (err) reject(err);
+            else resolve(dbUser);
+          });
         });
-      });
+        
+        // Return a sanitized user without password
+        const userToReturn = {
+          id: dbUser.id,
+          username: dbUser.username,
+          fullName: dbUser.fullName,
+          email: dbUser.email || null,
+          role: dbUser.role
+        };
+        
+        return res.status(200).json(userToReturn);
+      }
+      
+      // Admin login via hardcoded credentials
+      if (username === ADMIN_USERNAME) {
+        console.log('Checking admin credentials');
+        const isValidPassword = await comparePasswords(password, ADMIN_PASSWORD);
+        if (isValidPassword) {
+          console.log('Admin authentication successful');
+          const user = {
+            id: 9999, // Special admin ID
+            username: ADMIN_USERNAME,
+            fullName: "Administrator",
+            email: ADMIN_EMAIL,
+            role: "admin"
+          };
 
-      res.status(200).json(user);
+          await new Promise((resolve, reject) => {
+            req.login(user, (err) => {
+              if (err) reject(err);
+              else resolve(user);
+            });
+          });
+
+          return res.status(200).json(user);
+        }
+      }
+      
+      // If we get here, authentication failed
+      console.log('Authentication failed');
+      return res.status(401).json({ message: "Invalid credentials" });
     } catch (error) {
       console.error('Login error:', error);
       res.status(500).json({ message: "Internal server error during login" });

@@ -17,16 +17,20 @@ export const vendors = pgTable("vendors", {
   email: text("email").notNull(),
   phone: text("phone").notNull(),
   address: text("address").notNull(),
+  location: text("location"),
   paymentTerms: text("payment_terms").notNull(),
   moneyOwed: numeric("money_owed").notNull().default("0"),
   moneyPaid: numeric("money_paid").notNull().default("0"),
   rating: integer("rating"),
   notes: text("notes"),
+  deliveryPersonName: text("delivery_person_name"),
+  deliveryPersonContact: text("delivery_person_contact"),
 });
 
 export const categories = pgTable("categories", {
   id: serial("id").primaryKey(),
   name: text("name").notNull().unique(),
+  description: text("description"),
 });
 
 export const spices = pgTable("spices", {
@@ -35,6 +39,9 @@ export const spices = pgTable("spices", {
   categoryId: integer("category_id").notNull(),
   origin: text("origin"),
   description: text("description"),
+  price: numeric("price").default("0"),
+  unit: text("unit").default("kg"),
+  reorderPoint: integer("reorder_point").default(5),
   isActive: boolean("is_active").notNull().default(true),
 });
 
@@ -62,6 +69,8 @@ export const invoices = pgTable("invoices", {
   totalAmount: numeric("total_amount").notNull(),
   status: text("status").notNull().default("unpaid"),
   notes: text("notes"),
+  deliveryPersonName: text("delivery_person_name"),
+  deliveryPersonContact: text("delivery_person_contact"),
 });
 
 export const invoiceItems = pgTable("invoice_items", {

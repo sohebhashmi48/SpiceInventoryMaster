@@ -20,7 +20,7 @@ export default function Sidebar({ isMobileOpen, closeMobileSidebar }: SidebarPro
   const navItems = [
     { name: 'Dashboard', path: '/', icon: <LayoutDashboard className="h-5 w-5" /> },
     { name: 'Inventory', path: '/inventory', icon: <PackageSearch className="h-5 w-5" /> },
-    { name: 'Spices', path: '/spices', icon: <Pepper className="h-5 w-5" /> },
+    { name: 'Spices', path: '/spices', icon: <Leaf className="h-5 w-5" /> },
     { name: 'Vendors', path: '/vendors', icon: <Store className="h-5 w-5" /> },
     { name: 'Billing', path: '/billing', icon: <Receipt className="h-5 w-5" /> },
     { name: 'Reports', path: '/reports', icon: <BarChart2 className="h-5 w-5" /> },

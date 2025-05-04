@@ -130,6 +130,20 @@ export default function AuthPage() {
               </TabsList>
               
               <TabsContent value="login">
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-md text-sm">
+                  <p className="font-medium text-blue-700">Demo Credentials:</p>
+                  <div className="mt-1 grid grid-cols-2 gap-x-4 text-blue-800">
+                    <div>
+                      <p><span className="font-semibold">Username:</span> admin</p>
+                      <p><span className="font-semibold">Password:</span> admin123</p>
+                    </div>
+                    <div>
+                      <p><span className="font-semibold">Username:</span> user</p>
+                      <p><span className="font-semibold">Password:</span> password123</p>
+                    </div>
+                  </div>
+                </div>
+
                 <Form {...loginForm}>
                   <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
                     <FormField

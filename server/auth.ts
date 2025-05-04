@@ -1,222 +1,174 @@
-import passport from "passport";
-import { Strategy as LocalStrategy } from "passport-local";
-import { Express } from "express";
+import { Express, Request, Response } from "express";
 import session from "express-session";
-import { scrypt, randomBytes, timingSafeEqual } from "crypto";
-import { promisify } from "util";
 import { storage } from "./storage";
-import { User as SelectUser } from "@shared/schema";
 
+// Extend the SessionData interface
+declare module 'express-session' {
+  interface SessionData {
+    user: AuthUser;
+  }
+}
+
+// Simple user interface for authentication
+interface AuthUser {
+  id: number;
+  username: string;
+  fullName: string;
+  role: string;
+  email?: string;
+}
+
+// Declare session user type
 declare global {
   namespace Express {
-    interface User {
-      id: number;
-      username: string;
-      fullName: string;
-      role: string;
-      email?: string;
+    interface User extends AuthUser {}
+    interface Request {
+      isAuthenticated: () => boolean;
     }
   }
 }
 
-const scryptAsync = promisify(scrypt);
-
-async function hashPassword(password: string) {
-  const salt = randomBytes(16).toString("hex");
-  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-  return `${buf.toString("hex")}.${salt}`;
-}
-
-async function comparePasswords(supplied: string, stored: string) {
-  const [hashed, salt] = stored.split(".");
-  const hashedBuf = Buffer.from(hashed, "hex");
-  const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-  return timingSafeEqual(hashedBuf, suppliedBuf);
-}
+// Create a hard-coded set of users for login
+const users = [
+  {
+    id: 9999,
+    username: "admin",
+    password: "admin123",
+    fullName: "Administrator",
+    email: "admin@example.com",
+    role: "admin"
+  },
+  {
+    id: 1,
+    username: "user",
+    password: "password123",
+    fullName: "Test User",
+    email: "test@example.com",
+    role: "manager"
+  }
+];
 
 export async function setupAuth(app: Express) {
+  // Session setup
   const sessionSettings: session.SessionOptions = {
-    secret: process.env.SESSION_SECRET || "spice-inventory-secret",
+    secret: "spice-inventory-secret-key-1234",
     resave: false,
     saveUninitialized: false,
-    store: storage.sessionStore,
     cookie: {
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 1 week
-    }
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 1 week
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax"
+    },
+    store: storage.sessionStore,
   };
 
   app.set("trust proxy", 1);
   app.use(session(sessionSettings));
-  app.use(passport.initialize());
-  app.use(passport.session());
 
-  passport.use(
-    new LocalStrategy(async (username, password, done) => {
-      try {
-        // Only used for regular users, not admin
-        const user = await storage.getUserByUsername(username);
-        if (!user || !(await comparePasswords(password, user.password))) {
-          return done(null, false);
-        } else {
-          const userToAuth = {
-            id: user.id,
-            username: user.username,
-            fullName: user.fullName,
-            email: user.email,
-            role: user.role
-          };
-          return done(null, userToAuth);
-        }
-      } catch (error) {
-        return done(error);
-      }
-    }),
-  );
-
-  passport.serializeUser((user, done) => done(null, user.id));
-  passport.deserializeUser(async (id: number, done) => {
-    try {
-      const user = await storage.getUser(id);
-      if (user) {
-        const userWithProperEmail = {
-          ...user,
-          email: user.email || undefined
-        };
-        done(null, userWithProperEmail);
-      } else {
-        done(null, null);
-      }
-    } catch (error) {
-      done(error);
+  // Custom authentication middleware
+  app.use((req, res, next) => {
+    // Attach user data to the request if session contains user info
+    if (req.session && req.session.user) {
+      req.user = req.session.user;
+      req.isAuthenticated = () => true;
+    } else {
+      req.isAuthenticated = () => false;
     }
+    next();
   });
 
-  // Fixed admin credentials - store in a secure way
-  let ADMIN_USERNAME = "admin";
-  let ADMIN_PASSWORD = await hashPassword("admin123"); // Default password
-  let ADMIN_EMAIL = "admin@example.com"; // Default email for password recovery
-
-  app.post("/api/login", async (req, res) => {
+  // Login endpoint
+  app.post("/api/login", (req, res) => {
     try {
       const { username, password } = req.body;
+      console.log(`Login attempt - username: ${username}`);
       
-      console.log(`Login attempt - username: ${username}, ADMIN_USERNAME: ${ADMIN_USERNAME}`);
+      // Find user by username
+      const user = users.find(u => u.username === username);
       
-      // Allow login with standard passport.js authentication flow 
-      // for regular users stored in the database
-      const dbUser = await storage.getUserByUsername(username);
-      if (dbUser && await comparePasswords(password, dbUser.password)) {
-        console.log('Authenticating with database user');
-        await new Promise((resolve, reject) => {
-          req.login(dbUser, (err) => {
-            if (err) reject(err);
-            else resolve(dbUser);
-          });
-        });
+      // Verify password
+      if (user && user.password === password) {
+        console.log(`Authentication successful for user: ${username}`);
         
-        // Return a sanitized user without password
-        const userToReturn = {
-          id: dbUser.id,
-          username: dbUser.username,
-          fullName: dbUser.fullName,
-          email: dbUser.email || null,
-          role: dbUser.role
+        // Create a sanitized user object without password
+        const sanitizedUser: AuthUser = {
+          id: user.id,
+          username: user.username,
+          fullName: user.fullName,
+          email: user.email,
+          role: user.role
         };
         
-        return res.status(200).json(userToReturn);
+        // Store user in session
+        req.session.user = sanitizedUser;
+        
+        return res.status(200).json(sanitizedUser);
       }
       
-      // Admin login via hardcoded credentials
-      if (username === ADMIN_USERNAME) {
-        console.log('Checking admin credentials');
-        const isValidPassword = await comparePasswords(password, ADMIN_PASSWORD);
-        if (isValidPassword) {
-          console.log('Admin authentication successful');
-          const user = {
-            id: 9999, // Special admin ID
-            username: ADMIN_USERNAME,
-            fullName: "Administrator",
-            email: ADMIN_EMAIL,
-            role: "admin"
-          };
-
-          await new Promise((resolve, reject) => {
-            req.login(user, (err) => {
-              if (err) reject(err);
-              else resolve(user);
-            });
-          });
-
-          return res.status(200).json(user);
-        }
-      }
-      
-      // If we get here, authentication failed
+      // Authentication failed
       console.log('Authentication failed');
-      return res.status(401).json({ message: "Invalid credentials" });
+      return res.status(401).json({ message: "Invalid username or password" });
     } catch (error) {
       console.error('Login error:', error);
       res.status(500).json({ message: "Internal server error during login" });
     }
   });
 
+  // Logout endpoint
+  app.post("/api/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error("Logout error:", err);
+        return res.status(500).json({ message: "Failed to logout" });
+      }
+      res.status(200).json({ message: "Logged out successfully" });
+    });
+  });
+
+  // Get current user endpoint
+  app.get("/api/user", (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    res.json(req.user);
+  });
+
   // Change password endpoint
-  app.post("/api/change-password", async (req, res) => {
+  app.post("/api/change-password", (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
     const { currentPassword, newPassword } = req.body;
+    const user = users.find(u => u.username === req.user.username);
     
-    // Verify current password
-    const isValidPassword = await comparePasswords(currentPassword, ADMIN_PASSWORD);
-    if (!isValidPassword) {
+    if (!user || user.password !== currentPassword) {
       return res.status(401).json({ message: "Current password is incorrect" });
     }
 
     // Update password
-    ADMIN_PASSWORD = await hashPassword(newPassword);
+    user.password = newPassword;
     res.status(200).json({ message: "Password updated successfully" });
   });
   
-  // Update admin settings
-  app.post("/api/admin/settings", async (req, res) => {
-    if (!req.isAuthenticated() || req.user.role !== "admin") {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const { username, email } = req.body;
-    
-    if (username) ADMIN_USERNAME = username;
-    if (email) ADMIN_EMAIL = email;
-    
-    const updatedUser = {
-      ...req.user,
-      username: ADMIN_USERNAME,
-      email: ADMIN_EMAIL
-    };
-    
-    res.status(200).json(updatedUser);
-  });
-  
-  // Forgot password - request reset
-  app.post("/api/forgot-password", async (req, res) => {
+  // Forgot password endpoint
+  app.post("/api/forgot-password", (req, res) => {
     const { email } = req.body;
+    const user = users.find(u => u.email === email);
     
-    if (email !== ADMIN_EMAIL) {
-      // For security, always return success even if email doesn't match
+    if (!user) {
+      // For security, always return the same response even if email doesn't exist
       return res.status(200).json({ 
         message: "If your email is in our system, you will receive a password reset link" 
       });
     }
     
-    // In a real app, you would generate a token and send an email
-    // For this demo, we'll just reset to a simple password
-    const tempPassword = `temp-${Math.floor(Math.random() * 10000)}`; 
-    ADMIN_PASSWORD = await hashPassword(tempPassword);
+    // Generate a temporary password
+    const tempPassword = `temp-${Math.floor(Math.random() * 10000)}`;
+    user.password = tempPassword;
     
-    // Log the temp password for demo purposes
-    console.log(`SYSTEM: Temporary password for admin: ${tempPassword}`);
+    console.log(`SYSTEM: Temporary password for ${user.username}: ${tempPassword}`);
     
     res.status(200).json({ 
       message: "If your email is in our system, you will receive a password reset link",
@@ -224,17 +176,5 @@ export async function setupAuth(app: Express) {
       // This is only for demonstration purposes
       tempPassword: tempPassword
     });
-  });
-
-  app.post("/api/logout", (req, res, next) => {
-    req.logout((err) => {
-      if (err) return next(err);
-      res.sendStatus(200);
-    });
-  });
-
-  app.get("/api/user", (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    res.json(req.user);
   });
 }

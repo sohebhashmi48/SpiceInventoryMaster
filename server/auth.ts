@@ -62,6 +62,7 @@ export async function setupAuth(app: Express) {
             id: user.id,
             username: user.username,
             fullName: user.fullName,
+            email: user.email,
             role: user.role
           };
           return done(null, userToAuth);
@@ -76,7 +77,15 @@ export async function setupAuth(app: Express) {
   passport.deserializeUser(async (id: number, done) => {
     try {
       const user = await storage.getUser(id);
-      done(null, user);
+      if (user) {
+        const userWithProperEmail = {
+          ...user,
+          email: user.email || undefined
+        };
+        done(null, userWithProperEmail);
+      } else {
+        done(null, null);
+      }
     } catch (error) {
       done(error);
     }

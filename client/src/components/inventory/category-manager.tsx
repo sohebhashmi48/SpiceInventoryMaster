@@ -41,7 +41,17 @@ export default function CategoryManager() {
   
   const createCategoryMutation = useMutation({
     mutationFn: async (data: CategoryFormValues) => {
-      const res = await apiRequest("POST", "/api/categories", data);
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data),
+        credentials: 'include'
+      });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
       return await res.json();
     },
     onSuccess: () => {

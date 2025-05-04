@@ -64,8 +64,23 @@ export default function AuthPage() {
     },
   });
 
-  const onLoginSubmit = (data: LoginFormValues) => {
-    loginMutation.mutate(data);
+  const onLoginSubmit = async (data: LoginFormValues) => {
+    try {
+      loginMutation.mutate(data, {
+        onSuccess: () => {
+          navigate(redirectTo);
+        },
+        onError: (error) => {
+          toast({
+            title: "Login failed",
+            description: error.message || "Please check your credentials and try again",
+            variant: "destructive"
+          });
+        }
+      });
+    } catch (error) {
+      console.error('Login error:', error);
+    }
   };
 
   const onForgotPasswordSubmit = async (data: ForgotPasswordValues) => {

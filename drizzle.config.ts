@@ -1,14 +1,14 @@
-import { defineConfig } from "drizzle-kit";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL, ensure the database is provisioned");
-}
+import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
   out: "./migrations",
   schema: "./shared/schema.ts",
-  dialect: "postgresql",
+  dialect: "mysql2",
   dbCredentials: {
-    url: process.env.DATABASE_URL,
+    host: "localhost",
+    user: "root", // Replace with your MySQL username
+    password: "", // Replace with your MySQL password
+    database: "spice_inventory"
   },
 });

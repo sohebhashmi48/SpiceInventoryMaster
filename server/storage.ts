@@ -1,3 +1,4 @@
+import mysql from 'mysql2/promise';
 import { 
   User, InsertUser, 
   Vendor, InsertVendor, 
@@ -14,6 +15,17 @@ import session from "express-session";
 import { nanoid } from "nanoid";
 
 const MemoryStore = createMemoryStore(session);
+
+// MySQL Connection Pool
+const pool = mysql.createPool({
+  host: 'localhost',
+  user: 'root', // Replace with your MySQL username
+  password: '', // Replace with your MySQL password
+  database: 'spice_inventory',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
 
 export interface IStorage {
   // User management

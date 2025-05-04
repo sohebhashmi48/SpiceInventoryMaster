@@ -11,6 +11,8 @@ import VendorsPage from "@/pages/vendors-page";
 import BillingPage from "@/pages/billing-page";
 import ReportsPage from "@/pages/reports-page";
 import SpicesPage from "@/pages/spices-page";
+import SettingsPage from "@/pages/settings-page";
+import UsersPage from "@/pages/users-page";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { AuthProvider } from "@/hooks/use-auth";
 import { store } from "@/store";
@@ -26,6 +28,8 @@ function Router() {
       <ProtectedRoute path="/vendors" component={VendorsPage} />
       <ProtectedRoute path="/billing" component={BillingPage} />
       <ProtectedRoute path="/reports" component={ReportsPage} />
+      <ProtectedRoute path="/settings" component={SettingsPage} />
+      <ProtectedRoute path="/users" component={UsersPage} />
       <Route component={NotFound} />
     </Switch>
   );

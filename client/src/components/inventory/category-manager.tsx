@@ -118,7 +118,13 @@ export default function CategoryManager() {
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Input placeholder="Enter category description" {...field} />
+                        <Input 
+                          placeholder="Enter category description" 
+                          value={field.value || ""} 
+                          onChange={field.onChange} 
+                          onBlur={field.onBlur}
+                          ref={field.ref}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

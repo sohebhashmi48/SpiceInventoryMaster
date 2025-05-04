@@ -75,11 +75,14 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
       email: "",
       phone: "",
       address: "",
+      location: "",
       paymentTerms: "Net 30",
       moneyOwed: "0",
       moneyPaid: "0",
       rating: null,
-      notes: ""
+      notes: "",
+      deliveryPersonName: "",
+      deliveryPersonContact: ""
     },
   });
 
@@ -150,19 +153,35 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
           />
         </div>
         
-        <FormField
-          control={form.control}
-          name="address"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Address</FormLabel>
-              <FormControl>
-                <Input placeholder="Full address" {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
+            name="address"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Address</FormLabel>
+                <FormControl>
+                  <Input placeholder="Full address" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          
+          <FormField
+            control={form.control}
+            name="location"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Location/Region</FormLabel>
+                <FormControl>
+                  <Input placeholder="e.g. North, Downtown, East" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <FormField
@@ -225,6 +244,36 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
                     value={field.value === null ? "" : field.value}
                     onChange={(e) => field.onChange(e.target.value === "" ? null : parseFloat(e.target.value))}
                   />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
+            name="deliveryPersonName"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Delivery Person Name</FormLabel>
+                <FormControl>
+                  <Input placeholder="Name of delivery personnel" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          
+          <FormField
+            control={form.control}
+            name="deliveryPersonContact"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Delivery Person Contact</FormLabel>
+                <FormControl>
+                  <Input placeholder="Phone number" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>

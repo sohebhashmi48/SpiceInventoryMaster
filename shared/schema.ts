@@ -25,6 +25,7 @@ export const vendors = pgTable("vendors", {
   notes: text("notes"),
   deliveryPersonName: text("delivery_person_name"),
   deliveryPersonContact: text("delivery_person_contact"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const categories = pgTable("categories", {

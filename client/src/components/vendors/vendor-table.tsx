@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Table,
   TableBody,
@@ -16,12 +16,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Vendor } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { MoreHorizontal, Edit, Trash2, Mail, Phone, DollarSign, Search, Plus, Star, StarHalf } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, Mail, Phone, DollarSign, MapPin, Plus, Star, StarHalf } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
   Dialog,
@@ -42,10 +41,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import AddVendorForm from "./add-vendor-form";
+import VendorFilters, { VendorFilters as FilterType } from "./vendor-filters";
 
 export default function VendorTable() {
   const { toast } = useToast();
-  const [searchQuery, setSearchQuery] = useState("");
+  const [filters, setFilters] = useState<FilterType>({
+    name: "",
+    location: "",
+    minAmount: null,
+    maxAmount: null,
+    dateFrom: null,
+    dateTo: null
+  });
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const [vendorToDelete, setVendorToDelete] = useState<number | null>(null);
@@ -53,6 +60,16 @@ export default function VendorTable() {
   const { data: vendors, isLoading: vendorsLoading } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
   });
+  
+  // Extract unique locations for the filter dropdown
+  const uniqueLocations = useMemo(() => {
+    if (!vendors) return [];
+    const locations = vendors
+      .map(vendor => vendor.location)
+      .filter((location): location is string => Boolean(location));
+    // Convert Set to Array to avoid iteration issues
+    return Array.from(new Set(locations));
+  }, [vendors]);
   
   const deleteVendorMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -90,18 +107,51 @@ export default function VendorTable() {
     setIsAddDialogOpen(true);
   };
   
-  const filteredVendors = vendors?.filter((vendor) => {
-    const vendorName = vendor.name.toLowerCase();
-    const contactName = vendor.contactName.toLowerCase();
-    const email = vendor.email.toLowerCase();
-    const query = searchQuery.toLowerCase();
+  const filteredVendors = useMemo(() => {
+    if (!vendors) return [];
     
-    return (
-      vendorName.includes(query) ||
-      contactName.includes(query) ||
-      email.includes(query)
-    );
-  });
+    return vendors.filter(vendor => {
+      // Filter by name (search across name, contact name, email)
+      const nameMatch = filters.name 
+        ? vendor.name.toLowerCase().includes(filters.name.toLowerCase()) ||
+          vendor.contactName.toLowerCase().includes(filters.name.toLowerCase()) ||
+          vendor.email.toLowerCase().includes(filters.name.toLowerCase())
+        : true;
+      
+      // Filter by location
+      const locationMatch = filters.location
+        ? vendor.location === filters.location
+        : true;
+      
+      // Filter by amount range (money owed)
+      const minAmountMatch = filters.minAmount !== null
+        ? Number(vendor.moneyOwed) >= filters.minAmount
+        : true;
+      
+      const maxAmountMatch = filters.maxAmount !== null
+        ? Number(vendor.moneyOwed) <= filters.maxAmount
+        : true;
+      
+      // Check if vendor was created within date range
+      // Using purchaseDate as a proxy if createdAt is not available
+      const dateMatch = (filters.dateFrom || filters.dateTo) 
+        ? (() => {
+            // Use a fallback date if neither field is available
+            const dateToUse = vendor.createdAt || (new Date()).toISOString();
+            const vendorDate = new Date(dateToUse);
+            const fromMatch = filters.dateFrom 
+              ? vendorDate >= filters.dateFrom 
+              : true;
+            const toMatch = filters.dateTo
+              ? vendorDate <= filters.dateTo
+              : true;
+            return fromMatch && toMatch;
+          })()
+        : true;
+      
+      return nameMatch && locationMatch && minAmountMatch && maxAmountMatch && dateMatch;
+    });
+  }, [vendors, filters]);
   
   const renderRating = (rating: number | null) => {
     if (!rating) return "No rating";
@@ -122,13 +172,10 @@ export default function VendorTable() {
   return (
     <div>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search vendors..."
-            className="pl-10"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+        <div className="w-full">
+          <VendorFilters 
+            locations={uniqueLocations} 
+            onFiltersChange={setFilters}
           />
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
@@ -204,6 +251,12 @@ export default function VendorTable() {
                         <Phone className="h-3 w-3 mr-1 text-muted-foreground" />
                         <span className="text-sm">{vendor.phone}</span>
                       </div>
+                      {vendor.location && (
+                        <div className="flex items-center">
+                          <MapPin className="h-3 w-3 mr-1 text-muted-foreground" />
+                          <span className="text-sm">{vendor.location}</span>
+                        </div>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>{vendor.paymentTerms}</TableCell>

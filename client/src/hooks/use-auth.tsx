@@ -41,19 +41,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify(credentials),
         credentials: 'include'
       });
-      
+
       if (!res.ok) {
-        throw new Error('Invalid username or password');
+        throw new Error('Invalid credentials');
       }
-      
-      return await res.json();
+
+      const userData = await res.json();
+      return userData;
     },
     onSuccess: (user: SelectUser) => {
       queryClient.setQueryData(["/api/user"], user);
-      toast({
-        title: "Login successful",
-        description: `Welcome, ${user.fullName}`,
-      });
+      queryClient.invalidateQueries();
     },
     onError: (error: Error) => {
       console.error('Login mutation error:', error);

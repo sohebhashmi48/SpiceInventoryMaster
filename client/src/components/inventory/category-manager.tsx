@@ -50,7 +50,8 @@ export default function CategoryManager() {
         credentials: 'include'
       });
       if (!res.ok) {
-        throw new Error(await res.text());
+        const errorText = await res.text();
+        throw new Error(errorText || 'Failed to create category');
       }
       return await res.json();
     },

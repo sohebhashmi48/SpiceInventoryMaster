@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, LayoutDashboard, PackageSearch, Store, Receipt, BarChart2, Users, Settings, HelpCircle } from 'lucide-react';
+import { Search, LayoutDashboard, PackageSearch, Store, Receipt, BarChart2, Users, Settings, HelpCircle, Leaf } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 
 interface SidebarProps {
@@ -20,6 +20,7 @@ export default function Sidebar({ isMobileOpen, closeMobileSidebar }: SidebarPro
   const navItems = [
     { name: 'Dashboard', path: '/', icon: <LayoutDashboard className="h-5 w-5" /> },
     { name: 'Inventory', path: '/inventory', icon: <PackageSearch className="h-5 w-5" /> },
+    { name: 'Spices', path: '/spices', icon: <Pepper className="h-5 w-5" /> },
     { name: 'Vendors', path: '/vendors', icon: <Store className="h-5 w-5" /> },
     { name: 'Billing', path: '/billing', icon: <Receipt className="h-5 w-5" /> },
     { name: 'Reports', path: '/reports', icon: <BarChart2 className="h-5 w-5" /> },

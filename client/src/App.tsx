@@ -10,6 +10,7 @@ import InventoryPage from "@/pages/inventory-page";
 import VendorsPage from "@/pages/vendors-page";
 import BillingPage from "@/pages/billing-page";
 import ReportsPage from "@/pages/reports-page";
+import SpicesPage from "@/pages/spices-page";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { AuthProvider } from "@/hooks/use-auth";
 import { store } from "@/store";
@@ -21,6 +22,7 @@ function Router() {
       <Route path="/auth" component={AuthPage} />
       <ProtectedRoute path="/" component={DashboardPage} />
       <ProtectedRoute path="/inventory" component={InventoryPage} />
+      <ProtectedRoute path="/spices" component={SpicesPage} />
       <ProtectedRoute path="/vendors" component={VendorsPage} />
       <ProtectedRoute path="/billing" component={BillingPage} />
       <ProtectedRoute path="/reports" component={ReportsPage} />

@@ -74,28 +74,37 @@ export async function setupAuth(app: Express) {
   const ADMIN_PASSWORD = await hashPassword("admin123"); // Change this!
 
   app.post("/api/login", async (req, res) => {
-    const { username, password } = req.body;
-    
-    if (username !== ADMIN_USERNAME) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
+    try {
+      const { username, password } = req.body;
+      
+      if (username !== ADMIN_USERNAME) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
 
-    const isValidPassword = await comparePasswords(password, ADMIN_PASSWORD);
-    if (!isValidPassword) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
+      const isValidPassword = await comparePasswords(password, ADMIN_PASSWORD);
+      if (!isValidPassword) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
 
-    const user = {
-      id: 1,
-      username: ADMIN_USERNAME,
-      fullName: "Administrator",
-      role: "admin"
-    };
+      const user = {
+        id: 1,
+        username: ADMIN_USERNAME,
+        fullName: "Administrator",
+        role: "admin"
+      };
 
-    req.login(user, (err) => {
-      if (err) return res.status(500).json({ message: "Login failed" });
+      await new Promise((resolve, reject) => {
+        req.login(user, (err) => {
+          if (err) reject(err);
+          else resolve(user);
+        });
+      });
+
       res.status(200).json(user);
-    });
+    } catch (error) {
+      console.error('Login error:', error);
+      res.status(500).json({ message: "Internal server error during login" });
+    }
   });
 
   // Change password endpoint

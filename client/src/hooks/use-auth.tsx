@@ -19,7 +19,8 @@ type AuthContextType = {
 
 type LoginData = Pick<InsertUser, "username" | "password">;
 
-export const AuthContext = createContext<AuthContextType | null>(null);
+export const AuthContext = createContext<AuthContextType>({} as AuthContextType);
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const {
@@ -42,22 +43,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         credentials: 'include'
       });
 
+      const data = await res.json();
+      
       if (!res.ok) {
-        throw new Error('Invalid credentials');
+        throw new Error(data.message || 'Invalid credentials');
       }
 
-      const userData = await res.json();
-      return userData;
+      return data;
     },
-    onSuccess: (user: SelectUser) => {
-      queryClient.setQueryData(["/api/user"], user);
+    onSuccess: (userData: SelectUser) => {
+      queryClient.setQueryData(["/api/user"], userData);
       queryClient.invalidateQueries();
+      toast({
+        title: "Login successful",
+        description: `Welcome back, ${userData.username}!`,
+      });
     },
     onError: (error: Error) => {
       console.error('Login mutation error:', error);
       toast({
         title: "Login failed",
-        description: error.message || "Invalid username or password",
+        description: "Invalid username or password",
         variant: "destructive",
       });
     },

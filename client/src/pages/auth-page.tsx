@@ -64,23 +64,19 @@ export default function AuthPage() {
     },
   });
 
-  const onLoginSubmit = async (data: LoginFormValues) => {
-    try {
-      loginMutation.mutate(data, {
-        onSuccess: () => {
-          navigate(redirectTo);
-        },
-        onError: (error) => {
-          toast({
-            title: "Login failed",
-            description: error.message || "Please check your credentials and try again",
-            variant: "destructive"
-          });
-        }
-      });
-    } catch (error) {
-      console.error('Login error:', error);
-    }
+  const onLoginSubmit = (data: LoginFormValues) => {
+    loginMutation.mutate(data, {
+      onSuccess: () => {
+        navigate(redirectTo);
+      },
+      onError: (error) => {
+        toast({
+          title: "Login failed",
+          description: "Invalid username or password",
+          variant: "destructive"
+        });
+      }
+    });
   };
 
   const onForgotPasswordSubmit = async (data: ForgotPasswordValues) => {

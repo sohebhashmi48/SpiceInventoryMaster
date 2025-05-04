@@ -30,7 +30,7 @@ import { Loader2 } from "lucide-react";
 // Add more validation to the insert schema
 const spiceFormSchema = insertSpiceSchema.extend({
   price: z.coerce.number().min(0.01, "Price must be greater than 0"),
-  reorderPoint: z.coerce.number().int().min(1, "Reorder point must be at least 1"),
+  stocksQty: z.coerce.number().int().min(0, "Stock quantity cannot be negative"),
 });
 
 type SpiceFormValues = z.infer<typeof spiceFormSchema>;
@@ -78,7 +78,7 @@ export default function AddSpiceForm({ onSuccess }: AddSpiceFormProps) {
       price: 0,
       unit: "kg",
       origin: "",
-      reorderPoint: 5,
+      stocksQty: 0,
       isActive: true,
     },
   });
@@ -208,10 +208,10 @@ export default function AddSpiceForm({ onSuccess }: AddSpiceFormProps) {
           
           <FormField
             control={form.control}
-            name="reorderPoint"
+            name="stocksQty"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Reorder Point</FormLabel>
+                <FormLabel>Stock Quantity</FormLabel>
                 <FormControl>
                   <Input type="number" {...field} />
                 </FormControl>

@@ -42,7 +42,7 @@ export const spices = pgTable("spices", {
   description: text("description"),
   price: numeric("price").default("0"),
   unit: text("unit").default("kg"),
-  reorderPoint: integer("reorder_point").default(5),
+  stocksQty: integer("stocks_qty").default(0),
   isActive: boolean("is_active").notNull().default(true),
 });
 

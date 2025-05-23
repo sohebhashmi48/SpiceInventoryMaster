@@ -29,10 +29,16 @@ import { Barcode } from '@/components/common/barcode-scanner';
 
 // Extend the insertInventorySchema with additional validation
 const formSchema = insertInventorySchema.extend({
-  spiceId: z.coerce.number().min(1, "Please select a spice"),
-  vendorId: z.coerce.number().min(1, "Please select a vendor"),
+  productId: z.coerce.number().min(1, "Please select a product"),
+  supplierId: z.coerce.number().min(1, "Please select a supplier"),
   quantity: z.coerce.number().min(0.01, "Quantity must be greater than 0"),
   unitPrice: z.coerce.number().min(0.01, "Unit price must be greater than 0"),
+  // Transform the string date from the input to a Date object
+  expiryDate: z.string()
+    .refine(val => !isNaN(Date.parse(val)), {
+      message: "Please enter a valid date"
+    })
+    .transform(val => new Date(val)),
 });
 
 type InventoryFormValues = z.infer<typeof formSchema>;
@@ -45,26 +51,36 @@ interface AddInventoryFormProps {
 export default function AddInventoryForm({ onSuccess, existingItem }: AddInventoryFormProps) {
   const { toast } = useToast();
   const [scanningBarcode, setScanningBarcode] = useState(false);
-  
+
   const { data: spices, isLoading: spicesLoading } = useQuery<Spice[]>({
-    queryKey: ["/api/spices"],
+    queryKey: ["/api/products"],
   });
-  
+
   const { data: vendors, isLoading: vendorsLoading } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
   });
-  
+
   const createInventoryMutation = useMutation({
     mutationFn: async (data: InventoryFormValues) => {
       // Calculate total value from quantity and unit price
       const totalValue = (Number(data.quantity) * Number(data.unitPrice)).toString();
-      const payload = { ...data, totalValue };
-      
+
+      // Format the date as YYYY-MM-DD for the API
+      const formattedData = {
+        ...data,
+        totalValue,
+        // Convert Date objects to ISO strings for the API
+        expiryDate: data.expiryDate instanceof Date ? data.expiryDate.toISOString() : data.expiryDate,
+        purchaseDate: data.purchaseDate instanceof Date ? data.purchaseDate.toISOString() : data.purchaseDate
+      };
+
+      console.log("Submitting data:", formattedData);
+
       if (existingItem) {
-        await apiRequest("PATCH", `/api/inventory/${existingItem.id}`, payload);
+        await apiRequest("PATCH", `/api/inventory/${existingItem.id}`, formattedData);
         return existingItem.id;
       } else {
-        const res = await apiRequest("POST", "/api/inventory", payload);
+        const res = await apiRequest("POST", "/api/inventory", formattedData);
         const newItem = await res.json();
         return newItem.id;
       }
@@ -85,28 +101,39 @@ export default function AddInventoryForm({ onSuccess, existingItem }: AddInvento
       });
     },
   });
-  
+
   // Initialize the form with default values or existing item data
   const form = useForm<InventoryFormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: existingItem ? {
-      ...existingItem,
-      expiryDate: new Date(existingItem.expiryDate).toISOString().split('T')[0], // Format date for input
+      productId: existingItem.productId,
+      supplierId: existingItem.supplierId,
+      batchNumber: existingItem.batchNumber,
+      quantity: Number(existingItem.quantity),
+      unitPrice: Number(existingItem.unitPrice),
+      totalValue: existingItem.totalValue,
+      // Keep the date as a Date object for the form
+      expiryDate: new Date(existingItem.expiryDate),
+      barcode: existingItem.barcode || "",
+      notes: existingItem.notes || "",
+      status: existingItem.status,
+      purchaseDate: existingItem.purchaseDate ? new Date(existingItem.purchaseDate) : undefined
     } : {
-      spiceId: 0,
-      vendorId: 0,
+      productId: 0,
+      supplierId: 0,
       batchNumber: "",
       quantity: 0,
       unitPrice: 0,
       totalValue: "0",
-      expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days from now
+      // Create a Date object for 30 days from now
+      expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       barcode: "",
       notes: "",
       status: "active",
-      purchaseDate: new Date().toISOString()
+      purchaseDate: new Date()
     },
   });
-  
+
   // Handle barcode scanning
   const handleBarcodeScanned = (barcode: string) => {
     form.setValue("barcode", barcode);
@@ -116,12 +143,12 @@ export default function AddInventoryForm({ onSuccess, existingItem }: AddInvento
       description: `Barcode ${barcode} has been captured`,
     });
   };
-  
+
   // Update total value when quantity or unit price changes
   useEffect(() => {
     const quantity = form.watch("quantity");
     const unitPrice = form.watch("unitPrice");
-    
+
     if (quantity && unitPrice) {
       const totalValue = (Number(quantity) * Number(unitPrice)).toFixed(2);
       form.setValue("totalValue", totalValue);
@@ -138,18 +165,18 @@ export default function AddInventoryForm({ onSuccess, existingItem }: AddInvento
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField
             control={form.control}
-            name="spiceId"
+            name="productId"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Spice</FormLabel>
-                <Select 
+                <FormLabel>Product</FormLabel>
+                <Select
                   disabled={spicesLoading}
-                  onValueChange={field.onChange} 
+                  onValueChange={field.onChange}
                   value={field.value.toString()}
                 >
                   <FormControl>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select spice" />
+                      <SelectValue placeholder="Select product" />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
@@ -164,21 +191,21 @@ export default function AddInventoryForm({ onSuccess, existingItem }: AddInvento
               </FormItem>
             )}
           />
-          
+
           <FormField
             control={form.control}
-            name="vendorId"
+            name="supplierId"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Vendor</FormLabel>
-                <Select 
+                <FormLabel>Supplier</FormLabel>
+                <Select
                   disabled={vendorsLoading}
-                  onValueChange={field.onChange} 
+                  onValueChange={field.onChange}
                   value={field.value.toString()}
                 >
                   <FormControl>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select vendor" />
+                      <SelectValue placeholder="Select supplier" />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
@@ -194,7 +221,7 @@ export default function AddInventoryForm({ onSuccess, existingItem }: AddInvento
             )}
           />
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField
             control={form.control}
@@ -209,37 +236,53 @@ export default function AddInventoryForm({ onSuccess, existingItem }: AddInvento
               </FormItem>
             )}
           />
-          
+
           <FormField
             control={form.control}
             name="expiryDate"
-            render={({ field }) => (
+            render={({ field: { onChange, value, ...rest } }) => (
               <FormItem>
                 <FormLabel>Expiry Date</FormLabel>
                 <FormControl>
-                  <Input type="date" {...field} />
+                  <Input
+                    type="date"
+                    value={value instanceof Date ? value.toISOString().split('T')[0] : value}
+                    onChange={(e) => {
+                      // Ensure date is in YYYY-MM-DD format without timezone info
+                      const dateValue = e.target.value;
+                      onChange(dateValue);
+                    }}
+                    {...rest}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <FormField
             control={form.control}
             name="quantity"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Quantity (kg)</FormLabel>
-                <FormControl>
-                  <Input type="number" step="0.01" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
+            render={({ field }) => {
+              // Get the selected product to show its unit
+              const productId = form.watch("productId");
+              const selectedProduct = spices?.find(s => s.id === productId);
+              const unit = selectedProduct?.unit || "kg";
+
+              return (
+                <FormItem>
+                  <FormLabel>Quantity ({unit})</FormLabel>
+                  <FormControl>
+                    <Input type="number" step="0.01" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              );
+            }}
           />
-          
+
           <FormField
             control={form.control}
             name="unitPrice"
@@ -253,7 +296,7 @@ export default function AddInventoryForm({ onSuccess, existingItem }: AddInvento
               </FormItem>
             )}
           />
-          
+
           <FormField
             control={form.control}
             name="totalValue"
@@ -268,18 +311,23 @@ export default function AddInventoryForm({ onSuccess, existingItem }: AddInvento
             )}
           />
         </div>
-        
+
         <FormField
           control={form.control}
           name="barcode"
-          render={({ field }) => (
+          render={({ field: { value, onChange, ...rest } }) => (
             <FormItem>
               <FormLabel>Barcode</FormLabel>
               <div className="flex gap-2">
                 <FormControl>
-                  <Input placeholder="Enter or scan barcode" {...field} />
+                  <Input
+                    placeholder="Enter or scan barcode"
+                    value={value || ""}
+                    onChange={onChange}
+                    {...rest}
+                  />
                 </FormControl>
-                <Button 
+                <Button
                   type="button"
                   variant="outline"
                   onClick={() => setScanningBarcode(!scanningBarcode)}
@@ -296,29 +344,34 @@ export default function AddInventoryForm({ onSuccess, existingItem }: AddInvento
             </FormItem>
           )}
         />
-        
+
         <FormField
           control={form.control}
           name="notes"
-          render={({ field }) => (
+          render={({ field: { value, onChange, ...rest } }) => (
             <FormItem>
               <FormLabel>Notes</FormLabel>
               <FormControl>
-                <Input placeholder="Optional notes about this item" {...field} />
+                <Input
+                  placeholder="Optional notes about this item"
+                  value={value || ""}
+                  onChange={onChange}
+                  {...rest}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
           )}
         />
-        
+
         <Separator />
-        
+
         <div className="flex justify-end space-x-2">
           <Button variant="outline" type="button" onClick={onSuccess}>
             Cancel
           </Button>
-          <Button 
-            type="submit" 
+          <Button
+            type="submit"
             disabled={createInventoryMutation.isPending}
             className="bg-secondary hover:bg-secondary-dark text-white"
           >

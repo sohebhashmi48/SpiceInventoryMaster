@@ -16,14 +16,14 @@ import {
   CommandInput,
   CommandItem,
 } from "@/components/ui/command";
-import { 
-  Search, 
-  Calendar as CalendarIcon, 
-  X, 
-  Filter, 
+import {
+  Search,
+  Calendar as CalendarIcon,
+  X,
+  Filter,
   MapPin,
   DollarSign,
-  ChevronDown 
+  ChevronDown
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
@@ -51,9 +51,9 @@ interface VendorFiltersProps {
   onFiltersChange: (filters: VendorFilters) => void;
 }
 
-export default function VendorFilters({ 
-  locations, 
-  onFiltersChange 
+export default function VendorFilters({
+  locations,
+  onFiltersChange
 }: VendorFiltersProps) {
   const [filters, setFilters] = useState<VendorFilters>(defaultFilters);
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
@@ -77,8 +77,8 @@ export default function VendorFilters({
   };
 
   const handleAmountChangeCommitted = () => {
-    const newFilters = { 
-      ...filters, 
+    const newFilters = {
+      ...filters,
       minAmount: amountRange[0] > 0 ? amountRange[0] : null,
       maxAmount: amountRange[1] < 1000 ? amountRange[1] : null
     };
@@ -124,7 +124,7 @@ export default function VendorFilters({
             onChange={(e) => handleNameChange(e.target.value)}
           />
         </div>
-        
+
         <Popover open={isFiltersOpen} onOpenChange={setIsFiltersOpen}>
           <PopoverTrigger asChild>
             <Button variant="outline" className="relative">
@@ -140,9 +140,9 @@ export default function VendorFilters({
           <PopoverContent className="w-80 p-4" align="end">
             <div className="space-y-4">
               <h4 className="font-medium">Filter Vendors</h4>
-              
+
               <div className="space-y-2">
-                <Label htmlFor="location">Location</Label>
+                <Label htmlFor="location">Address</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -150,14 +150,14 @@ export default function VendorFilters({
                       role="combobox"
                       className="w-full justify-between"
                     >
-                      {filters.location || "Select location"}
+                      {filters.location || "Select address"}
                       <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-full p-0">
                     <Command>
-                      <CommandInput placeholder="Search location..." />
-                      <CommandEmpty>No location found.</CommandEmpty>
+                      <CommandInput placeholder="Search address..." />
+                      <CommandEmpty>No address found.</CommandEmpty>
                       <CommandGroup>
                         {locations.map((location) => (
                           <CommandItem
@@ -174,7 +174,7 @@ export default function VendorFilters({
                   </PopoverContent>
                 </Popover>
               </div>
-              
+
               <div className="space-y-2">
                 <div className="flex justify-between">
                   <Label>Amount Range</Label>
@@ -194,7 +194,7 @@ export default function VendorFilters({
                   className="py-4"
                 />
               </div>
-              
+
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-2">
                   <Label>Date From</Label>
@@ -225,7 +225,7 @@ export default function VendorFilters({
                     </PopoverContent>
                   </Popover>
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label>Date To</Label>
                   <Popover>
@@ -256,7 +256,7 @@ export default function VendorFilters({
                   </Popover>
                 </div>
               </div>
-              
+
               <div className="flex justify-between pt-2">
                 <Button
                   variant="ghost"
@@ -275,7 +275,7 @@ export default function VendorFilters({
           </PopoverContent>
         </Popover>
       </div>
-      
+
       {/* Active Filters Pills */}
       {activeFilterCount > 0 && (
         <div className="flex flex-wrap gap-2">
@@ -288,7 +288,7 @@ export default function VendorFilters({
               </button>
             </div>
           )}
-          
+
           {(filters.minAmount !== null || filters.maxAmount !== null) && (
             <div className="flex items-center bg-muted rounded-full px-3 py-1 text-sm">
               <DollarSign className="h-3 w-3 mr-1" />
@@ -299,20 +299,20 @@ export default function VendorFilters({
                   ? `Min: $${filters.minAmount}`
                   : `Max: $${filters.maxAmount}`}
               </span>
-              <button 
+              <button
                 onClick={() => {
                   const newFilters = { ...filters, minAmount: null, maxAmount: null };
                   setFilters(newFilters);
                   setAmountRange([0, 1000]);
                   onFiltersChange(newFilters);
-                }} 
+                }}
                 className="ml-1 text-muted-foreground hover:text-foreground"
               >
                 <X className="h-3 w-3" />
               </button>
             </div>
           )}
-          
+
           {(filters.dateFrom !== null || filters.dateTo !== null) && (
             <div className="flex items-center bg-muted rounded-full px-3 py-1 text-sm">
               <CalendarIcon className="h-3 w-3 mr-1" />
@@ -323,21 +323,21 @@ export default function VendorFilters({
                   ? `From: ${format(filters.dateFrom, "PP")}`
                   : `To: ${format(filters.dateTo!, "PP")}`}
               </span>
-              <button 
+              <button
                 onClick={() => {
                   const newFilters = { ...filters, dateFrom: null, dateTo: null };
                   setFilters(newFilters);
                   onFiltersChange(newFilters);
-                }} 
+                }}
                 className="ml-1 text-muted-foreground hover:text-foreground"
               >
                 <X className="h-3 w-3" />
               </button>
             </div>
           )}
-          
+
           {activeFilterCount > 0 && (
-            <button 
+            <button
               onClick={handleClearFilters}
               className="flex items-center text-sm text-primary hover:text-primary/80"
             >

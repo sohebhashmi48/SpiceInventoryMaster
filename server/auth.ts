@@ -1,4 +1,4 @@
-import { Express, Request, Response } from "express";
+import { Express, Request, Response, NextFunction } from "express";
 import session from "express-session";
 import { storage } from "./storage";
 
@@ -24,18 +24,26 @@ declare global {
     interface User extends AuthUser {}
     interface Request {
       isAuthenticated: () => boolean;
+      user?: AuthUser;
     }
   }
 }
 
-// Create a hard-coded set of users for login
+// Middleware to check if user is authenticated
+export function isAuthenticated(req: Request, res: Response, next: NextFunction) {
+  if (req.isAuthenticated && req.isAuthenticated()) {
+    return next();
+  }
+  res.status(401).json({ message: "Unauthorized" });
+}
+
 const users = [
   {
     id: 9999,
     username: "admin",
     password: "admin123",
     fullName: "Administrator",
-    email: "admin@example.com",
+    email: "sohebhashmidsa@gmail.com",
     role: "admin"
   },
   {
@@ -83,14 +91,20 @@ export async function setupAuth(app: Express) {
     try {
       const { username, password } = req.body;
       console.log(`Login attempt - username: ${username}`);
-      
+
+      if (!username || !password) {
+        console.log('Login failed: Missing username or password');
+        return res.status(400).json({ message: "Username and password are required" });
+      }
+
       // Find user by username
       const user = users.find(u => u.username === username);
-      
+      console.log(`User found: ${!!user}`);
+
       // Verify password
       if (user && user.password === password) {
         console.log(`Authentication successful for user: ${username}`);
-        
+
         // Create a sanitized user object without password
         const sanitizedUser: AuthUser = {
           id: user.id,
@@ -99,15 +113,16 @@ export async function setupAuth(app: Express) {
           email: user.email,
           role: user.role
         };
-        
+
         // Store user in session
         req.session.user = sanitizedUser;
-        
+        console.log('User stored in session:', sanitizedUser);
+
         return res.status(200).json(sanitizedUser);
       }
-      
+
       // Authentication failed
-      console.log('Authentication failed');
+      console.log('Authentication failed: Invalid credentials');
       return res.status(401).json({ message: "Invalid username or password" });
     } catch (error) {
       console.error('Login error:', error);
@@ -131,6 +146,9 @@ export async function setupAuth(app: Express) {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Not authenticated" });
     }
+    if (!req.user) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
     res.json(req.user);
   });
 
@@ -141,8 +159,11 @@ export async function setupAuth(app: Express) {
     }
 
     const { currentPassword, newPassword } = req.body;
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
     const user = users.find(u => u.username === req.user.username);
-    
+
     if (!user || user.password !== currentPassword) {
       return res.status(401).json({ message: "Current password is incorrect" });
     }
@@ -151,26 +172,26 @@ export async function setupAuth(app: Express) {
     user.password = newPassword;
     res.status(200).json({ message: "Password updated successfully" });
   });
-  
+
   // Forgot password endpoint
   app.post("/api/forgot-password", (req, res) => {
     const { email } = req.body;
     const user = users.find(u => u.email === email);
-    
+
     if (!user) {
       // For security, always return the same response even if email doesn't exist
-      return res.status(200).json({ 
-        message: "If your email is in our system, you will receive a password reset link" 
+      return res.status(200).json({
+        message: "If your email is in our system, you will receive a password reset link"
       });
     }
-    
+
     // Generate a temporary password
     const tempPassword = `temp-${Math.floor(Math.random() * 10000)}`;
     user.password = tempPassword;
-    
+
     console.log(`SYSTEM: Temporary password for ${user.username}: ${tempPassword}`);
-    
-    res.status(200).json({ 
+
+    res.status(200).json({
       message: "If your email is in our system, you will receive a password reset link",
       // IMPORTANT: In production, NEVER return the actual password in the response!
       // This is only for demonstration purposes

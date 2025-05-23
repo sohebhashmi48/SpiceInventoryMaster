@@ -5,9 +5,9 @@ import { z } from "zod";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { 
-  Spice, 
-  Vendor, 
+import {
+  Spice,
+  Vendor,
   insertInvoiceSchema,
   insertInvoiceItemSchema
 } from "@shared/schema";
@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2, Trash2, Plus } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
-import { 
+import {
   Table,
   TableBody,
   TableCell,
@@ -67,15 +67,15 @@ interface CreateInvoiceFormProps {
 
 export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps) {
   const { toast } = useToast();
-  
+
   const { data: vendors, isLoading: vendorsLoading } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
   });
-  
+
   const { data: spices, isLoading: spicesLoading } = useQuery<Spice[]>({
-    queryKey: ["/api/spices"],
+    queryKey: ["/api/products"],
   });
-  
+
   const createInvoiceMutation = useMutation({
     mutationFn: async (data: InvoiceFormValues) => {
       const res = await apiRequest("POST", "/api/invoices", data);
@@ -97,14 +97,14 @@ export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps)
       });
     },
   });
-  
+
   // Get today's date in YYYY-MM-DD format
   const today = new Date().toISOString().split('T')[0];
   // Get date 30 days from now for default due date
   const defaultDueDate = new Date();
   defaultDueDate.setDate(defaultDueDate.getDate() + 30);
   const dueDate = defaultDueDate.toISOString().split('T')[0];
-  
+
   // Generate a unique invoice number
   const generateInvoiceNumber = () => {
     const prefix = "INV";
@@ -112,7 +112,7 @@ export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps)
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
     return `${prefix}-${timestamp}${random}`;
   };
-  
+
   // Initialize the form with default values
   const form = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceFormSchema),
@@ -134,31 +134,31 @@ export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps)
       ],
     },
   });
-  
+
   // Use field array for dynamic item inputs
   const { fields, append, remove } = useFieldArray({
     control: form.control,
     name: "items",
   });
-  
+
   // Calculate totals when items change
   useEffect(() => {
     const values = form.getValues();
-    
+
     // Calculate total for each item
     values.items.forEach((item, index) => {
       const total = (Number(item.quantity) * Number(item.unitPrice)).toFixed(2);
       form.setValue(`items.${index}.total`, total);
     });
-    
+
     // Calculate invoice total
     const invoiceTotal = values.items.reduce((sum, item) => {
       return sum + (Number(item.quantity) * Number(item.unitPrice));
     }, 0).toFixed(2);
-    
+
     form.setValue("totalAmount", invoiceTotal);
   }, [form.watch("items")]);
-  
+
   // Add new item row
   const addItem = () => {
     append({
@@ -190,16 +190,16 @@ export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps)
               </FormItem>
             )}
           />
-          
+
           <FormField
             control={form.control}
             name="vendorId"
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Vendor</FormLabel>
-                <Select 
+                <Select
                   disabled={vendorsLoading}
-                  onValueChange={field.onChange} 
+                  onValueChange={field.onChange}
                   value={field.value.toString()}
                 >
                   <FormControl>
@@ -219,7 +219,7 @@ export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps)
               </FormItem>
             )}
           />
-          
+
           <FormField
             control={form.control}
             name="status"
@@ -244,7 +244,7 @@ export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps)
             )}
           />
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField
             control={form.control}
@@ -259,7 +259,7 @@ export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps)
               </FormItem>
             )}
           />
-          
+
           <FormField
             control={form.control}
             name="dueDate"
@@ -274,20 +274,20 @@ export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps)
             )}
           />
         </div>
-        
+
         <div>
           <div className="flex justify-between items-center mb-2">
             <h3 className="text-lg font-medium">Invoice Items</h3>
-            <Button 
-              type="button" 
-              variant="outline" 
-              size="sm" 
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
               onClick={addItem}
             >
               <Plus className="h-4 w-4 mr-1" /> Add Item
             </Button>
           </div>
-          
+
           <div className="border rounded-md">
             <Table>
               <TableHeader>
@@ -315,9 +315,9 @@ export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps)
                           name={`items.${index}.spiceId`}
                           render={({ field }) => (
                             <FormItem>
-                              <Select 
+                              <Select
                                 disabled={spicesLoading}
-                                onValueChange={field.onChange} 
+                                onValueChange={field.onChange}
                                 value={field.value.toString()}
                               >
                                 <FormControl>
@@ -345,11 +345,11 @@ export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps)
                           render={({ field }) => (
                             <FormItem>
                               <FormControl>
-                                <Input 
-                                  type="number" 
+                                <Input
+                                  type="number"
                                   step="0.01"
                                   className="text-right"
-                                  {...field} 
+                                  {...field}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -364,11 +364,11 @@ export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps)
                           render={({ field }) => (
                             <FormItem>
                               <FormControl>
-                                <Input 
-                                  type="number" 
+                                <Input
+                                  type="number"
                                   step="0.01"
                                   className="text-right"
-                                  {...field} 
+                                  {...field}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -403,7 +403,7 @@ export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps)
             </Table>
           </div>
         </div>
-        
+
         <div className="flex justify-between items-start">
           <FormField
             control={form.control}
@@ -412,31 +412,31 @@ export default function CreateInvoiceForm({ onSuccess }: CreateInvoiceFormProps)
               <FormItem className="w-2/3">
                 <FormLabel>Notes</FormLabel>
                 <FormControl>
-                  <Textarea 
+                  <Textarea
                     placeholder="Additional notes for this invoice"
                     className="h-24"
-                    {...field} 
+                    {...field}
                   />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
-          
+
           <div className="text-right space-y-1 p-4">
             <p className="text-sm text-muted-foreground">Total Amount</p>
             <p className="text-2xl font-bold">${form.watch("totalAmount")}</p>
           </div>
         </div>
-        
+
         <Separator />
-        
+
         <div className="flex justify-end space-x-2">
           <Button variant="outline" type="button" onClick={onSuccess}>
             Cancel
           </Button>
-          <Button 
-            type="submit" 
+          <Button
+            type="submit"
             disabled={createInvoiceMutation.isPending}
             className="bg-secondary hover:bg-secondary-dark text-white"
           >

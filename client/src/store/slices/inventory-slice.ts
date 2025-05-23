@@ -40,8 +40,8 @@ export const fetchSpices = createAsyncThunk(
   'inventory/fetchSpices',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await fetch('/api/spices');
-      if (!response.ok) throw new Error('Failed to fetch spices');
+      const response = await fetch('/api/products');
+      if (!response.ok) throw new Error('Failed to fetch products');
       return await response.json();
     } catch (error) {
       return rejectWithValue((error as Error).message);
@@ -147,32 +147,32 @@ const inventorySlice = createSlice({
         state.loading = false;
         state.error = action.payload as string;
       })
-      
+
       // Fetch spices
       .addCase(fetchSpices.fulfilled, (state, action: PayloadAction<Spice[]>) => {
         state.spices = action.payload;
       })
-      
+
       // Fetch categories
       .addCase(fetchCategories.fulfilled, (state, action: PayloadAction<Category[]>) => {
         state.categories = action.payload;
       })
-      
+
       // Fetch low stock items
       .addCase(fetchLowStockItems.fulfilled, (state, action: PayloadAction<Inventory[]>) => {
         state.lowStockItems = action.payload;
       })
-      
+
       // Fetch expiring items
       .addCase(fetchExpiringItems.fulfilled, (state, action: PayloadAction<Inventory[]>) => {
         state.expiringItems = action.payload;
       })
-      
+
       // Add inventory item
       .addCase(addInventoryItem.fulfilled, (state, action: PayloadAction<Inventory>) => {
         state.inventory.push(action.payload);
       })
-      
+
       // Update inventory item
       .addCase(updateInventoryItem.fulfilled, (state, action: PayloadAction<Inventory>) => {
         const index = state.inventory.findIndex(item => item.id === action.payload.id);
@@ -180,7 +180,7 @@ const inventorySlice = createSlice({
           state.inventory[index] = action.payload;
         }
       })
-      
+
       // Delete inventory item
       .addCase(deleteInventoryItem.fulfilled, (state, action: PayloadAction<number>) => {
         state.inventory = state.inventory.filter(item => item.id !== action.payload);

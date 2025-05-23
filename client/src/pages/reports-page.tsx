@@ -3,22 +3,22 @@ import Layout from "@/components/layout/layout";
 import PageHeader from "@/components/common/page-header";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
-  BarChart2, 
-  TrendingUp, 
-  PieChart, 
-  Package, 
-  Store, 
-  FileText, 
-  Download, 
+import {
+  BarChart2,
+  TrendingUp,
+  PieChart,
+  Package,
+  Store,
+  FileText,
+  Download,
   Calendar
 } from "lucide-react";
-import { 
-  Card, 
-  CardContent, 
-  CardDescription, 
-  CardHeader, 
-  CardTitle 
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
 } from "@/components/ui/card";
 import {
   ResponsiveContainer,
@@ -35,7 +35,7 @@ import {
   Pie,
   Cell
 } from "recharts";
-import { 
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -98,43 +98,43 @@ const COLORS = [
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState("overview");
   const [timeRange, setTimeRange] = useState("year");
-  
+
   const { data: inventory } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory"],
   });
-  
+
   const { data: spices } = useQuery<Spice[]>({
-    queryKey: ["/api/spices"],
+    queryKey: ["/api/products"],
   });
-  
+
   const { data: vendors } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
   });
-  
+
   const getSpiceName = (spiceId: number) => {
     const spice = spices?.find((s) => s.id === spiceId);
     return spice ? spice.name : "Unknown";
   };
-  
+
   const getVendorName = (vendorId: number) => {
     const vendor = vendors?.find((v) => v.id === vendorId);
     return vendor ? vendor.name : "Unknown";
   };
-  
+
   // Get expiring items for inventory health report
   const getExpiringItems = () => {
     if (!inventory) return [];
-    
+
     const now = new Date();
     const thirtyDaysFromNow = new Date();
     thirtyDaysFromNow.setDate(now.getDate() + 30);
-    
+
     return inventory.filter(item => {
       const expiryDate = new Date(item.expiryDate);
       return expiryDate <= thirtyDaysFromNow && expiryDate >= now;
     });
   };
-  
+
   return (
     <Layout>
       <PageHeader
@@ -150,7 +150,7 @@ export default function ReportsPage() {
           Export
         </Button>
       </PageHeader>
-      
+
       <div className="mb-6">
         <Select
           value={timeRange}
@@ -166,7 +166,7 @@ export default function ReportsPage() {
           </SelectContent>
         </Select>
       </div>
-      
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
         <TabsList className="grid grid-cols-4 md:w-[600px]">
           <TabsTrigger value="overview" className="flex items-center">
@@ -186,7 +186,7 @@ export default function ReportsPage() {
             Financial
           </TabsTrigger>
         </TabsList>
-        
+
         {/* Overview Report */}
         <TabsContent value="overview" className="mt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -199,25 +199,25 @@ export default function ReportsPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={inventoryTrendData}>
                     <XAxis dataKey="month" />
-                    <YAxis 
+                    <YAxis
                       tickFormatter={(value) => `$${value / 1000}k`}
                     />
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <Tooltip 
+                    <Tooltip
                       formatter={(value) => [`$${value}`, 'Value']}
                     />
-                    <Line 
-                      type="monotone" 
-                      dataKey="value" 
-                      stroke="hsl(var(--primary))" 
-                      strokeWidth={2} 
+                    <Line
+                      type="monotone"
+                      dataKey="value"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={2}
                       dot={{ fill: "hsl(var(--primary))" }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardHeader>
                 <CardTitle>Spice Categories</CardTitle>
@@ -245,7 +245,7 @@ export default function ReportsPage() {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardHeader>
                 <CardTitle>Top Selling Spices</CardTitle>
@@ -258,16 +258,16 @@ export default function ReportsPage() {
                     <YAxis dataKey="name" type="category" width={100} />
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                     <Tooltip formatter={(value) => [`${value}%`, 'Percentage']} />
-                    <Bar 
-                      dataKey="value" 
-                      fill="hsl(var(--secondary))" 
+                    <Bar
+                      dataKey="value"
+                      fill="hsl(var(--secondary))"
                       radius={[0, 4, 4, 0]}
                     />
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardHeader>
                 <CardTitle>Key Metrics</CardTitle>
@@ -285,7 +285,7 @@ export default function ReportsPage() {
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">85% of target</p>
                   </div>
-                  
+
                   <div>
                     <div className="flex justify-between items-center mb-2">
                       <h4 className="text-sm font-medium">Inventory Turnover</h4>
@@ -296,7 +296,7 @@ export default function ReportsPage() {
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">70% of target</p>
                   </div>
-                  
+
                   <div>
                     <div className="flex justify-between items-center mb-2">
                       <h4 className="text-sm font-medium">Active Vendors</h4>
@@ -307,7 +307,7 @@ export default function ReportsPage() {
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">90% of target</p>
                   </div>
-                  
+
                   <div>
                     <div className="flex justify-between items-center mb-2">
                       <h4 className="text-sm font-medium">Profit Margin</h4>
@@ -323,7 +323,7 @@ export default function ReportsPage() {
             </Card>
           </div>
         </TabsContent>
-        
+
         {/* Inventory Report */}
         <TabsContent value="inventory" className="mt-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -368,7 +368,7 @@ export default function ReportsPage() {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardHeader>
                 <CardTitle>Inventory Value by Category</CardTitle>
@@ -398,7 +398,7 @@ export default function ReportsPage() {
               </CardContent>
             </Card>
           </div>
-          
+
           <Card>
             <CardHeader>
               <CardTitle>Inventory Movement</CardTitle>
@@ -406,7 +406,7 @@ export default function ReportsPage() {
             </CardHeader>
             <CardContent className="h-96">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart 
+                <BarChart
                   data={inventoryTrendData}
                   margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
                 >
@@ -422,7 +422,7 @@ export default function ReportsPage() {
             </CardContent>
           </Card>
         </TabsContent>
-        
+
         {/* Vendors Report */}
         <TabsContent value="vendors" className="mt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -453,7 +453,7 @@ export default function ReportsPage() {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardHeader>
                 <CardTitle>Payment Status</CardTitle>
@@ -482,7 +482,7 @@ export default function ReportsPage() {
               </CardContent>
             </Card>
           </div>
-          
+
           <Card>
             <CardHeader>
               <CardTitle>Vendor Order Distribution</CardTitle>
@@ -490,16 +490,16 @@ export default function ReportsPage() {
             </CardHeader>
             <CardContent className="h-96">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart 
+                <BarChart
                   data={vendors?.slice(0, 10).map(vendor => ({
                     name: vendor.name,
                     value: Number(vendor.moneyPaid) + Number(vendor.moneyOwed)
-                  }))} 
+                  }))}
                   margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis 
-                    dataKey="name" 
+                  <XAxis
+                    dataKey="name"
                     interval={0}
                     angle={-45}
                     textAnchor="end"
@@ -507,9 +507,9 @@ export default function ReportsPage() {
                   />
                   <YAxis />
                   <Tooltip formatter={(value) => [`$${value}`, 'Order Volume']} />
-                  <Bar 
-                    dataKey="value" 
-                    fill="hsl(var(--primary))" 
+                  <Bar
+                    dataKey="value"
+                    fill="hsl(var(--primary))"
                     name="Order Volume"
                     radius={[4, 4, 0, 0]}
                   />
@@ -518,7 +518,7 @@ export default function ReportsPage() {
             </CardContent>
           </Card>
         </TabsContent>
-        
+
         {/* Financial Report */}
         <TabsContent value="financial" className="mt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -531,28 +531,28 @@ export default function ReportsPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={inventoryTrendData}>
                     <XAxis dataKey="month" />
-                    <YAxis 
+                    <YAxis
                       tickFormatter={(value) => `$${value / 1000}k`}
                     />
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <Tooltip 
+                    <Tooltip
                       formatter={(value) => [`$${value}`, 'Value']}
                     />
                     <Legend />
-                    <Line 
-                      type="monotone" 
+                    <Line
+                      type="monotone"
                       name="Revenue"
-                      dataKey="value" 
-                      stroke="hsl(var(--chart-4))" 
-                      strokeWidth={2} 
+                      dataKey="value"
+                      stroke="hsl(var(--chart-4))"
+                      strokeWidth={2}
                       dot={{ fill: "hsl(var(--chart-4))" }}
                     />
-                    <Line 
-                      type="monotone" 
+                    <Line
+                      type="monotone"
                       name="Expenses"
-                      dataKey="value" 
-                      stroke="hsl(var(--chart-5))" 
-                      strokeWidth={2} 
+                      dataKey="value"
+                      stroke="hsl(var(--chart-5))"
+                      strokeWidth={2}
                       dot={{ fill: "hsl(var(--chart-5))" }}
                       activeDot={{ r: 8 }}
                     />
@@ -560,7 +560,7 @@ export default function ReportsPage() {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardHeader>
                 <CardTitle>Payment Status</CardTitle>
@@ -594,7 +594,7 @@ export default function ReportsPage() {
               </CardContent>
             </Card>
           </div>
-          
+
           <Card>
             <CardHeader>
               <CardTitle>Profit Margin Analysis</CardTitle>
@@ -602,7 +602,7 @@ export default function ReportsPage() {
             </CardHeader>
             <CardContent className="h-96">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart 
+                <BarChart
                   data={spiceCategoryData}
                   margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
                 >
@@ -610,9 +610,9 @@ export default function ReportsPage() {
                   <XAxis dataKey="name" />
                   <YAxis />
                   <Tooltip formatter={(value) => [`${value}%`, 'Profit Margin']} />
-                  <Bar 
-                    dataKey="value" 
-                    fill="hsl(var(--secondary))" 
+                  <Bar
+                    dataKey="value"
+                    fill="hsl(var(--secondary))"
                     name="Profit Margin"
                     radius={[4, 4, 0, 0]}
                   />

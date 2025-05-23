@@ -24,7 +24,7 @@ import { Invoice, Vendor } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { MoreHorizontal, Eye, FileText, Check, Search, Plus, Download } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -32,7 +32,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { 
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -47,15 +47,15 @@ export default function InvoicesTable() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
-  
+
   const { data: invoices, isLoading: invoicesLoading } = useQuery<Invoice[]>({
     queryKey: ["/api/invoices"],
   });
-  
+
   const { data: vendors } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
   });
-  
+
   const updateInvoiceStatusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: string }) => {
       await apiRequest("PATCH", `/api/invoices/${id}/status`, { status });
@@ -75,24 +75,24 @@ export default function InvoicesTable() {
       });
     },
   });
-  
+
   const getVendorName = (vendorId: number) => {
     const vendor = vendors?.find((v) => v.id === vendorId);
     return vendor ? vendor.name : "Unknown Vendor";
   };
-  
+
   const formatDate = (dateString: string | Date) => {
     return new Date(dateString).toLocaleDateString();
   };
-  
+
   const handleStatusChange = (id: number, status: string) => {
     updateInvoiceStatusMutation.mutate({ id, status });
   };
-  
+
   const handleViewInvoice = (invoice: Invoice) => {
     setViewingInvoice(invoice);
   };
-  
+
   const getStatusBadge = (status: string) => {
     switch (status.toLowerCase()) {
       case "paid":
@@ -107,18 +107,18 @@ export default function InvoicesTable() {
         return <Badge variant="outline">{status}</Badge>;
     }
   };
-  
+
   const filteredInvoices = invoices?.filter((invoice) => {
     // Apply status filter
     if (statusFilter !== "all" && invoice.status.toLowerCase() !== statusFilter.toLowerCase()) {
       return false;
     }
-    
+
     // Apply search query
     const invoiceNumber = invoice.invoiceNumber.toLowerCase();
     const vendorName = getVendorName(invoice.vendorId).toLowerCase();
     const query = searchQuery.toLowerCase();
-    
+
     return (
       invoiceNumber.includes(query) ||
       vendorName.includes(query)
@@ -173,7 +173,7 @@ export default function InvoicesTable() {
           </DialogContent>
         </Dialog>
       </div>
-      
+
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -213,7 +213,7 @@ export default function InvoicesTable() {
                   <TableCell>{getVendorName(invoice.vendorId)}</TableCell>
                   <TableCell>{formatDate(invoice.issueDate)}</TableCell>
                   <TableCell>{formatDate(invoice.dueDate)}</TableCell>
-                  <TableCell className="text-right">${Number(invoice.totalAmount).toFixed(2)}</TableCell>
+                  <TableCell className="text-right">₹{Number(invoice.totalAmount).toFixed(2)}</TableCell>
                   <TableCell>
                     {getStatusBadge(invoice.status)}
                   </TableCell>
@@ -270,7 +270,7 @@ export default function InvoicesTable() {
           </TableBody>
         </Table>
       </div>
-      
+
       {/* Invoice Details Dialog */}
       {viewingInvoice && (
         <Dialog open={viewingInvoice !== null} onOpenChange={(open) => !open && setViewingInvoice(null)}>
@@ -281,7 +281,7 @@ export default function InvoicesTable() {
                 Issued on {formatDate(viewingInvoice.issueDate)} • Due on {formatDate(viewingInvoice.dueDate)}
               </DialogDescription>
             </DialogHeader>
-            
+
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -293,7 +293,7 @@ export default function InvoicesTable() {
                   <div>{getStatusBadge(viewingInvoice.status)}</div>
                 </div>
               </div>
-              
+
               <div>
                 <h3 className="font-medium text-sm text-muted-foreground mb-2">Invoice Items</h3>
                 <div className="border rounded-md">
@@ -317,7 +317,7 @@ export default function InvoicesTable() {
                   </Table>
                 </div>
               </div>
-              
+
               <div className="flex justify-between items-center border-t pt-4">
                 <div>
                   <h3 className="font-medium text-sm text-muted-foreground">Notes</h3>
@@ -328,14 +328,14 @@ export default function InvoicesTable() {
                   <p className="text-xl font-bold">${Number(viewingInvoice.totalAmount).toFixed(2)}</p>
                 </div>
               </div>
-              
+
               <div className="flex justify-end space-x-2 mt-4">
                 <Button variant="outline">
                   <Download className="h-4 w-4 mr-2" />
                   Download PDF
                 </Button>
                 {viewingInvoice.status.toLowerCase() !== "paid" && (
-                  <Button 
+                  <Button
                     className="bg-green-600 hover:bg-green-700 text-white"
                     onClick={() => {
                       handleStatusChange(viewingInvoice.id, "paid");

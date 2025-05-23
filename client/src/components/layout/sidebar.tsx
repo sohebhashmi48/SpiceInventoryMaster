@@ -2,7 +2,11 @@ import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, LayoutDashboard, PackageSearch, Store, Receipt, BarChart2, Users, Settings, HelpCircle, Leaf } from 'lucide-react';
+import {
+  Search, LayoutDashboard, PackageSearch, Store, Receipt,
+  BarChart2, Users, Settings, HelpCircle, Leaf, FileText,
+  ChefHat, CreditCard
+} from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 
 interface SidebarProps {
@@ -14,23 +18,25 @@ export default function Sidebar({ isMobileOpen, closeMobileSidebar }: SidebarPro
   const [location] = useLocation();
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   const isActive = (path: string) => location === path;
-  
+
   const navItems = [
     { name: 'Dashboard', path: '/', icon: <LayoutDashboard className="h-5 w-5" /> },
     { name: 'Inventory', path: '/inventory', icon: <PackageSearch className="h-5 w-5" /> },
-    { name: 'Spices', path: '/spices', icon: <Leaf className="h-5 w-5" /> },
-    { name: 'Vendors', path: '/vendors', icon: <Store className="h-5 w-5" /> },
-    { name: 'Billing', path: '/billing', icon: <Receipt className="h-5 w-5" /> },
+    { name: 'Products', path: '/spices', icon: <Leaf className="h-5 w-5" /> },
+    { name: 'Suppliers', path: '/suppliers', icon: <Store className="h-5 w-5" /> },
+    { name: 'Caterers', path: '/caterers', icon: <ChefHat className="h-5 w-5" /> },
+    { name: 'Caterer Billing', path: '/distributions', icon: <CreditCard className="h-5 w-5" /> },
+    { name: 'Purchases', path: '/purchases', icon: <FileText className="h-5 w-5" /> },
     { name: 'Reports', path: '/reports', icon: <BarChart2 className="h-5 w-5" /> },
   ];
-  
+
   const managementItems = [
     { name: 'Users', path: '/users', icon: <Users className="h-5 w-5" /> },
     { name: 'Settings', path: '/settings', icon: <Settings className="h-5 w-5" /> },
   ];
-  
+
   const handleNavClick = () => {
     if (window.innerWidth < 1024) {
       closeMobileSidebar();
@@ -38,9 +44,9 @@ export default function Sidebar({ isMobileOpen, closeMobileSidebar }: SidebarPro
   };
 
   return (
-    <aside 
-      className={`bg-sidebar fixed inset-y-0 left-0 w-64 text-white flex-shrink-0 shadow-lg z-20 
-                 lg:relative lg:translate-x-0 transition-transform duration-300 
+    <aside
+      className={`bg-sidebar fixed inset-y-0 left-0 w-64 text-white flex-shrink-0 shadow-lg z-20
+                 lg:relative lg:translate-x-0 transition-transform duration-300
                  ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
     >
       <div className="h-full flex flex-col">
@@ -56,15 +62,15 @@ export default function Sidebar({ isMobileOpen, closeMobileSidebar }: SidebarPro
             />
           </div>
         </div>
-        
+
         <nav className="flex-1 overflow-y-auto scrollbar-hide">
           <div className="px-4 mt-2 mb-4">
             <p className="text-xs font-medium text-neutral-400 uppercase tracking-wider">Main</p>
           </div>
-          
+
           {navItems.map((item) => (
-            <Link 
-              key={item.path} 
+            <Link
+              key={item.path}
               href={item.path}
               onClick={handleNavClick}
             >
@@ -75,16 +81,16 @@ export default function Sidebar({ isMobileOpen, closeMobileSidebar }: SidebarPro
               </a>
             </Link>
           ))}
-          
+
           {user?.role === 'admin' && (
             <>
               <div className="px-4 mt-6 mb-4">
                 <p className="text-xs font-medium text-neutral-400 uppercase tracking-wider">Management</p>
               </div>
-              
+
               {managementItems.map((item) => (
-                <Link 
-                  key={item.path} 
+                <Link
+                  key={item.path}
                   href={item.path}
                   onClick={handleNavClick}
                 >
@@ -98,7 +104,7 @@ export default function Sidebar({ isMobileOpen, closeMobileSidebar }: SidebarPro
             </>
           )}
         </nav>
-        
+
         <div className="p-4 border-t border-sidebar-border">
           <div className="bg-primary-light rounded-md p-3">
             <div className="flex items-center">

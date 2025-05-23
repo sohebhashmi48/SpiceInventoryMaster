@@ -24,7 +24,7 @@ import { Inventory, Spice, Vendor } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { MoreHorizontal, Edit, Trash2, AlertTriangle, Search, Plus } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -32,7 +32,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { 
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -50,19 +50,19 @@ export default function InventoryTable() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Inventory | null>(null);
   const [itemToDelete, setItemToDelete] = useState<number | null>(null);
-  
+
   const { data: inventory, isLoading: inventoryLoading } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory"],
   });
-  
+
   const { data: spices } = useQuery<Spice[]>({
-    queryKey: ["/api/spices"],
+    queryKey: ["/api/products"],
   });
-  
+
   const { data: vendors } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
   });
-  
+
   const deleteInventoryMutation = useMutation({
     mutationFn: async (id: number) => {
       await apiRequest("DELETE", `/api/inventory/${id}`);
@@ -83,49 +83,50 @@ export default function InventoryTable() {
       });
     },
   });
-  
-  const getSpiceName = (spiceId: number) => {
-    const spice = spices?.find((s) => s.id === spiceId);
-    return spice ? spice.name : "Unknown";
+
+  const getSpiceName = (productId: number) => {
+    const product = spices?.find((s) => s.id === productId);
+    return product ? product.name : "Unknown";
   };
-  
-  const getVendorName = (vendorId: number) => {
-    const vendor = vendors?.find((v) => v.id === vendorId);
-    return vendor ? vendor.name : "Unknown";
+
+  const getVendorName = (supplierId: number) => {
+    const supplier = vendors?.find((v) => v.id === supplierId);
+    return supplier ? supplier.name : "Unknown";
   };
-  
+
   const formatDate = (dateString: string | Date) => {
     return new Date(dateString).toLocaleDateString();
   };
-  
+
   const handleDelete = (id: number) => {
     setItemToDelete(id);
   };
-  
+
   const confirmDelete = () => {
     if (itemToDelete !== null) {
       deleteInventoryMutation.mutate(itemToDelete);
     }
   };
-  
+
   const handleEdit = (item: Inventory) => {
     setEditingItem(item);
     setIsAddDialogOpen(true);
   };
-  
+
   const filteredInventory = inventory?.filter((item) => {
-    const spiceName = getSpiceName(item.spiceId).toLowerCase();
-    const vendorName = getVendorName(item.vendorId).toLowerCase();
+    // Use productName and supplierName directly if available
+    const spiceName = item.productName?.toLowerCase() || (item.productId ? getSpiceName(item.productId).toLowerCase() : "");
+    const vendorName = item.supplierName?.toLowerCase() || (item.supplierId ? getVendorName(item.supplierId).toLowerCase() : "");
     const batchNumber = item.batchNumber.toLowerCase();
     const query = searchQuery.toLowerCase();
-    
+
     return (
       spiceName.includes(query) ||
       vendorName.includes(query) ||
       batchNumber.includes(query)
     );
   });
-  
+
   const isExpiringSoon = (expiryDate: string | Date) => {
     const expiry = new Date(expiryDate);
     const today = new Date();
@@ -133,13 +134,13 @@ export default function InventoryTable() {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays <= 30 && diffDays > 0;
   };
-  
+
   const isExpired = (expiryDate: string | Date) => {
     const expiry = new Date(expiryDate);
     const today = new Date();
     return expiry < today;
   };
-  
+
   const isLowStock = (quantity: number | string) => {
     return Number(quantity) < 5;
   };
@@ -166,12 +167,12 @@ export default function InventoryTable() {
             <DialogHeader>
               <DialogTitle>{editingItem ? "Edit Inventory Item" : "Add New Inventory Item"}</DialogTitle>
               <DialogDescription>
-                {editingItem 
-                  ? "Update the details of the existing inventory item." 
+                {editingItem
+                  ? "Update the details of the existing inventory item."
                   : "Add a new item to your inventory. Fill in all the required information."}
               </DialogDescription>
             </DialogHeader>
-            <AddInventoryForm 
+            <AddInventoryForm
               onSuccess={() => {
                 setIsAddDialogOpen(false);
                 setEditingItem(null);
@@ -181,14 +182,14 @@ export default function InventoryTable() {
           </DialogContent>
         </Dialog>
       </div>
-      
+
       <div className="rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Spice</TableHead>
+              <TableHead>Product</TableHead>
               <TableHead>Batch</TableHead>
-              <TableHead>Vendor</TableHead>
+              <TableHead>Supplier</TableHead>
               <TableHead className="text-right">Quantity</TableHead>
               <TableHead className="text-right">Value</TableHead>
               <TableHead>Expiry Date</TableHead>
@@ -219,14 +220,18 @@ export default function InventoryTable() {
             ) : (
               filteredInventory?.map((item) => (
                 <TableRow key={item.id}>
-                  <TableCell className="font-medium">{getSpiceName(item.spiceId)}</TableCell>
+                  <TableCell className="font-medium">
+                    {item.productName || (item.productId ? getSpiceName(item.productId) : "Unknown")}
+                  </TableCell>
                   <TableCell>{item.batchNumber}</TableCell>
-                  <TableCell>{getVendorName(item.vendorId)}</TableCell>
+                  <TableCell>
+                    {item.supplierName || (item.supplierId ? getVendorName(item.supplierId) : "Unknown")}
+                  </TableCell>
                   <TableCell className="text-right">
                     {isLowStock(item.quantity) && (
                       <AlertTriangle className="h-4 w-4 text-red-500 inline mr-1" />
                     )}
-                    {item.quantity} kg
+                    {item.quantity} {item.unit || "kg"}
                   </TableCell>
                   <TableCell className="text-right">${Number(item.totalValue).toFixed(2)}</TableCell>
                   <TableCell>
@@ -259,7 +264,7 @@ export default function InventoryTable() {
                           <Edit className="h-4 w-4 mr-2" />
                           Edit
                         </DropdownMenuItem>
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           className="text-red-600"
                           onClick={() => handleDelete(item.id)}
                         >
@@ -275,7 +280,7 @@ export default function InventoryTable() {
           </TableBody>
         </Table>
       </div>
-      
+
       <AlertDialog open={itemToDelete !== null} onOpenChange={(open) => !open && setItemToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -286,7 +291,7 @@ export default function InventoryTable() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={confirmDelete}
               className="bg-red-600 hover:bg-red-700"
             >

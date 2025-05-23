@@ -16,16 +16,19 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { 
+import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger
+  DialogTrigger,
+  DialogFooter,
+  DialogClose
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Edit, Trash2 } from "lucide-react";
+import { Loader2, Plus, Edit, Trash2, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const categoryFormSchema = insertCategorySchema.extend({});
 
@@ -34,11 +37,14 @@ type CategoryFormValues = z.infer<typeof categoryFormSchema>;
 export default function CategoryManager() {
   const { toast } = useToast();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  
-  const { data: categories, isLoading } = useQuery<Category[]>({
+  const [categoryToDelete, setCategoryToDelete] = useState<number | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const { data: categories, isLoading, refetch } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
   });
-  
+
   const createCategoryMutation = useMutation({
     mutationFn: async (data: CategoryFormValues) => {
       const res = await fetch('/api/categories', {
@@ -75,7 +81,7 @@ export default function CategoryManager() {
       });
     },
   });
-  
+
   // Initialize the form with default values
   const form = useForm<CategoryFormValues>({
     resolver: zodResolver(categoryFormSchema),
@@ -84,7 +90,53 @@ export default function CategoryManager() {
       description: ""
     },
   });
-  
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/categories/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || 'Failed to delete category');
+      }
+
+      return id;
+    },
+    onSuccess: () => {
+      toast({
+        title: "Category deleted successfully",
+        description: "The category has been removed.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      setIsDeleteDialogOpen(false);
+      setCategoryToDelete(null);
+      setDeleteError(null);
+    },
+    onError: (error: Error) => {
+      setDeleteError(error.message);
+      toast({
+        title: "Failed to delete category",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDeleteCategory = (id: number) => {
+    setCategoryToDelete(id);
+    setIsDeleteDialogOpen(true);
+    setDeleteError(null);
+  };
+
+  const confirmDeleteCategory = () => {
+    if (categoryToDelete !== null) {
+      deleteCategoryMutation.mutate(categoryToDelete);
+    }
+  };
+
   const onSubmit = (data: CategoryFormValues) => {
     createCategoryMutation.mutate(data);
   };
@@ -92,7 +144,7 @@ export default function CategoryManager() {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h3 className="text-lg font-medium">Spice Categories</h3>
+        <h3 className="text-lg font-medium">Product Categories</h3>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
             <Button size="sm" variant="outline">
@@ -103,7 +155,7 @@ export default function CategoryManager() {
             <DialogHeader>
               <DialogTitle>Add New Category</DialogTitle>
               <DialogDescription>
-                Create a new category for classifying spices.
+                Create a new category for classifying products.
               </DialogDescription>
             </DialogHeader>
             <Form {...form}>
@@ -121,7 +173,7 @@ export default function CategoryManager() {
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={form.control}
                   name="description"
@@ -129,10 +181,10 @@ export default function CategoryManager() {
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Input 
-                          placeholder="Enter category description" 
-                          value={field.value || ""} 
-                          onChange={field.onChange} 
+                        <Input
+                          placeholder="Enter category description"
+                          value={field.value || ""}
+                          onChange={field.onChange}
                           onBlur={field.onBlur}
                           ref={field.ref}
                         />
@@ -141,17 +193,17 @@ export default function CategoryManager() {
                     </FormItem>
                   )}
                 />
-                
+
                 <div className="flex justify-end space-x-2">
-                  <Button 
-                    variant="outline" 
-                    type="button" 
+                  <Button
+                    variant="outline"
+                    type="button"
                     onClick={() => setIsAddDialogOpen(false)}
                   >
                     Cancel
                   </Button>
-                  <Button 
-                    type="submit" 
+                  <Button
+                    type="submit"
                     disabled={createCategoryMutation.isPending}
                     className="bg-secondary hover:bg-secondary-dark text-white"
                   >
@@ -166,7 +218,7 @@ export default function CategoryManager() {
           </DialogContent>
         </Dialog>
       </div>
-      
+
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
         {isLoading ? (
           Array(6).fill(0).map((_, i) => (
@@ -184,7 +236,12 @@ export default function CategoryManager() {
                   <Button variant="ghost" size="icon" className="h-6 w-6">
                     <Edit className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-6 w-6">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50"
+                    onClick={() => handleDeleteCategory(category.id)}
+                  >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -194,18 +251,57 @@ export default function CategoryManager() {
               </p>
               <div className="mt-2">
                 <Badge variant="outline" className="bg-secondary/5 border-secondary/20 text-secondary text-xs">
-                  {/* This would show spice count in a real implementation */}
-                  0 spices
+                  {/* This would show product count in a real implementation */}
+                  0 products
                 </Badge>
               </div>
             </div>
           ))
         ) : (
           <div className="border rounded-md p-6 col-span-full text-center text-muted-foreground">
-            No categories found. Create your first category to organize your spices.
+            No categories found. Create your first category to organize your products.
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Category</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this category? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteError && (
+            <Alert variant="destructive" className="mt-4">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{deleteError}</AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteCategory}
+              disabled={deleteCategoryMutation.isPending}
+            >
+              {deleteCategoryMutation.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

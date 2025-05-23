@@ -65,14 +65,17 @@ export default function AuthPage() {
   });
 
   const onLoginSubmit = (data: LoginFormValues) => {
+    console.log('Login form submitted with data:', data);
     loginMutation.mutate(data, {
       onSuccess: () => {
+        console.log('Login successful, redirecting to:', redirectTo);
         navigate(redirectTo);
       },
       onError: (error) => {
+        console.error('Login error in form submission:', error);
         toast({
           title: "Login failed",
-          description: "Invalid username or password",
+          description: error.message || "Invalid username or password",
           variant: "destructive"
         });
       }
@@ -88,12 +91,12 @@ export default function AuthPage() {
     try {
       const response = await apiRequest("POST", "/api/forgot-password", data);
       const result = await response.json();
-      
+
       setResetSuccess(true);
       if (result.tempPassword) {
         setTempPassword(result.tempPassword);
       }
-      
+
       toast({
         title: "Password reset request sent",
         description: "Check your email for further instructions",
@@ -128,7 +131,7 @@ export default function AuthPage() {
                 <TabsTrigger value="login">Sign In</TabsTrigger>
                 <TabsTrigger value="forgot">Forgot Password</TabsTrigger>
               </TabsList>
-              
+
               <TabsContent value="login">
                 <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-md text-sm">
                   <p className="font-medium text-blue-700">Demo Credentials:</p>
@@ -174,8 +177,8 @@ export default function AuthPage() {
                       )}
                     />
 
-                    <Button 
-                      type="submit" 
+                    <Button
+                      type="submit"
                       className="w-full bg-primary"
                       disabled={loginMutation.isPending}
                     >
@@ -189,7 +192,7 @@ export default function AuthPage() {
                   </form>
                 </Form>
               </TabsContent>
-              
+
               <TabsContent value="forgot">
                 {resetSuccess ? (
                   <div className="bg-green-50 rounded-lg p-4 space-y-3">
@@ -200,14 +203,14 @@ export default function AuthPage() {
                     <p className="text-sm text-gray-600">
                       If the email address is registered in our system, you will receive instructions to reset your password.
                     </p>
-                    
+
                     {tempPassword && (
                       <div className="mt-4 p-3 border border-gray-200 rounded-md bg-gray-50">
                         <p className="text-sm font-semibold">Temporary Password (Demo Only):</p>
                         <div className="flex items-center justify-between mt-1">
                           <code className="bg-white px-2 py-1 rounded text-sm">{tempPassword}</code>
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => setTab("login")}
                           >
@@ -226,7 +229,7 @@ export default function AuthPage() {
                           <p className="text-sm">{resetError}</p>
                         </div>
                       )}
-                      
+
                       <FormField
                         control={forgotPasswordForm.control}
                         name="email"
@@ -241,8 +244,8 @@ export default function AuthPage() {
                         )}
                       />
 
-                      <Button 
-                        type="submit" 
+                      <Button
+                        type="submit"
                         className="w-full"
                         disabled={isSubmitting}
                       >
@@ -259,13 +262,13 @@ export default function AuthPage() {
               </TabsContent>
             </Tabs>
           </CardContent>
-          
+
           <CardFooter className="flex justify-center pt-2 pb-6 text-xs text-gray-500">
             <p>Secure Admin Access - Unauthorized login attempts will be monitored</p>
           </CardFooter>
         </Card>
       </div>
-      
+
       <div className="flex-1 hidden lg:block bg-primary">
         <div className="h-full flex flex-col justify-center items-center text-white p-10">
           <h2 className="text-4xl font-bold mb-6">Spice Inventory System</h2>

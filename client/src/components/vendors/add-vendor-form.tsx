@@ -2,28 +2,36 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "../../lib/queryClient";
+import { useToast } from "../../hooks/use-toast";
 import { Vendor, insertVendorSchema } from "@shared/schema";
-import { Button } from "@/components/ui/button";
+import { Button } from "../ui/button";
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Loader2 } from "lucide-react";
-import { Separator } from "@/components/ui/separator";
+} from "../ui/form";
+import { Input } from "../ui/input";
+import { Loader2, Star } from "lucide-react";
+import { Separator } from "../ui/separator";
 
 // Extend the insertVendorSchema with additional validation
 const formSchema = insertVendorSchema.extend({
-  phone: z.string().min(7, "Phone number is too short"),
-  email: z.string().email("Invalid email address"),
-  rating: z.coerce.number().min(0).max(5).nullable().optional(),
+  phone: z.string().min(7, "Phone number is too short").optional().nullable(),
+  email: z.string().email("Invalid email address").optional().nullable(),
+  contactName: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  isActive: z.boolean().default(true),
+  paymentTerms: z.string().optional().nullable(),
+  creditLimit: z.coerce.number().min(0, "Credit limit cannot be negative").optional().nullable(),
+  balanceDue: z.coerce.number().min(0, "Balance due cannot be negative").optional().nullable(),
+  totalPaid: z.coerce.number().min(0, "Total paid cannot be negative").optional().nullable(),
+  notes: z.string().optional().nullable(),
+  rating: z.coerce.number().min(1, "Rating must be between 1 and 5").max(5, "Rating must be between 1 and 5").optional().nullable(),
 });
 
 type VendorFormValues = z.infer<typeof formSchema>;
@@ -35,7 +43,7 @@ interface AddVendorFormProps {
 
 export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFormProps) {
   const { toast } = useToast();
-  
+
   const createVendorMutation = useMutation({
     mutationFn: async (data: VendorFormValues) => {
       if (existingVendor) {
@@ -56,6 +64,7 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
       onSuccess();
     },
     onError: (error) => {
+      console.error("AddVendorForm mutation error:", error);
       toast({
         title: `Failed to ${existingVendor ? "update" : "create"} vendor`,
         description: error.message,
@@ -63,26 +72,30 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
       });
     },
   });
-  
+
   // Initialize the form with default values or existing vendor data
   const form = useForm<VendorFormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: existingVendor ? {
       ...existingVendor,
+      // Convert numeric string values to numbers for the form
+      creditLimit: existingVendor.creditLimit ? Number(existingVendor.creditLimit) : null,
+      balanceDue: existingVendor.balanceDue ? Number(existingVendor.balanceDue) : null,
+      totalPaid: existingVendor.totalPaid ? Number(existingVendor.totalPaid) : null,
+      rating: existingVendor.rating ? Number(existingVendor.rating) : null,
     } : {
       name: "",
       contactName: "",
       email: "",
       phone: "",
       address: "",
-      location: "",
-      paymentTerms: "Net 30",
-      moneyOwed: "0",
-      moneyPaid: "0",
-      rating: null,
+      isActive: true,
+      paymentTerms: "",
+      creditLimit: null,
+      balanceDue: null,
+      totalPaid: null,
       notes: "",
-      deliveryPersonName: "",
-      deliveryPersonContact: ""
+      rating: null,
     },
   });
 
@@ -107,7 +120,7 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
               </FormItem>
             )}
           />
-          
+
           <FormField
             control={form.control}
             name="contactName"
@@ -115,14 +128,20 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
               <FormItem>
                 <FormLabel>Contact Person</FormLabel>
                 <FormControl>
-                  <Input placeholder="Contact name" {...field} />
+                  <Input
+                    placeholder="Contact name"
+                    value={field.value || ""}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField
             control={form.control}
@@ -131,13 +150,20 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
               <FormItem>
                 <FormLabel>Email Address</FormLabel>
                 <FormControl>
-                  <Input type="email" placeholder="email@example.com" {...field} />
+                  <Input
+                    type="email"
+                    placeholder="email@example.com"
+                    value={field.value || ""}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
-          
+
           <FormField
             control={form.control}
             name="phone"
@@ -145,150 +171,10 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
               <FormItem>
                 <FormLabel>Phone Number</FormLabel>
                 <FormControl>
-                  <Input placeholder="+1 (555) 123-4567" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="address"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Address</FormLabel>
-                <FormControl>
-                  <Input placeholder="Full address" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          
-          <FormField
-            control={form.control}
-            name="location"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Location/Region</FormLabel>
-                <FormControl>
-                  <Input 
-                    placeholder="e.g. North, Downtown, East" 
-                    value={field.value || ""} 
-                    onChange={field.onChange} 
-                    onBlur={field.onBlur} 
-                    ref={field.ref}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <FormField
-            control={form.control}
-            name="paymentTerms"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Payment Terms</FormLabel>
-                <FormControl>
-                  <Input placeholder="e.g. Net 30" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          
-          <FormField
-            control={form.control}
-            name="moneyOwed"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Amount Owed ($)</FormLabel>
-                <FormControl>
-                  <Input type="number" step="0.01" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          
-          <FormField
-            control={form.control}
-            name="moneyPaid"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Amount Paid ($)</FormLabel>
-                <FormControl>
-                  <Input type="number" step="0.01" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="rating"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Rating (0-5)</FormLabel>
-                <FormControl>
-                  <Input 
-                    type="number" 
-                    min="0" 
-                    max="5" 
-                    step="0.5" 
-                    placeholder="Vendor rating"
-                    value={field.value === null ? "" : field.value}
-                    onChange={(e) => field.onChange(e.target.value === "" ? null : parseFloat(e.target.value))}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField
-            control={form.control}
-            name="deliveryPersonName"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Delivery Person Name</FormLabel>
-                <FormControl>
-                  <Input 
-                    placeholder="Name of delivery personnel" 
-                    value={field.value || ""} 
-                    onChange={field.onChange} 
-                    onBlur={field.onBlur}
-                    ref={field.ref}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          
-          <FormField
-            control={form.control}
-            name="deliveryPersonContact"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Delivery Person Contact</FormLabel>
-                <FormControl>
-                  <Input 
-                    placeholder="Phone number" 
-                    value={field.value || ""} 
-                    onChange={field.onChange} 
+                  <Input
+                    placeholder="+1 (555) 123-4567"
+                    value={field.value || ""}
+                    onChange={field.onChange}
                     onBlur={field.onBlur}
                     ref={field.ref}
                   />
@@ -298,17 +184,16 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
             )}
           />
         </div>
-        
+
         <FormField
           control={form.control}
-          name="notes"
+          name="address"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Notes</FormLabel>
+              <FormLabel>Address</FormLabel>
               <FormControl>
-                <Textarea 
-                  placeholder="Additional information about this vendor" 
-                  className="min-h-[80px]"
+                <Input
+                  placeholder="Full address"
                   value={field.value || ""}
                   onChange={field.onChange}
                   onBlur={field.onBlur}
@@ -319,15 +204,202 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
             </FormItem>
           )}
         />
-        
+
+        {/* Financial Information Section */}
+        <div className="space-y-4">
+          <h3 className="text-lg font-medium">Financial Information</h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField
+              control={form.control}
+              name="paymentTerms"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Payment Terms</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="e.g., Net 30, COD"
+                      value={field.value || ""}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="creditLimit"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Credit Limit ($)</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      placeholder="0.00"
+                      value={field.value === null ? "" : field.value}
+                      onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                      min="0"
+                      step="0.01"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField
+              control={form.control}
+              name="balanceDue"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Balance Due ($)</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      placeholder="0.00"
+                      value={field.value === null ? "" : field.value}
+                      onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                      min="0"
+                      step="0.01"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="totalPaid"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Total Paid ($)</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      placeholder="0.00"
+                      value={field.value === null ? "" : field.value}
+                      onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                      min="0"
+                      step="0.01"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <FormField
+            control={form.control}
+            name="notes"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Notes</FormLabel>
+                <FormControl>
+                  <textarea
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    placeholder="Additional notes about this vendor, payment history, etc."
+                    value={field.value || ""}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="rating"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Vendor Rating</FormLabel>
+                <FormControl>
+                  <div className="flex items-center space-x-1">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => field.onChange(star)}
+                        className={`p-1 rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ${
+                          (field.value || 0) >= star
+                            ? "text-yellow-500 hover:text-yellow-600"
+                            : "text-gray-300 hover:text-yellow-400"
+                        }`}
+                      >
+                        <Star
+                          className={`h-6 w-6 ${
+                            (field.value || 0) >= star ? "fill-current" : ""
+                          }`}
+                        />
+                      </button>
+                    ))}
+                    {field.value ? (
+                      <button
+                        type="button"
+                        onClick={() => field.onChange(null)}
+                        className="ml-2 text-xs text-muted-foreground hover:text-destructive"
+                      >
+                        Clear
+                      </button>
+                    ) : null}
+                  </div>
+                </FormControl>
+                <FormDescription className="text-xs text-muted-foreground">
+                  Rate this vendor based on quality, reliability, and service.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <FormField
+          control={form.control}
+          name="isActive"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+              <FormControl>
+                <input
+                  type="checkbox"
+                  checked={field.value}
+                  onChange={field.onChange}
+                  className="h-4 w-4 mt-1"
+                />
+              </FormControl>
+              <div className="space-y-1 leading-none">
+                <FormLabel>Active</FormLabel>
+                <p className="text-sm text-muted-foreground">
+                  Is this vendor currently active?
+                </p>
+              </div>
+            </FormItem>
+          )}
+        />
+
         <Separator />
-        
+
         <div className="flex justify-end space-x-2">
           <Button variant="outline" type="button" onClick={onSuccess}>
             Cancel
           </Button>
-          <Button 
-            type="submit" 
+          <Button
+            type="submit"
             disabled={createVendorMutation.isPending}
             className="bg-secondary hover:bg-secondary-dark text-white"
           >

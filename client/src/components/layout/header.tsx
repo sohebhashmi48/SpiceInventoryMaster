@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuSeparator, 
-  DropdownMenuTrigger 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { BellIcon, LogOut, Menu, Settings, User as UserIcon } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
@@ -39,25 +39,25 @@ export default function Header({ toggleSidebar }: HeaderProps) {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={toggleSidebar} 
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleSidebar}
               className="lg:hidden mr-2 text-white hover:bg-primary-light focus:outline-none"
             >
               <Menu className="h-5 w-5" />
             </Button>
             <div className="flex items-center">
               <span className="text-accent mr-2">✦</span>
-              <h1 className="font-heading font-semibold text-xl">SpiceManager</h1>
+              <h1 className="font-heading font-semibold text-xl">ProductManager</h1>
             </div>
           </div>
-          
+
           <div className="flex items-center">
             <div className="relative mr-4">
-              <Button 
-                variant="ghost" 
-                size="icon" 
+              <Button
+                variant="ghost"
+                size="icon"
                 className="relative p-2 rounded-full hover:bg-primary-light focus:outline-none"
               >
                 <BellIcon className="h-5 w-5" />
@@ -68,11 +68,11 @@ export default function Header({ toggleSidebar }: HeaderProps) {
                 )}
               </Button>
             </div>
-            
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="ghost" 
+                <Button
+                  variant="ghost"
                   className="flex items-center focus:outline-none hover:bg-primary-light rounded-md p-1"
                 >
                   <Avatar className="h-8 w-8">

@@ -22,7 +22,7 @@ export default function DashboardPage() {
   const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
   });
-  
+
   return (
     <Layout>
       <PageHeader
@@ -38,7 +38,7 @@ export default function DashboardPage() {
           New Entry
         </Button>
       </PageHeader>
-      
+
       {/* Key Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {statsLoading ? (
@@ -52,12 +52,12 @@ export default function DashboardPage() {
           <>
             <StatCard
               title="Total Inventory Value"
-              value={`$${stats?.totalValue.toFixed(2) || "0.00"}`}
+              value={`₹${stats?.totalValue.toFixed(2) || "0.00"}`}
               icon={<DollarSign className="h-5 w-5" />}
               changeValue={8.2}
               changeLabel="vs last month"
             />
-            
+
             <StatCard
               title="Active Spice Types"
               value={stats?.activeSpices || 0}
@@ -65,7 +65,7 @@ export default function DashboardPage() {
               changeValue={3.1}
               changeLabel="vs last month"
             />
-            
+
             <StatCard
               title="Pending Orders"
               value={stats?.pendingInvoices || 0}
@@ -73,7 +73,7 @@ export default function DashboardPage() {
               changeValue={-4.5}
               changeLabel="vs last month"
             />
-            
+
             <StatCard
               title="Low Stock Alerts"
               value={stats?.lowStockAlerts || 0}
@@ -83,13 +83,13 @@ export default function DashboardPage() {
           </>
         )}
       </div>
-      
+
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <SalesChart className="lg:col-span-2" />
         <PieChart />
       </div>
-      
+
       {/* Alerts and Activity Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <RecentAlerts />

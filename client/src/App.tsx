@@ -1,21 +1,31 @@
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/not-found";
-import AuthPage from "@/pages/auth-page";
-import DashboardPage from "@/pages/dashboard-page";
-import InventoryPage from "@/pages/inventory-page";
-import VendorsPage from "@/pages/vendors-page";
-import BillingPage from "@/pages/billing-page";
-import ReportsPage from "@/pages/reports-page";
-import SpicesPage from "@/pages/spices-page";
-import SettingsPage from "@/pages/settings-page";
-import UsersPage from "@/pages/users-page";
-import { ProtectedRoute } from "@/lib/protected-route";
-import { AuthProvider } from "@/hooks/use-auth";
-import { store } from "@/store";
+import { Toaster } from "./components/ui/toaster";
+import { TooltipProvider } from "./components/ui/tooltip";
+import NotFound from "./pages/not-found";
+import AuthPage from "./pages/auth-page";
+import DashboardPage from "./pages/dashboard-page";
+import InventoryPage from "./pages/inventory-page";
+import SuppliersPage from "./pages/suppliers";
+import BillingPage from "./pages/billing-page";
+import ReportsPage from "./pages/reports-page";
+import SpicesPage from "./pages/spices-page";
+import SettingsPage from "./pages/settings-page";
+import UsersPage from "./pages/users-page";
+import PurchaseEntryPage from "./pages/purchase-entry-page";
+import SupplierPurchasePage from "./pages/supplier-purchase-page";
+import SupplierDetailsPage from "./pages/suppliers/[id]";
+import PurchaseHistoryPage from "./pages/purchase-history";
+import CaterersPage from "./pages/caterers";
+import NewCatererPage from "./pages/caterers/new";
+import CatererDetailsPage from "./pages/caterers/[id]";
+import DistributionsPage from "./pages/distributions";
+import NewDistributionPage from "./pages/distributions/new";
+import DistributionDetailsPage from "./pages/distributions/[id]";
+import { ProtectedRoute } from "./lib/protected-route";
+import { AuthProvider } from "./hooks/use-auth";
+import { store } from "./store";
 import { Provider } from "react-redux";
 
 function Router() {
@@ -25,8 +35,24 @@ function Router() {
       <ProtectedRoute path="/" component={DashboardPage} />
       <ProtectedRoute path="/inventory" component={InventoryPage} />
       <ProtectedRoute path="/spices" component={SpicesPage} />
-      <ProtectedRoute path="/vendors" component={VendorsPage} />
+      <ProtectedRoute path="/suppliers" component={SuppliersPage} />
+      <ProtectedRoute path="/suppliers/:supplierId" component={SupplierDetailsPage} />
+      <ProtectedRoute path="/supplier-purchase/:supplierId" component={SupplierPurchasePage} />
+      <ProtectedRoute path="/purchase-history" component={PurchaseHistoryPage} />
+      <Route path="/vendors">
+        {() => {
+          window.location.replace("/suppliers");
+          return null;
+        }}
+      </Route>
+      <ProtectedRoute path="/caterers" component={CaterersPage} />
+      <ProtectedRoute path="/caterers/new" component={NewCatererPage} />
+      <ProtectedRoute path="/caterers/:id" component={CatererDetailsPage} />
+      <ProtectedRoute path="/distributions" component={DistributionsPage} />
+      <ProtectedRoute path="/distributions/new" component={NewDistributionPage} />
+      <ProtectedRoute path="/distributions/:id" component={DistributionDetailsPage} />
       <ProtectedRoute path="/billing" component={BillingPage} />
+      <ProtectedRoute path="/purchases" component={PurchaseEntryPage} />
       <ProtectedRoute path="/reports" component={ReportsPage} />
       <ProtectedRoute path="/settings" component={SettingsPage} />
       <ProtectedRoute path="/users" component={UsersPage} />

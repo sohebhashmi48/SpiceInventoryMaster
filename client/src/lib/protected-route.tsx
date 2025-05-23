@@ -1,4 +1,4 @@
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth } from "../hooks/use-auth";
 import { Loader2 } from "lucide-react";
 import { Redirect, Route, useLocation } from "wouter";
 
@@ -11,7 +11,7 @@ export function ProtectedRoute({
 }) {
   const { user, isLoading } = useAuth();
   const [location] = useLocation();
-  
+
   return (
     <Route path={path}>
       {isLoading ? (

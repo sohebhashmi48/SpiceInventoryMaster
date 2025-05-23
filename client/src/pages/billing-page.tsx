@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Receipt, FileText, CheckCheck, Clock, Ban, DollarSign, Plus } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Invoice, Transaction } from "@shared/schema";
-import { 
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -16,38 +16,38 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import CreateInvoiceForm from "@/components/billing/create-invoice-form";
-import { 
-  Card, 
-  CardContent, 
-  CardDescription, 
-  CardHeader, 
-  CardTitle 
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
 } from "@/components/ui/card";
 
 export default function BillingPage() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("invoices");
-  
+
   const { data: invoices } = useQuery<Invoice[]>({
     queryKey: ["/api/invoices"],
   });
-  
+
   const { data: transactions } = useQuery<Transaction[]>({
     queryKey: ["/api/transactions"],
   });
-  
+
   const paidInvoices = invoices?.filter(invoice => invoice.status.toLowerCase() === "paid");
   const unpaidInvoices = invoices?.filter(invoice => invoice.status.toLowerCase() === "unpaid");
   const pendingInvoices = invoices?.filter(invoice => invoice.status.toLowerCase() === "pending");
-  
+
   const totalPaid = paidInvoices?.reduce((sum, invoice) => sum + Number(invoice.totalAmount), 0) || 0;
   const totalUnpaid = unpaidInvoices?.reduce((sum, invoice) => sum + Number(invoice.totalAmount), 0) || 0;
   const totalPending = pendingInvoices?.reduce((sum, invoice) => sum + Number(invoice.totalAmount), 0) || 0;
-  
+
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat('en-IN', {
       style: 'currency',
-      currency: 'USD',
+      currency: 'INR',
     }).format(amount);
   };
 
@@ -77,7 +77,7 @@ export default function BillingPage() {
           </DialogContent>
         </Dialog>
       </PageHeader>
-      
+
       {/* Financial Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card>
@@ -95,7 +95,7 @@ export default function BillingPage() {
             </p>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center text-lg font-medium">
@@ -111,7 +111,7 @@ export default function BillingPage() {
             </p>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center text-lg font-medium">
@@ -128,7 +128,7 @@ export default function BillingPage() {
           </CardContent>
         </Card>
       </div>
-      
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
         <TabsList>
           <TabsTrigger value="invoices" className="flex items-center">
@@ -167,11 +167,11 @@ export default function BillingPage() {
             Payments
           </TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="invoices" className="mt-6">
           <InvoicesTable />
         </TabsContent>
-        
+
         <TabsContent value="paid" className="mt-6">
           <div className="bg-green-50 border-l-4 border-green-500 p-4 mb-6 rounded-r-md">
             <div className="flex">
@@ -188,7 +188,7 @@ export default function BillingPage() {
           </div>
           <InvoicesTable />
         </TabsContent>
-        
+
         <TabsContent value="unpaid" className="mt-6">
           <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-r-md">
             <div className="flex">
@@ -205,7 +205,7 @@ export default function BillingPage() {
           </div>
           <InvoicesTable />
         </TabsContent>
-        
+
         <TabsContent value="pending" className="mt-6">
           <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-6 rounded-r-md">
             <div className="flex">
@@ -222,7 +222,7 @@ export default function BillingPage() {
           </div>
           <InvoicesTable />
         </TabsContent>
-        
+
         <TabsContent value="payments" className="mt-6">
           <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 rounded-r-md">
             <div className="flex">
@@ -237,7 +237,7 @@ export default function BillingPage() {
               </div>
             </div>
           </div>
-          
+
           {/* Payments table would go here */}
           <div className="rounded-md border">
             <table className="w-full">

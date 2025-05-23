@@ -20,9 +20,9 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Vendor } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { MoreHorizontal, Edit, Trash2, Mail, Phone, DollarSign, MapPin, Plus, Star, StarHalf } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, Mail, Phone, DollarSign, MapPin, Plus, Star } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -30,7 +30,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { 
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -56,21 +56,21 @@ export default function VendorTable() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const [vendorToDelete, setVendorToDelete] = useState<number | null>(null);
-  
+
   const { data: vendors, isLoading: vendorsLoading } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
   });
-  
+
   // Extract unique locations for the filter dropdown
   const uniqueLocations = useMemo(() => {
     if (!vendors) return [];
     const locations = vendors
-      .map(vendor => vendor.location)
-      .filter((location): location is string => Boolean(location));
+      .map(vendor => vendor.address)
+      .filter((address): address is string => Boolean(address));
     // Convert Set to Array to avoid iteration issues
     return Array.from(new Set(locations));
   }, [vendors]);
-  
+
   const deleteVendorMutation = useMutation({
     mutationFn: async (id: number) => {
       await apiRequest("DELETE", `/api/vendors/${id}`);
@@ -91,56 +91,75 @@ export default function VendorTable() {
       });
     },
   });
-  
+
   const handleDelete = (id: number) => {
     setVendorToDelete(id);
   };
-  
+
   const confirmDelete = () => {
     if (vendorToDelete !== null) {
       deleteVendorMutation.mutate(vendorToDelete);
     }
   };
-  
+
   const handleEdit = (vendor: Vendor) => {
     setEditingVendor(vendor);
     setIsAddDialogOpen(true);
   };
-  
+
+  const renderRating = (rating: number | null) => {
+    if (!rating) return <span className="text-muted-foreground text-sm">Not rated</span>;
+
+    return (
+      <div className="flex">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Star
+            key={star}
+            className={`h-4 w-4 ${
+              star <= rating
+                ? "text-yellow-500 fill-current"
+                : "text-gray-300"
+            }`}
+          />
+        ))}
+      </div>
+    );
+  };
+
   const filteredVendors = useMemo(() => {
     if (!vendors) return [];
-    
+
     return vendors.filter(vendor => {
       // Filter by name (search across name, contact name, email)
-      const nameMatch = filters.name 
+      const nameMatch = filters.name
         ? vendor.name.toLowerCase().includes(filters.name.toLowerCase()) ||
-          vendor.contactName.toLowerCase().includes(filters.name.toLowerCase()) ||
-          vendor.email.toLowerCase().includes(filters.name.toLowerCase())
+          (vendor.contactName ? vendor.contactName.toLowerCase().includes(filters.name.toLowerCase()) : false) ||
+          (vendor.email ? vendor.email.toLowerCase().includes(filters.name.toLowerCase()) : false)
         : true;
-      
-      // Filter by location
+
+      // Filter by location (address)
       const locationMatch = filters.location
-        ? vendor.location === filters.location
+        ? vendor.address === filters.location
         : true;
-      
-      // Filter by amount range (money owed)
+
+      // Filter by amount range (balance due)
       const minAmountMatch = filters.minAmount !== null
-        ? Number(vendor.moneyOwed) >= filters.minAmount
+        ? Number(vendor.balanceDue || 0) >= filters.minAmount
         : true;
-      
+
       const maxAmountMatch = filters.maxAmount !== null
-        ? Number(vendor.moneyOwed) <= filters.maxAmount
+        ? Number(vendor.balanceDue || 0) <= filters.maxAmount
         : true;
-      
+
       // Check if vendor was created within date range
       // Using purchaseDate as a proxy if createdAt is not available
-      const dateMatch = (filters.dateFrom || filters.dateTo) 
+      const dateMatch = (filters.dateFrom || filters.dateTo)
         ? (() => {
             // Use a fallback date if neither field is available
             const dateToUse = vendor.createdAt || (new Date()).toISOString();
             const vendorDate = new Date(dateToUse);
-            const fromMatch = filters.dateFrom 
-              ? vendorDate >= filters.dateFrom 
+            const fromMatch = filters.dateFrom
+              ? vendorDate >= filters.dateFrom
               : true;
             const toMatch = filters.dateTo
               ? vendorDate <= filters.dateTo
@@ -148,33 +167,17 @@ export default function VendorTable() {
             return fromMatch && toMatch;
           })()
         : true;
-      
+
       return nameMatch && locationMatch && minAmountMatch && maxAmountMatch && dateMatch;
     });
   }, [vendors, filters]);
-  
-  const renderRating = (rating: number | null) => {
-    if (!rating) return "No rating";
-    
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 >= 0.5;
-    
-    return (
-      <div className="flex items-center">
-        {[...Array(fullStars)].map((_, index) => (
-          <Star key={`star-${index}`} className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-        ))}
-        {hasHalfStar && <StarHalf className="h-4 w-4 text-yellow-500 fill-yellow-500" />}
-      </div>
-    );
-  };
 
   return (
     <div>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
         <div className="w-full">
-          <VendorFilters 
-            locations={uniqueLocations} 
+          <VendorFilters
+            locations={uniqueLocations}
             onFiltersChange={setFilters}
           />
         </div>
@@ -184,16 +187,16 @@ export default function VendorTable() {
               <Plus className="h-4 w-4 mr-2" /> Add Vendor
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-xl">
+          <DialogContent className="max-w-xl max-h-[80vh] overflow-auto">
             <DialogHeader>
               <DialogTitle>{editingVendor ? "Edit Vendor" : "Add New Vendor"}</DialogTitle>
               <DialogDescription>
-                {editingVendor 
-                  ? "Update the details of the existing vendor." 
+                {editingVendor
+                  ? "Update the details of the existing vendor."
                   : "Add a new vendor to your system. Fill in all the required information."}
               </DialogDescription>
             </DialogHeader>
-            <AddVendorForm 
+            <AddVendorForm
               onSuccess={() => {
                 setIsAddDialogOpen(false);
                 setEditingVendor(null);
@@ -203,7 +206,7 @@ export default function VendorTable() {
           </DialogContent>
         </Dialog>
       </div>
-      
+
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -212,7 +215,8 @@ export default function VendorTable() {
               <TableHead>Contact Person</TableHead>
               <TableHead>Contact Info</TableHead>
               <TableHead>Payment Terms</TableHead>
-              <TableHead className="text-right">Balance</TableHead>
+              <TableHead className="text-right">Balance Due</TableHead>
+              <TableHead className="text-right">Credit Limit</TableHead>
               <TableHead>Rating</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -226,13 +230,14 @@ export default function VendorTable() {
                   <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-16" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                   <TableCell><Skeleton className="h-8 w-8 rounded-full" /></TableCell>
                 </TableRow>
               ))
             ) : filteredVendors?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                   No vendors found
                 </TableCell>
               </TableRow>
@@ -251,25 +256,29 @@ export default function VendorTable() {
                         <Phone className="h-3 w-3 mr-1 text-muted-foreground" />
                         <span className="text-sm">{vendor.phone}</span>
                       </div>
-                      {vendor.location && (
+                      {vendor.address && (
                         <div className="flex items-center">
                           <MapPin className="h-3 w-3 mr-1 text-muted-foreground" />
-                          <span className="text-sm">{vendor.location}</span>
+                          <span className="text-sm">{vendor.address}</span>
                         </div>
                       )}
                     </div>
                   </TableCell>
-                  <TableCell>{vendor.paymentTerms}</TableCell>
+                  <TableCell>{vendor.paymentTerms || "N/A"}</TableCell>
                   <TableCell className="text-right">
-                    <div className="flex flex-col space-y-1">
-                      <div className="flex items-center justify-end">
-                        <DollarSign className="h-3 w-3 mr-1 text-red-500" />
-                        <span className="text-sm text-red-500">Owed: ${Number(vendor.moneyOwed).toFixed(2)}</span>
-                      </div>
-                      <div className="flex items-center justify-end">
-                        <DollarSign className="h-3 w-3 mr-1 text-green-500" />
-                        <span className="text-sm text-green-500">Paid: ${Number(vendor.moneyPaid).toFixed(2)}</span>
-                      </div>
+                    <div className="flex items-center justify-end">
+                      <DollarSign className="h-3 w-3 mr-1 text-red-500" />
+                      <span className={`text-sm ${Number(vendor.balanceDue) > 0 ? "text-red-500 font-medium" : ""}`}>
+                        ${Number(vendor.balanceDue || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end">
+                      <DollarSign className="h-3 w-3 mr-1 text-muted-foreground" />
+                      <span className="text-sm">
+                        ${Number(vendor.creditLimit || 0).toFixed(2)}
+                      </span>
                     </div>
                   </TableCell>
                   <TableCell>{renderRating(vendor.rating)}</TableCell>
@@ -287,7 +296,7 @@ export default function VendorTable() {
                           <Edit className="h-4 w-4 mr-2" />
                           Edit
                         </DropdownMenuItem>
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           className="text-red-600"
                           onClick={() => handleDelete(vendor.id)}
                         >
@@ -303,7 +312,7 @@ export default function VendorTable() {
           </TableBody>
         </Table>
       </div>
-      
+
       <AlertDialog open={vendorToDelete !== null} onOpenChange={(open) => !open && setVendorToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -314,7 +323,7 @@ export default function VendorTable() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={confirmDelete}
               className="bg-red-600 hover:bg-red-700"
             >

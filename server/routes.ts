@@ -1,4 +1,4 @@
-import { Express } from "express";
+import express, { Express } from "express";
 import { z } from "zod";
 import {
   insertSupplierSchema,
@@ -19,6 +19,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export async function registerRoutes(app: Express) {
+  // Serve static files from the public directory
+  app.use('/api/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
   // Setup authentication routes and middleware
   await setupAuth(app);
 
@@ -180,12 +182,12 @@ export async function registerRoutes(app: Express) {
   });
 
   // Get purchase history for a specific product from a supplier
-  app.get("/api/suppliers/:supplierId/products/:productId/purchase-history", isAuthenticated, async (req, res) => {
+  app.get("/api/suppliers/:supplierId/products/:productName/purchase-history", isAuthenticated, async (req, res) => {
     try {
       const supplierId = parseInt(req.params.supplierId);
-      const productId = parseInt(req.params.productId);
-      console.log(`Fetching purchase history for supplier ID: ${supplierId} and product ID: ${productId}`);
-      const purchaseHistory = await storage.getProductPurchaseHistory(supplierId, productId);
+      const productName = req.params.productName;
+      console.log(`Fetching purchase history for supplier ID: ${supplierId} and product name: ${productName}`);
+      const purchaseHistory = await storage.getProductPurchaseHistory(supplierId, productName);
       res.json(purchaseHistory);
     } catch (error) {
       console.error("Get product purchase history error:", error);
@@ -478,10 +480,49 @@ export async function registerRoutes(app: Express) {
     try {
       console.log("Fetching all products");
       const products = await storage.getSpices();
+
+      // Calculate actual stock quantities from inventory
+      const conn = await storage.getConnection();
+      try {
+        for (const product of products) {
+          // Get the sum of quantities from active inventory items for this product
+          const [rows] = await conn.execute(`
+            SELECT SUM(quantity) as totalQuantity
+            FROM inventory
+            WHERE product_id = ? AND status = 'active'
+          `, [product.id]);
+
+          const result = (rows as any[])[0];
+          // Update the stocksQty with the actual inventory quantity or 0 if null
+          product.stocksQty = result.totalQuantity ? Number(result.totalQuantity) : 0;
+        }
+      } finally {
+        conn.release();
+      }
+
+      console.log("Fetched all products:", products.map(p => ({ id: p.id, name: p.name, stocksQty: p.stocksQty })));
       res.json(products);
     } catch (error) {
       console.error("Get products error:", error);
       res.status(500).json({ message: "Failed to fetch products" });
+    }
+  });
+
+  // Debug endpoint to get product IDs
+  app.get("/api/products/debug/ids", isAuthenticated, async (_req, res) => {
+    try {
+      const products = await storage.getSpices();
+      const productIds = products.map(p => ({
+        id: p.id,
+        name: p.name,
+        marketPrice: p.marketPrice,
+        retailPrice: p.retailPrice,
+        catererPrice: p.catererPrice
+      }));
+      res.json(productIds);
+    } catch (error) {
+      console.error("Get product IDs error:", error);
+      res.status(500).json({ message: "Failed to fetch product IDs" });
     }
   });
 
@@ -503,6 +544,24 @@ export async function registerRoutes(app: Express) {
       if (!product) {
         return res.status(404).json({ message: "Product not found" });
       }
+
+      // Calculate actual stock quantity from inventory
+      const conn = await storage.getConnection();
+      try {
+        // Get the sum of quantities from active inventory items for this product
+        const [rows] = await conn.execute(`
+          SELECT SUM(quantity) as totalQuantity
+          FROM inventory
+          WHERE product_id = ? AND status = 'active'
+        `, [product.id]);
+
+        const result = (rows as any[])[0];
+        // Update the stocksQty with the actual inventory quantity or 0 if null
+        product.stocksQty = result.totalQuantity ? Number(result.totalQuantity) : 0;
+      } finally {
+        conn.release();
+      }
+
       res.json(product);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch product" });
@@ -555,6 +614,9 @@ export async function registerRoutes(app: Express) {
         origin: req.body.origin || '',
         description: req.body.description || '',
         price: req.body.price ? parseFloat(req.body.price) : 0,
+        marketPrice: req.body.marketPrice ? parseFloat(req.body.marketPrice) : 0,
+        retailPrice: req.body.retailPrice ? parseFloat(req.body.retailPrice) : 0,
+        catererPrice: req.body.catererPrice ? parseFloat(req.body.catererPrice) : 0,
         unit: req.body.unit || 'kg',
         stocksQty: req.body.stocksQty ? parseInt(req.body.stocksQty) : 0,
         isActive: req.body.isActive === 'true' || req.body.isActive === true || req.body.isActive === 1,
@@ -574,14 +636,17 @@ export async function registerRoutes(app: Express) {
       const conn = await storage.getConnection();
       try {
         const [result] = await conn.execute(`
-          INSERT INTO products (name, category_id, origin, description, price, unit, stocks_qty, is_active, image_path)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO products (name, category_id, origin, description, price, market_price, retail_price, caterer_price, unit, stocks_qty, is_active, image_path)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           processedData.name,
           processedData.categoryId,
           processedData.origin,
           processedData.description,
           processedData.price,
+          processedData.marketPrice,
+          processedData.retailPrice,
+          processedData.catererPrice,
           processedData.unit,
           processedData.stocksQty,
           processedData.isActive ? 1 : 0,
@@ -600,6 +665,9 @@ export async function registerRoutes(app: Express) {
           origin: dbProduct.origin,
           description: dbProduct.description,
           price: dbProduct.price,
+          marketPrice: dbProduct.market_price,
+          retailPrice: dbProduct.retail_price,
+          catererPrice: dbProduct.caterer_price,
           unit: dbProduct.unit,
           stocksQty: dbProduct.stocks_qty,
           isActive: dbProduct.is_active === 1,
@@ -633,6 +701,7 @@ export async function registerRoutes(app: Express) {
   app.patch("/api/products/:id", isAuthenticated, upload.single('image'), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      console.log(`Updating product with ID: ${id}, Data:`, req.body);
 
       // Get the uploaded file path if it exists
       let imagePath = undefined;
@@ -648,10 +717,25 @@ export async function registerRoutes(app: Express) {
         ...(imagePath && { imagePath })
       };
 
+      // Convert price fields to numbers if they're strings
+      if (productData.marketPrice !== undefined) {
+        productData.marketPrice = Number(productData.marketPrice);
+      }
+      if (productData.retailPrice !== undefined) {
+        productData.retailPrice = Number(productData.retailPrice);
+      }
+      if (productData.catererPrice !== undefined) {
+        productData.catererPrice = Number(productData.catererPrice);
+      }
+
+      console.log("Processed product data:", productData);
+
       const product = await storage.updateSpice(id, productData);
       if (!product) {
+        console.log(`Product with ID ${id} not found`);
         return res.status(404).json({ message: "Product not found" });
       }
+      console.log("Product updated successfully:", product);
       res.json(product);
     } catch (error) {
       console.error("Update product error:", error);
@@ -671,6 +755,33 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Update product market price
+  app.patch("/api/products/:id/market-price", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { marketPrice } = req.body;
+
+      if (marketPrice === undefined) {
+        return res.status(400).json({ message: "Market price is required" });
+      }
+
+      const parsedMarketPrice = parseFloat(marketPrice);
+      if (isNaN(parsedMarketPrice)) {
+        return res.status(400).json({ message: "Invalid market price value" });
+      }
+
+      const product = await storage.updateSpice(id, { marketPrice: parsedMarketPrice });
+      if (!product) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+
+      res.json(product);
+    } catch (error) {
+      console.error("Update market price error:", error);
+      res.status(500).json({ message: "Failed to update market price" });
+    }
+  });
+
   // Inventory API
   app.get("/api/inventory", isAuthenticated, async (_req, res) => {
     try {
@@ -683,6 +794,18 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Inventory analytics API
+  app.get("/api/inventory/analytics", isAuthenticated, async (_req, res) => {
+    try {
+      console.log("Fetching inventory analytics");
+      const analytics = await storage.getInventoryAnalytics();
+      res.json(analytics);
+    } catch (error) {
+      console.error("Get inventory analytics error:", error);
+      res.status(500).json({ message: "Failed to fetch inventory analytics" });
+    }
+  });
+
   app.get("/api/inventory/:id", isAuthenticated, async (req, res) => {
     try {
       const item = await storage.getInventoryItem(parseInt(req.params.id));
@@ -692,6 +815,66 @@ export async function registerRoutes(app: Express) {
       res.json(item);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch inventory item" });
+    }
+  });
+
+  // Get inventory items by product ID
+  app.get("/api/inventory/product/:productId", isAuthenticated, async (req, res) => {
+    try {
+      const productId = parseInt(req.params.productId);
+      if (isNaN(productId)) {
+        return res.status(400).json({ message: "Invalid product ID" });
+      }
+
+      const conn = await storage.getConnection();
+      try {
+        // Get all inventory items for the specified product
+        const [rows] = await conn.execute(`
+          SELECT
+            i.*,
+            p.name as product_name,
+            p.unit as product_unit,
+            s.name as supplier_name
+          FROM
+            inventory i
+          LEFT JOIN
+            products p ON i.product_id = p.id
+          LEFT JOIN
+            suppliers s ON i.supplier_id = s.id
+          WHERE
+            i.product_id = ? AND
+            i.status = 'active' AND
+            i.quantity > 0
+          ORDER BY
+            i.expiry_date ASC
+        `, [productId]);
+
+        // Map the database fields to the expected format for the client
+        const formattedItems = (rows as any[]).map(item => ({
+          id: item.id,
+          productId: item.product_id,
+          supplierId: item.supplier_id,
+          batchNumber: item.batch_number,
+          quantity: item.quantity,
+          unitPrice: item.unit_price,
+          totalValue: item.total_value,
+          expiryDate: item.expiry_date,
+          purchaseDate: item.purchase_date,
+          barcode: item.barcode,
+          notes: item.notes,
+          status: item.status,
+          productName: item.product_name,
+          productUnit: item.product_unit,
+          supplierName: item.supplier_name
+        }));
+
+        res.json(formattedItems);
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Get inventory by product error:", error);
+      res.status(500).json({ message: "Failed to fetch inventory items for product" });
     }
   });
 
@@ -779,6 +962,204 @@ export async function registerRoutes(app: Express) {
     } catch (error) {
       console.error("Create inventory error:", error);
       res.status(500).json({ message: "Failed to create inventory item", error: String(error) });
+    }
+  });
+
+  // Update inventory quantity (for batch selection in caterer billing)
+  app.patch("/api/inventory/:id/quantity", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { quantity, isAddition = false } = req.body;
+
+      if (quantity === undefined) {
+        return res.status(400).json({ message: "Quantity is required" });
+      }
+
+      const conn = await storage.getConnection();
+      try {
+        // Start a transaction
+        await conn.beginTransaction();
+
+        // First get the current inventory item to check its current quantity
+        const [rows] = await conn.execute(`SELECT * FROM inventory WHERE id = ?`, [id]);
+        if ((rows as any[]).length === 0) {
+          await conn.rollback();
+          return res.status(404).json({ message: "Inventory item not found" });
+        }
+
+        const item = (rows as any[])[0];
+        let newQuantity;
+
+        if (isAddition) {
+          // Add to the current quantity
+          newQuantity = Number(item.quantity) + Number(quantity);
+        } else {
+          // Subtract from the current quantity
+          newQuantity = Number(item.quantity) - Number(quantity);
+
+          // Ensure quantity doesn't go below zero
+          if (newQuantity < 0) {
+            await conn.rollback();
+            return res.status(400).json({
+              message: "Insufficient quantity available",
+              available: item.quantity
+            });
+          }
+        }
+
+        // Update the total value based on the new quantity
+        const totalValue = newQuantity * Number(item.unit_price);
+
+        // If quantity is zero, mark the batch as inactive
+        if (newQuantity === 0) {
+          console.log(`Batch ${id} quantity is now zero, marking as inactive`);
+
+          // Update the product's total stock quantity
+          const productId = item.product_id;
+
+          // Get the current product stock quantity
+          const [productRows] = await conn.execute(
+            `SELECT stocks_qty FROM products WHERE id = ?`,
+            [productId]
+          );
+
+          if ((productRows as any[]).length > 0) {
+            const product = (productRows as any[])[0];
+            const currentStockQty = Number(product.stocks_qty);
+            const updatedStockQty = Math.max(0, currentStockQty - Number(quantity));
+
+            // Update the product's stock quantity
+            await conn.execute(
+              `UPDATE products SET stocks_qty = ? WHERE id = ?`,
+              [updatedStockQty, productId]
+            );
+
+            console.log(`Updated product ${productId} stock quantity to ${updatedStockQty}`);
+          }
+
+          // Update the inventory item status to inactive
+          await conn.execute(
+            `UPDATE inventory SET quantity = 0, total_value = 0, status = 'inactive' WHERE id = ?`,
+            [id]
+          );
+        } else {
+          // Update the inventory item with new quantity
+          await conn.execute(
+            `UPDATE inventory SET quantity = ?, total_value = ? WHERE id = ?`,
+            [newQuantity, totalValue, id]
+          );
+
+          // Update the product's total stock quantity
+          if (!isAddition) {
+            const productId = item.product_id;
+
+            // Get the current product stock quantity
+            const [productRows] = await conn.execute(
+              `SELECT stocks_qty FROM products WHERE id = ?`,
+              [productId]
+            );
+
+            if ((productRows as any[]).length > 0) {
+              const product = (productRows as any[])[0];
+              const currentStockQty = Number(product.stocks_qty);
+              const updatedStockQty = Math.max(0, currentStockQty - Number(quantity));
+
+              // Update the product's stock quantity
+              await conn.execute(
+                `UPDATE products SET stocks_qty = ? WHERE id = ?`,
+                [updatedStockQty, productId]
+              );
+
+              console.log(`Updated product ${productId} stock quantity to ${updatedStockQty}`);
+            }
+          }
+        }
+
+        // Commit the transaction
+        await conn.commit();
+
+        // Get the updated item
+        const [updatedRows] = await conn.execute(`
+          SELECT
+            i.*,
+            p.name as product_name,
+            p.unit as product_unit,
+            s.name as supplier_name
+          FROM
+            inventory i
+          LEFT JOIN
+            products p ON i.product_id = p.id
+          LEFT JOIN
+            suppliers s ON i.supplier_id = s.id
+          WHERE i.id = ?
+        `, [id]);
+
+        if ((updatedRows as any[]).length === 0) {
+          // If the item is not found after update, it might be because it was marked as inactive
+          // Return a special response for zero quantity items
+          if (newQuantity === 0) {
+            const formattedItem = {
+              id: id,
+              productId: item.product_id,
+              supplierId: item.supplier_id,
+              batchNumber: item.batch_number,
+              quantity: 0,
+              unitPrice: item.unit_price,
+              totalValue: 0,
+              expiryDate: item.expiry_date,
+              purchaseDate: item.purchase_date,
+              barcode: item.barcode,
+              notes: item.notes,
+              status: 'inactive',
+              productName: item.product_name || "Unknown",
+              productUnit: item.product_unit || "kg",
+              supplierName: item.supplier_name || "Unknown"
+            };
+
+            res.json(formattedItem);
+            return;
+          }
+
+          return res.status(404).json({ message: "Inventory item not found after update" });
+        }
+
+        const updatedItem = (updatedRows as any[])[0];
+
+        // Map the database fields to the expected format for the client
+        const formattedItem = {
+          id: updatedItem.id,
+          productId: updatedItem.product_id,
+          supplierId: updatedItem.supplier_id,
+          batchNumber: updatedItem.batch_number,
+          quantity: updatedItem.quantity,
+          unitPrice: updatedItem.unit_price,
+          totalValue: updatedItem.total_value,
+          expiryDate: updatedItem.expiry_date,
+          purchaseDate: updatedItem.purchase_date,
+          barcode: updatedItem.barcode,
+          notes: updatedItem.notes,
+          status: updatedItem.status,
+          productName: updatedItem.product_name,
+          productUnit: updatedItem.product_unit,
+          supplierName: updatedItem.supplier_name
+        };
+
+        res.json(formattedItem);
+      } catch (error) {
+        // If there's an error, roll back the transaction
+        try {
+          await conn.rollback();
+          console.error("Transaction rolled back due to error:", error);
+        } catch (rollbackError) {
+          console.error("Error rolling back transaction:", rollbackError);
+        }
+        throw error;
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Update inventory quantity error:", error);
+      res.status(500).json({ message: "Failed to update inventory quantity" });
     }
   });
 
@@ -936,6 +1317,36 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Upload receipt image
+  app.post("/api/receipts/upload", isAuthenticated, upload.single('receipt'), async (req, res) => {
+    try {
+      console.log("Receipt upload request received");
+      console.log("Request headers:", req.headers);
+      console.log("Request file:", req.file);
+
+      if (!req.file) {
+        console.log("No file uploaded in request");
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      // Return the file information
+      const fileInfo = {
+        filename: req.file.filename,
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        path: req.file.path,
+        url: `/api/uploads/receipts/${req.file.filename}`
+      };
+
+      console.log("Receipt uploaded successfully:", fileInfo);
+      res.status(201).json(fileInfo);
+    } catch (error) {
+      console.error("Receipt upload error:", error);
+      res.status(500).json({ message: "Failed to upload receipt", error: String(error) });
+    }
+  });
+
   app.post("/api/purchases", isAuthenticated, async (req, res) => {
     try {
       console.log("Creating purchase with data:", req.body);
@@ -945,6 +1356,11 @@ export async function registerRoutes(app: Express) {
       if (requestData.vendorId && !requestData.supplierId) {
         requestData.supplierId = requestData.vendorId;
         delete requestData.vendorId;
+      }
+
+      // Handle null receiptImage - convert to undefined to make it optional
+      if (requestData.receiptImage === null) {
+        requestData.receiptImage = undefined;
       }
 
       // Validate the request body
@@ -1013,6 +1429,35 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Endpoint to check if a caterer has related records
+  app.get("/api/caterers/:id/check-related-records", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid caterer ID' });
+      }
+
+      // Check if the caterer exists
+      const caterer = await storage.getCaterer(id);
+      if (!caterer) {
+        return res.status(404).json({ message: "Caterer not found" });
+      }
+
+      // Get related records counts
+      const relatedRecords = await storage.getCatererRelatedRecordsCounts(id);
+
+      res.json({
+        hasRelatedRecords: relatedRecords.totalCount > 0,
+        distributionsCount: relatedRecords.distributionsCount,
+        paymentsCount: relatedRecords.paymentsCount,
+        totalCount: relatedRecords.totalCount
+      });
+    } catch (error) {
+      console.error("Check related records error:", error);
+      res.status(500).json({ message: "Failed to check related records" });
+    }
+  });
+
   app.post("/api/caterers", isAuthenticated, async (req, res) => {
     try {
       const validatedData = insertCatererSchema.parse(req.body);
@@ -1049,25 +1494,68 @@ export async function registerRoutes(app: Express) {
 
   app.delete("/api/caterers/:id", isAuthenticated, async (req, res) => {
     try {
+      console.log(`Delete caterer request received for ID: ${req.params.id}`);
+
+      // Validate the ID parameter
+      if (!req.params.id) {
+        return res.status(400).json({ error: 'Missing caterer ID' });
+      }
+
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ error: 'Invalid caterer ID' });
       }
 
+      // Check if the caterer exists
       const caterer = await storage.getCaterer(id);
       if (!caterer) {
         return res.status(404).json({ message: "Caterer not found" });
       }
 
-      const success = await storage.deleteCaterer(id);
+      // Check for deletion options
+      const forceDelete = req.query.force === 'true';
+      const cascadeDelete = req.query.cascade === 'true';
+
+      if (forceDelete) {
+        console.log(`Force delete requested for caterer ID: ${id}`);
+      }
+
+      if (cascadeDelete) {
+        console.log(`Cascade delete requested for caterer ID: ${id}`);
+      }
+
+      // If no special options, check if the caterer has related records
+      if (!forceDelete && !cascadeDelete) {
+        const relatedRecords = await storage.getCatererRelatedRecordsCounts(id);
+        if (relatedRecords.totalCount > 0) {
+          console.log(`Caterer ${id} has related records:`, relatedRecords);
+          return res.status(400).json({
+            error: `Cannot delete caterer with related records: ${relatedRecords.totalCount} related records found`,
+            relatedRecords: {
+              bills: relatedRecords.distributionsCount,
+              payments: relatedRecords.paymentsCount,
+              total: relatedRecords.totalCount
+            }
+          });
+        }
+      }
+
+      // Delete the caterer with appropriate options
+      const success = await storage.deleteCaterer(id, {
+        force: forceDelete,
+        cascade: cascadeDelete
+      });
+
       if (success) {
+        console.log(`Successfully deleted caterer with ID: ${id}`);
         res.status(204).end();
       } else {
+        console.error(`Failed to delete caterer with ID: ${id}`);
         res.status(500).json({ message: "Failed to delete caterer" });
       }
     } catch (error) {
       console.error("Delete caterer error:", error);
-      res.status(500).json({ message: "Failed to delete caterer" });
+      res.status(500).json({ message: "Failed to delete caterer", error: String(error) });
     }
   });
 
@@ -1076,10 +1564,55 @@ export async function registerRoutes(app: Express) {
     try {
       console.log("Fetching all distributions");
       const distributions = await storage.getDistributions();
+      console.log("Found distributions:", distributions);
       res.json(distributions);
     } catch (error) {
       console.error("Get distributions error:", error);
       res.status(500).json({ message: "Failed to fetch distributions" });
+    }
+  });
+
+  // Debug endpoint to check distributions table
+  app.get("/api/debug/distributions", isAuthenticated, async (_req, res) => {
+    try {
+      console.log("Debug: Checking distributions table");
+      const conn = await storage.getConnection();
+      try {
+        // Check if the table exists
+        const [tables] = await conn.execute(`SHOW TABLES LIKE 'distributions'`);
+        if ((tables as any[]).length === 0) {
+          return res.json({
+            exists: false,
+            message: "distributions table does not exist"
+          });
+        }
+
+        // Get table structure
+        const [columns] = await conn.execute(`SHOW COLUMNS FROM distributions`);
+
+        // Get row count
+        const [countResult] = await conn.execute(`SELECT COUNT(*) as count FROM distributions`);
+        const count = (countResult as any[])[0].count;
+
+        // Get sample data if any exists
+        let rows = [];
+        if (count > 0) {
+          const [rowsResult] = await conn.execute(`SELECT * FROM distributions LIMIT 10`);
+          rows = rowsResult;
+        }
+
+        res.json({
+          exists: true,
+          columns,
+          rowCount: count,
+          sampleData: rows
+        });
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Debug distributions error:", error);
+      res.status(500).json({ message: "Error checking distributions table", error: String(error) });
     }
   });
 
@@ -1108,6 +1641,22 @@ export async function registerRoutes(app: Express) {
     } catch (error) {
       console.error("Get distribution error:", error);
       res.status(500).json({ message: "Failed to fetch distribution" });
+    }
+  });
+
+  // Add a dedicated endpoint for distribution items
+  app.get("/api/distributions/:id/items", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid distribution ID' });
+      }
+
+      const items = await storage.getDistributionItems(id);
+      res.json(items);
+    } catch (error) {
+      console.error("Get distribution items error:", error);
+      res.status(500).json({ message: "Failed to fetch distribution items" });
     }
   });
 
@@ -1145,11 +1694,21 @@ export async function registerRoutes(app: Express) {
       const distribution = await storage.createDistribution(formattedData);
       res.status(201).json(distribution);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
-      }
       console.error("Create distribution error:", error);
-      res.status(500).json({ message: "Failed to create distribution" });
+
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: "Invalid distribution data",
+          error: error.errors
+        });
+      }
+
+      // Provide more detailed error message to the client
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      res.status(500).json({
+        message: "Failed to create distribution",
+        error: errorMessage
+      });
     }
   });
 
@@ -1205,12 +1764,89 @@ export async function registerRoutes(app: Express) {
   // Caterer Payments API
   app.get("/api/caterer-payments", isAuthenticated, async (_req, res) => {
     try {
-      console.log("Fetching all caterer payments");
       const payments = await storage.getCatererPayments();
-      res.json(payments);
+
+      // Ensure receipt_image field is present in all payments
+      const processedPayments = payments.map(payment => ({
+        ...payment,
+        receiptImage: payment.receiptImage || null
+      }));
+
+      res.json(processedPayments);
     } catch (error) {
       console.error("Get caterer payments error:", error);
       res.status(500).json({ message: "Failed to fetch caterer payments" });
+    }
+  });
+
+  // Debug endpoint to check caterer payments table
+  app.get("/api/debug/caterer-payments", isAuthenticated, async (_req, res) => {
+    try {
+      console.log("Debug: Checking caterer_payments table");
+      const conn = await storage.getConnection();
+      try {
+        // Check if the table exists
+        const [tables] = await conn.execute(`SHOW TABLES LIKE 'caterer_payments'`);
+        if ((tables as any[]).length === 0) {
+          return res.json({
+            exists: false,
+            message: "caterer_payments table does not exist"
+          });
+        }
+
+        // Get table structure
+        const [columns] = await conn.execute(`SHOW COLUMNS FROM caterer_payments`);
+
+        // Get row count
+        const [countResult] = await conn.execute(`SELECT COUNT(*) as count FROM caterer_payments`);
+        const count = (countResult as any[])[0].count;
+
+        // Get sample data if any exists
+        let rows = [];
+        if (count > 0) {
+          const [rowsResult] = await conn.execute(`
+            SELECT
+              cp.*,
+              c.name as caterer_name
+            FROM
+              caterer_payments cp
+            LEFT JOIN
+              caterers c ON cp.caterer_id = c.id
+            ORDER BY
+              cp.payment_date DESC
+            LIMIT 10
+          `);
+          rows = rowsResult;
+        }
+
+        // Map the data to the expected format
+        const mappedRows = (rows as any[]).map(payment => ({
+          id: payment.id,
+          catererId: payment.caterer_id,
+          catererName: payment.caterer_name,
+          distributionId: payment.distribution_id,
+          amount: payment.amount,
+          paymentDate: payment.payment_date,
+          paymentMode: payment.payment_mode,
+          referenceNo: payment.reference_no,
+          notes: payment.notes,
+          createdAt: payment.created_at,
+          receiptImage: payment.receipt_image || null
+        }));
+
+        res.json({
+          exists: true,
+          columns,
+          rowCount: count,
+          sampleData: rows,
+          mappedData: mappedRows
+        });
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Debug caterer payments error:", error);
+      res.status(500).json({ message: "Error checking caterer_payments table", error: String(error) });
     }
   });
 
@@ -1226,7 +1862,13 @@ export async function registerRoutes(app: Express) {
         return res.status(404).json({ message: "Payment not found" });
       }
 
-      res.json(payment);
+      // Ensure receipt_image field is present
+      const processedPayment = {
+        ...payment,
+        receiptImage: payment.receiptImage || null
+      };
+
+      res.json(processedPayment);
     } catch (error) {
       console.error("Get caterer payment error:", error);
       res.status(500).json({ message: "Failed to fetch caterer payment" });
@@ -1241,37 +1883,174 @@ export async function registerRoutes(app: Express) {
       }
 
       const payments = await storage.getCatererPaymentsByCaterer(catererId);
-      res.json(payments);
+
+      // Ensure receipt_image field is present in all payments
+      const processedPayments = payments.map(payment => ({
+        ...payment,
+        receiptImage: payment.receiptImage || null
+      }));
+
+      res.json(processedPayments);
     } catch (error) {
       console.error("Get payments by caterer error:", error);
       res.status(500).json({ message: "Failed to fetch payments" });
     }
   });
 
+  app.get("/api/caterer-payments/distribution/:id", isAuthenticated, async (req, res) => {
+    try {
+      const distributionId = parseInt(req.params.id);
+      if (isNaN(distributionId)) {
+        return res.status(400).json({ error: 'Invalid distribution ID' });
+      }
+
+      const payments = await storage.getCatererPaymentsByDistribution(distributionId);
+
+      // Ensure receipt_image field is present in all payments
+      const processedPayments = payments.map(payment => ({
+        ...payment,
+        receiptImage: payment.receiptImage || null
+      }));
+
+      res.json(processedPayments);
+    } catch (error) {
+      console.error("Get payments by distribution error:", error);
+      res.status(500).json({ message: "Failed to fetch payments" });
+    }
+  });
+
   app.post("/api/caterer-payments", isAuthenticated, async (req, res) => {
     try {
-      console.log("Creating caterer payment with data:", req.body);
+      console.log("Received payment data:", JSON.stringify(req.body, null, 2));
 
       // Validate the request body
       const validatedData = insertCatererPaymentSchema.parse(req.body);
 
-      // Ensure paymentDate is a Date object
-      const formattedData = {
-        ...validatedData,
-        paymentDate: validatedData.paymentDate instanceof Date
-          ? validatedData.paymentDate
-          : validatedData.paymentDate ? new Date(validatedData.paymentDate) : new Date()
-      };
+      console.log("Validated payment data:", JSON.stringify(validatedData, null, 2));
 
       // Create the payment
-      const payment = await storage.createCatererPayment(formattedData);
+      const payment = await storage.createCatererPayment(validatedData);
       res.status(201).json(payment);
     } catch (error) {
       if (error instanceof z.ZodError) {
+        console.log("Validation errors:", JSON.stringify(error.errors, null, 2));
         return res.status(400).json({ error: error.errors });
       }
       console.error("Create caterer payment error:", error);
       res.status(500).json({ message: "Failed to create caterer payment" });
     }
   });
+
+  // Payment Reminders API
+  app.get("/api/payment-reminders", isAuthenticated, async (_req, res) => {
+    try {
+      const reminders = await storage.getPaymentReminders();
+      res.json(reminders);
+    } catch (error) {
+      console.error("Get payment reminders error:", error);
+      res.status(500).json({ message: "Failed to fetch payment reminders" });
+    }
+  });
+
+  app.get("/api/payment-reminders/:id", isAuthenticated, async (req, res) => {
+    try {
+      const reminder = await storage.getPaymentReminder(req.params.id);
+      if (!reminder) {
+        return res.status(404).json({ message: "Payment reminder not found" });
+      }
+      res.json(reminder);
+    } catch (error) {
+      console.error("Get payment reminder error:", error);
+      res.status(500).json({ message: "Failed to fetch payment reminder" });
+    }
+  });
+
+  app.post("/api/payment-reminders", isAuthenticated, async (req, res) => {
+    try {
+      const reminder = await storage.createPaymentReminder(req.body);
+      res.status(201).json(reminder);
+    } catch (error) {
+      console.error("Create payment reminder error:", error);
+      res.status(500).json({ message: "Failed to create payment reminder" });
+    }
+  });
+
+  app.patch("/api/payment-reminders/:id", isAuthenticated, async (req, res) => {
+    try {
+      const reminder = await storage.updatePaymentReminder(req.params.id, req.body);
+      if (!reminder) {
+        return res.status(404).json({ message: "Payment reminder not found" });
+      }
+      res.json(reminder);
+    } catch (error) {
+      console.error("Update payment reminder error:", error);
+      res.status(500).json({ message: "Failed to update payment reminder" });
+    }
+  });
+
+  app.delete("/api/payment-reminders/:id", isAuthenticated, async (req, res) => {
+    try {
+      const success = await storage.deletePaymentReminder(req.params.id);
+      if (!success) {
+        return res.status(404).json({ message: "Payment reminder not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("Delete payment reminder error:", error);
+      res.status(500).json({ message: "Failed to delete payment reminder" });
+    }
+  });
+
+  // Update next reminder date
+  app.post("/api/payment-reminders/:id/next-reminder", isAuthenticated, async (req, res) => {
+    try {
+      const { nextReminderDate } = req.body;
+      if (!nextReminderDate) {
+        return res.status(400).json({ error: "Next reminder date is required" });
+      }
+
+      const reminder = await storage.updatePaymentReminder(req.params.id, {
+        nextReminderDate: new Date(nextReminderDate)
+      });
+
+      if (!reminder) {
+        return res.status(404).json({ message: "Payment reminder not found" });
+      }
+
+      res.json(reminder);
+    } catch (error) {
+      console.error("Update next reminder date error:", error);
+      res.status(500).json({ message: "Failed to update next reminder date" });
+    }
+  });
+
+  // Get caterer balance
+  app.get("/api/caterers/:id/balance", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid caterer ID' });
+      }
+
+      const caterer = await storage.getCaterer(id);
+      if (!caterer) {
+        return res.status(404).json({ error: 'Caterer not found' });
+      }
+
+      // Get the latest balance data
+      const balanceData = {
+        balanceDue: caterer.balanceDue || 0,
+        totalBilled: caterer.totalBilled || 0,
+        totalOrders: caterer.totalOrders || 0,
+        totalPaid: caterer.totalPaid || 0,
+        lastPaymentDate: undefined // We can add this later if needed
+      };
+
+      res.json(balanceData);
+    } catch (error) {
+      console.error('Error fetching caterer balance:', error);
+      res.status(500).json({ error: 'Failed to fetch caterer balance' });
+    }
+  });
+
 }

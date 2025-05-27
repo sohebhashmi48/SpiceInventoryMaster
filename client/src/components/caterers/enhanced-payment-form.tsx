@@ -1,0 +1,692 @@
+import { useState, useEffect } from 'react';
+import { useLocation, useRoute } from 'wouter';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { format, addDays } from 'date-fns';
+import { Button } from '@/components/ui/button';
+import {
+  Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter
+} from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '@/components/ui/select';
+import { Calendar } from '@/components/ui/calendar';
+import {
+  Popover, PopoverContent, PopoverTrigger
+} from '@/components/ui/popover';
+import {
+  Dialog, DialogContent, DialogDescription,
+  DialogHeader, DialogTitle, DialogFooter
+} from '@/components/ui/dialog';
+import { CalendarIcon, ArrowLeft, Save, Upload, Trash2, Image, AlertTriangle } from 'lucide-react';
+import { useCaterers } from '@/hooks/use-caterers';
+import { useDistributionsByCaterer } from '@/hooks/use-distributions';
+import { useCreateCatererPayment } from '@/hooks/use-caterer-payments';
+import { toast } from '@/components/ui/use-toast';
+import { cn } from '@/lib/utils';
+
+// Define the schema for the form
+const paymentFormSchema = z.object({
+  catererId: z.string().min(1, { message: "Caterer is required" }),
+  distributionId: z.string().optional(),
+  paymentType: z.enum(['full', 'custom'], { required_error: "Payment type is required" }),
+  amount: z.string().min(1, { message: "Amount is required" }),
+  paymentDate: z.date({
+    required_error: "Payment date is required",
+  }),
+  paymentMode: z.string().min(1, { message: "Payment mode is required" }),
+  referenceNo: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+type PaymentFormValues = z.infer<typeof paymentFormSchema>;
+
+interface EnhancedPaymentFormProps {
+  preselectedCatererId?: string;
+  preselectedDistributionId?: string;
+  preselectedAmount?: string;
+  onSuccess?: () => void;
+  onCancel?: () => void;
+}
+
+export default function EnhancedPaymentForm({
+  preselectedCatererId,
+  preselectedDistributionId,
+  preselectedAmount,
+  onSuccess,
+  onCancel
+}: EnhancedPaymentFormProps) {
+  const [, setLocation] = useLocation();
+  const createPayment = useCreateCatererPayment();
+
+  // State for receipt image
+  const [receiptImage, setReceiptImage] = useState<File | null>(null);
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // State for reminder dialog
+  const [showReminderDialog, setShowReminderDialog] = useState(false);
+  const [reminderDate, setReminderDate] = useState<Date>(addDays(new Date(), 7));
+  const [remainingBalance, setRemainingBalance] = useState<number>(0);
+
+  // Fetch caterers for dropdown
+  const { data: caterers, isLoading: caterersLoading } = useCaterers();
+
+  // Initialize form with default values
+  const form = useForm<PaymentFormValues>({
+    resolver: zodResolver(paymentFormSchema),
+    defaultValues: {
+      catererId: preselectedCatererId || '',
+      distributionId: preselectedDistributionId || '',
+      paymentType: 'full',
+      amount: preselectedAmount || '',
+      paymentDate: new Date(),
+      paymentMode: 'cash',
+      referenceNo: '',
+      notes: '',
+    },
+  });
+
+  // Watch for caterer ID changes to fetch distributions
+  const watchedCatererId = form.watch('catererId');
+  const watchedDistributionId = form.watch('distributionId');
+  const watchedPaymentType = form.watch('paymentType');
+
+  // Fetch distributions for selected caterer
+  const { data: distributions, isLoading: distributionsLoading } = useDistributionsByCaterer(
+    watchedCatererId ? parseInt(watchedCatererId) : 0
+  );
+
+  // Get selected distribution details
+  const selectedDistribution = distributions?.find(d => d.id === parseInt(watchedDistributionId || '0'));
+
+  // Auto-fill form values when data loads
+  useEffect(() => {
+    console.log('Form auto-fill effect triggered', {
+      preselectedCatererId,
+      preselectedDistributionId,
+      preselectedAmount,
+      caterers: caterers?.length,
+      distributions: distributions?.length
+    });
+
+    // Set caterer if preselected and caterers are loaded
+    if (preselectedCatererId && caterers && caterers.length > 0) {
+      const catererExists = caterers.find(c => c.id.toString() === preselectedCatererId);
+      if (catererExists && form.getValues('catererId') !== preselectedCatererId) {
+        console.log('Setting caterer ID:', preselectedCatererId);
+        form.setValue('catererId', preselectedCatererId);
+      }
+    }
+
+    // Set distribution if preselected and distributions are loaded
+    if (preselectedDistributionId && distributions && distributions.length > 0) {
+      const distributionExists = distributions.find(d => d.id.toString() === preselectedDistributionId);
+      if (distributionExists && form.getValues('distributionId') !== preselectedDistributionId) {
+        console.log('Setting distribution ID:', preselectedDistributionId);
+        form.setValue('distributionId', preselectedDistributionId);
+      }
+    }
+
+    // Set amount if preselected
+    if (preselectedAmount && form.getValues('amount') !== preselectedAmount) {
+      console.log('Setting amount:', preselectedAmount);
+      form.setValue('amount', preselectedAmount);
+      form.setValue('paymentType', 'custom'); // Set to custom when amount is preselected
+    }
+  }, [preselectedCatererId, preselectedDistributionId, preselectedAmount, caterers, distributions]);
+
+  // Auto-fill amount when distribution is selected or payment type changes
+  useEffect(() => {
+    if (selectedDistribution) {
+      if (watchedPaymentType === 'full') {
+        form.setValue('amount', selectedDistribution.balanceDue.toString());
+      } else if (watchedPaymentType === 'custom' && !preselectedAmount) {
+        form.setValue('amount', '');
+      }
+    }
+  }, [watchedDistributionId, watchedPaymentType, selectedDistribution, preselectedAmount]);
+
+  // Handle receipt image upload
+  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload an image file (JPEG, PNG, etc.)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Please upload an image smaller than 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Set the file and create a preview
+    setReceiptImage(file);
+    setReceiptPreview(URL.createObjectURL(file));
+  };
+
+  // Remove receipt image
+  const removeReceiptImage = () => {
+    setReceiptImage(null);
+    if (receiptPreview) {
+      URL.revokeObjectURL(receiptPreview);
+      setReceiptPreview(null);
+    }
+  };
+
+  // Upload receipt image to server
+  const uploadReceiptImage = async (): Promise<string | null> => {
+    if (!receiptImage) return null;
+
+    console.log("Starting receipt upload...", receiptImage.name, receiptImage.size);
+
+    try {
+      const formData = new FormData();
+      formData.append('receipt', receiptImage);
+
+      console.log("Sending upload request to /api/receipts/upload");
+      const response = await fetch('/api/receipts/upload', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      console.log("Upload response status:", response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Upload failed with response:", errorText);
+        throw new Error(`Upload failed: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log("Upload successful, response data:", data);
+      return data.filename;
+    } catch (error) {
+      console.error('Receipt upload error:', error);
+      toast({
+        title: "Failed to upload receipt",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+      return null;
+    }
+  };
+
+  // Check if reminder is needed
+  const checkReminderNeeded = (paymentAmount: number, totalBalance: number) => {
+    const remaining = totalBalance - paymentAmount;
+    if (remaining > 0 && watchedPaymentType === 'custom') {
+      setRemainingBalance(remaining);
+      setShowReminderDialog(true);
+      return true;
+    }
+    return false;
+  };
+
+  // Handle form submission
+  const onSubmit = async (data: PaymentFormValues) => {
+    console.log("Form submission started", data);
+    setIsUploading(true);
+    try {
+      // Upload receipt image if one is selected
+      let receiptFilename = null;
+      if (receiptImage) {
+        console.log("Uploading receipt image...");
+        receiptFilename = await uploadReceiptImage();
+        console.log("Receipt image uploaded:", receiptFilename);
+
+        // If upload failed, stop the submission
+        if (!receiptFilename) {
+          console.error("Receipt upload failed, stopping submission");
+          setIsUploading(false);
+          return;
+        }
+      }
+
+      const paymentAmount = parseFloat(data.amount);
+      const totalBalance = selectedDistribution ? parseFloat(selectedDistribution.balanceDue.toString()) : 0;
+
+      // Check if reminder is needed for partial payments
+      if (checkReminderNeeded(paymentAmount, totalBalance)) {
+        setIsUploading(false); // Reset loading state
+        return; // Wait for reminder dialog completion
+      }
+
+      // Prepare payment data
+      const paymentData = {
+        catererId: parseInt(data.catererId),
+        distributionId: data.distributionId && data.distributionId !== 'none' ? parseInt(data.distributionId) : undefined,
+        amount: data.amount,
+        paymentDate: data.paymentDate.toISOString(),
+        paymentMode: data.paymentMode,
+        referenceNo: data.referenceNo || undefined,
+        notes: data.notes || undefined,
+        receiptImage: receiptFilename || undefined
+      };
+
+      console.log("Submitting payment data:", paymentData);
+
+      // Create the payment
+      await createPayment.mutateAsync(paymentData);
+
+      toast({
+        title: "Payment recorded",
+        description: "The payment has been recorded successfully.",
+      });
+
+      // Call success callback or navigate
+      if (onSuccess) {
+        onSuccess();
+      } else if (preselectedCatererId) {
+        setLocation(`/caterers/${preselectedCatererId}`);
+      } else {
+        setLocation('/caterer-payments');
+      }
+    } catch (error) {
+      console.error('Error recording payment:', error);
+      toast({
+        title: "Failed to record payment",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Handle reminder confirmation
+  const handleReminderConfirm = async () => {
+    setShowReminderDialog(false);
+
+    // Create reminder (this would typically call an API)
+    toast({
+      title: "Reminder Set",
+      description: `Payment reminder set for ${format(reminderDate, 'PPP')} for remaining balance of ₹${remainingBalance.toLocaleString()}`,
+    });
+
+    // Continue with payment submission
+    const formData = form.getValues();
+    const paymentData = {
+      catererId: parseInt(formData.catererId),
+      distributionId: formData.distributionId && formData.distributionId !== 'none' ? parseInt(formData.distributionId) : undefined,
+      amount: formData.amount,
+      paymentDate: formData.paymentDate.toISOString(),
+      paymentMode: formData.paymentMode,
+      referenceNo: formData.referenceNo || undefined,
+      notes: formData.notes || undefined,
+      receiptImage: undefined // Already handled
+    };
+
+    try {
+      await createPayment.mutateAsync(paymentData);
+
+      toast({
+        title: "Payment recorded",
+        description: "The payment has been recorded successfully.",
+      });
+
+      if (onSuccess) {
+        onSuccess();
+      } else if (preselectedCatererId) {
+        setLocation(`/caterers/${preselectedCatererId}`);
+      } else {
+        setLocation('/caterer-payments');
+      }
+    } catch (error) {
+      console.error('Error recording payment:', error);
+      toast({
+        title: "Failed to record payment",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    }
+  };
+
+  return (
+    <>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Payment Details</CardTitle>
+              <CardDescription>Enter the payment information</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="catererId">Caterer *</Label>
+                <Controller
+                  control={form.control}
+                  name="catererId"
+                  render={({ field }) => (
+                    <Select
+                      disabled={!!preselectedCatererId || caterersLoading}
+                      value={field.value}
+                      onValueChange={field.onChange}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a caterer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {caterers?.map((caterer) => (
+                          <SelectItem key={caterer.id} value={caterer.id.toString()}>
+                            {caterer.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                {form.formState.errors.catererId && (
+                  <p className="text-sm text-red-500">{form.formState.errors.catererId.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="distributionId">Related Bill (Optional)</Label>
+                <Controller
+                  control={form.control}
+                  name="distributionId"
+                  render={({ field }) => (
+                    <Select
+                      disabled={!watchedCatererId || distributionsLoading}
+                      value={field.value}
+                      onValueChange={field.onChange}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a bill (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No specific bill</SelectItem>
+                        {distributions?.map((distribution) => (
+                          <SelectItem key={distribution.id} value={distribution.id.toString()}>
+                            {distribution.billNo} - ₹{distribution.balanceDue.toLocaleString()} due
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+
+              {selectedDistribution && (
+                <div className="space-y-2">
+                  <Label htmlFor="paymentType">Payment Amount *</Label>
+                  <Controller
+                    control={form.control}
+                    name="paymentType"
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select payment type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="full">
+                            Pay Full Amount (₹{selectedDistribution.balanceDue.toLocaleString()})
+                          </SelectItem>
+                          <SelectItem value="custom">Pay Custom Amount</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  {form.formState.errors.paymentType && (
+                    <p className="text-sm text-red-500">{form.formState.errors.paymentType.message}</p>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="amount">Amount (₹) *</Label>
+                <Input
+                  id="amount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max={selectedDistribution ? selectedDistribution.balanceDue : undefined}
+                  disabled={watchedPaymentType === 'full' && !!selectedDistribution}
+                  {...form.register("amount")}
+                  placeholder="Enter payment amount"
+                />
+                {form.formState.errors.amount && (
+                  <p className="text-sm text-red-500">{form.formState.errors.amount.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="paymentDate">Payment Date *</Label>
+                <Controller
+                  control={form.control}
+                  name="paymentDate"
+                  render={({ field }) => (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !field.value && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {field.value ? format(field.value, "PPP") : "Select a date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0">
+                        <Calendar
+                          mode="single"
+                          selected={field.value}
+                          onSelect={field.onChange}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  )}
+                />
+                {form.formState.errors.paymentDate && (
+                  <p className="text-sm text-red-500">{form.formState.errors.paymentDate.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="paymentMode">Payment Mode *</Label>
+                <Controller
+                  control={form.control}
+                  name="paymentMode"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select payment mode" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="upi">UPI</SelectItem>
+                        <SelectItem value="bank">Bank Transfer</SelectItem>
+                        <SelectItem value="cheque">Cheque</SelectItem>
+                        <SelectItem value="card">Card</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                {form.formState.errors.paymentMode && (
+                  <p className="text-sm text-red-500">{form.formState.errors.paymentMode.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="referenceNo">Reference Number (Optional)</Label>
+                <Input
+                  id="referenceNo"
+                  {...form.register("referenceNo")}
+                  placeholder="Enter reference number"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="notes">Notes (Optional)</Label>
+                <Textarea
+                  id="notes"
+                  {...form.register("notes")}
+                  placeholder="Enter any additional notes"
+                  rows={3}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Image className="h-5 w-5 mr-2 text-blue-600" />
+                Receipt Image (Optional)
+              </CardTitle>
+              <CardDescription>Upload a receipt image if available</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="border-2 border-dashed border-blue-200 dark:border-blue-900 rounded-lg p-6 text-center">
+                {receiptPreview ? (
+                  <div className="space-y-4">
+                    <img
+                      src={receiptPreview}
+                      alt="Receipt preview"
+                      className="max-h-48 mx-auto object-contain"
+                    />
+                    <div className="flex justify-center space-x-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={removeReceiptImage}
+                        className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <Upload className="h-12 w-12 mx-auto text-blue-400" />
+                    <div className="text-blue-700 dark:text-blue-300">
+                      <p className="font-medium">Upload Receipt Image</p>
+                      <p className="text-sm text-blue-500 dark:text-blue-400">
+                        Drag and drop or click to browse
+                      </p>
+                    </div>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleReceiptUpload}
+                      className="hidden"
+                      id="receipt-upload"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => document.getElementById('receipt-upload')?.click()}
+                      className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                    >
+                      <Upload className="h-4 w-4 mr-1" />
+                      Select Image
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="flex justify-end space-x-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCancel || (() => setLocation('/caterer-payments'))}
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={isUploading || createPayment.isPending}
+            className="min-w-[150px]"
+          >
+            {(isUploading || createPayment.isPending) ? (
+              <div className="flex items-center">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                Saving...
+              </div>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                Record Payment
+              </>
+            )}
+          </Button>
+        </div>
+      </form>
+
+      {/* Reminder Dialog */}
+      <Dialog open={showReminderDialog} onOpenChange={setShowReminderDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center">
+              <AlertTriangle className="h-5 w-5 mr-2 text-orange-500" />
+              Set Payment Reminder
+            </DialogTitle>
+            <DialogDescription>
+              You have a remaining balance of ₹{remainingBalance.toLocaleString()}.
+              Would you like to set a reminder for the next payment?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Next Payment Reminder Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start text-left font-normal"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {format(reminderDate, "PPP")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={reminderDate}
+                    onSelect={(date) => date && setReminderDate(date)}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowReminderDialog(false)}>
+              Skip Reminder
+            </Button>
+            <Button onClick={handleReminderConfirm}>
+              Set Reminder
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

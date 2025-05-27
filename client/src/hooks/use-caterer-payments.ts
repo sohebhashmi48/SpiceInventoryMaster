@@ -5,31 +5,39 @@ import { toast } from '../components/ui/use-toast';
 export interface CatererPayment {
   id: number;
   catererId: number;
+  catererName?: string;
   distributionId?: number;
   amount: string;
   paymentDate: string;
   paymentMode: string;
   referenceNo?: string;
   notes?: string;
+  receiptImage?: string | null;
   createdAt: string;
 }
 
 export interface CatererPaymentFormValues {
   catererId: number;
   distributionId?: number;
-  amount: string;
-  paymentDate: string;
+  amount: number | string;
+  paymentDate: Date | string;
   paymentMode: string;
   referenceNo?: string;
   notes?: string;
+  receiptImage?: string | null;
 }
 
 export function useCatererPayments() {
   return useQuery({
-    queryKey: ['catererPayments'],
+    queryKey: ['catererPayments'], // Remove timestamp to prevent infinite re-renders
     queryFn: async () => {
-      const response = await apiRequest<CatererPayment[]>('/api/caterer-payments');
-      return response;
+      try {
+        const response = await apiRequest<CatererPayment[]>('/api/caterer-payments');
+        return response;
+      } catch (error) {
+        console.error("Error fetching caterer payments:", error);
+        throw error;
+      }
     },
   });
 }
@@ -48,13 +56,25 @@ export function useCatererPayment(id: number) {
 
 export function useCatererPaymentsByCaterer(catererId: number) {
   return useQuery({
-    queryKey: ['catererPayments', 'caterer', catererId],
+    queryKey: ['catererPayments', 'caterer', catererId], // Remove timestamp to prevent infinite re-renders
     queryFn: async () => {
       if (!catererId) return [];
       const response = await apiRequest<CatererPayment[]>(`/api/caterer-payments/caterer/${catererId}`);
       return response;
     },
     enabled: !!catererId,
+  });
+}
+
+export function useCatererPaymentsByDistribution(distributionId: number) {
+  return useQuery({
+    queryKey: ['catererPayments', 'distribution', distributionId],
+    queryFn: async () => {
+      if (!distributionId) return [];
+      const response = await apiRequest<CatererPayment[]>(`/api/caterer-payments/distribution/${distributionId}`);
+      return response;
+    },
+    enabled: !!distributionId,
   });
 }
 

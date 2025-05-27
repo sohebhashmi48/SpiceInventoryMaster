@@ -1,12 +1,16 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
+import Layout from '../../components/layout/layout';
 import {
   useDistribution,
   useDistributionItems,
   useUpdateDistributionStatus
 } from '../../hooks/use-distributions';
 import { useCaterer } from '../../hooks/use-caterers';
-import { useCreateCatererPayment } from '../../hooks/use-caterer-payments';
+import {
+  useCreateCatererPayment,
+  useCatererPaymentsByDistribution
+} from '../../hooks/use-caterer-payments';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -19,8 +23,9 @@ import {
 } from '../../components/ui/table';
 import {
   CreditCard, ArrowLeft, Printer, Receipt,
-  DollarSign, CheckCircle, XCircle, Clock
+  DollarSign, CheckCircle, XCircle, Clock, Image
 } from 'lucide-react';
+import { Skeleton } from '../../components/ui/skeleton';
 import { Badge } from '../../components/ui/badge';
 import {
   Dialog, DialogContent, DialogDescription,
@@ -38,6 +43,7 @@ export default function DistributionDetailsPage({ params }: { params?: { id?: st
   const { data: distribution, isLoading: distributionLoading } = useDistribution(id);
   const { data: items, isLoading: itemsLoading } = useDistributionItems(id);
   const { data: caterer, isLoading: catererLoading } = useCaterer(distribution?.catererId);
+  const { data: payments, isLoading: paymentsLoading } = useCatererPaymentsByDistribution(id);
   const updateStatus = useUpdateDistributionStatus();
   const createPayment = useCreateCatererPayment();
 
@@ -80,8 +86,8 @@ export default function DistributionDetailsPage({ params }: { params?: { id?: st
       {
         catererId: distribution.catererId,
         distributionId: distribution.id,
-        amount: parseFloat(paymentAmount),
-        paymentDate,
+        amount: paymentAmount,
+        paymentDate: paymentDate.toISOString(),
         paymentMode,
         notes: paymentNotes,
       },
@@ -116,56 +122,61 @@ export default function DistributionDetailsPage({ params }: { params?: { id?: st
   // Loading state
   if (distributionLoading || itemsLoading || catererLoading) {
     return (
-      <div className="container mx-auto py-6 space-y-6">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center">
-            <CreditCard className="h-6 w-6 mr-2 text-primary" />
-            <h1 className="text-2xl font-bold">Distribution Details</h1>
+      <Layout>
+        <div className="container mx-auto py-6 space-y-6">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center">
+              <CreditCard className="h-6 w-6 mr-2 text-primary" />
+              <h1 className="text-2xl font-bold">Distribution Details</h1>
+            </div>
+            <Button variant="outline" onClick={() => navigate('/distributions')}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Distributions
+            </Button>
           </div>
-          <Button variant="outline" onClick={() => navigate('/distributions')}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Distributions
-          </Button>
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
         </div>
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-        </div>
-      </div>
+      </Layout>
     );
   }
 
   // If distribution not found
   if (!distribution) {
     return (
-      <div className="container mx-auto py-6 space-y-6">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center">
-            <CreditCard className="h-6 w-6 mr-2 text-primary" />
-            <h1 className="text-2xl font-bold">Distribution Details</h1>
-          </div>
-          <Button variant="outline" onClick={() => navigate('/distributions')}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Distributions
-          </Button>
-        </div>
-        <Card>
-          <CardContent className="py-10">
-            <div className="text-center">
-              <XCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
-              <h2 className="text-xl font-bold mb-2">Distribution Not Found</h2>
-              <p className="text-gray-500 mb-4">The distribution you're looking for doesn't exist or has been deleted.</p>
-              <Button onClick={() => navigate('/distributions')}>
-                Go Back to Distributions
-              </Button>
+      <Layout>
+        <div className="container mx-auto py-6 space-y-6">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center">
+              <CreditCard className="h-6 w-6 mr-2 text-primary" />
+              <h1 className="text-2xl font-bold">Distribution Details</h1>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+            <Button variant="outline" onClick={() => navigate('/distributions')}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Distributions
+            </Button>
+          </div>
+          <Card>
+            <CardContent className="py-10">
+              <div className="text-center">
+                <XCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />
+                <h2 className="text-xl font-bold mb-2">Distribution Not Found</h2>
+                <p className="text-gray-500 mb-4">The distribution you're looking for doesn't exist or has been deleted.</p>
+                <Button onClick={() => navigate('/distributions')}>
+                  Go Back to Distributions
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </Layout>
     );
   }
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <Layout>
+      <div className="container mx-auto py-6 space-y-6">
       <div className="flex justify-between items-center">
         <div className="flex items-center">
           <CreditCard className="h-6 w-6 mr-2 text-primary" />
@@ -294,83 +305,14 @@ export default function DistributionDetailsPage({ params }: { params?: { id?: st
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-2 border-t pt-4">
-            <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
-              <DialogTrigger asChild>
-                <Button className="w-full" disabled={distribution.status === 'paid' || distribution.status === 'cancelled'}>
-                  <DollarSign className="h-4 w-4 mr-2" />
-                  Record Payment
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Record Payment</DialogTitle>
-                  <DialogDescription>
-                    Enter the payment details for this distribution.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="paymentAmount">Payment Amount</Label>
-                    <Input
-                      id="paymentAmount"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      value={paymentAmount}
-                      onChange={(e) => setPaymentAmount(e.target.value)}
-                      placeholder="Enter amount"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="paymentMode">Payment Mode</Label>
-                    <Select value={paymentMode} onValueChange={setPaymentMode}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select payment mode" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                        <SelectItem value="upi">UPI</SelectItem>
-                        <SelectItem value="cheque">Cheque</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="paymentDate">Payment Date</Label>
-                    <Input
-                      id="paymentDate"
-                      type="date"
-                      value={paymentDate}
-                      onChange={(e) => setPaymentDate(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="paymentNotes">Notes</Label>
-                    <Textarea
-                      id="paymentNotes"
-                      value={paymentNotes}
-                      onChange={(e) => setPaymentNotes(e.target.value)}
-                      placeholder="Add any payment notes here..."
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={handlePaymentSubmit} disabled={createPayment.isLoading}>
-                    {createPayment.isLoading ? (
-                      <div className="flex items-center">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Processing...
-                      </div>
-                    ) : (
-                      <>Save Payment</>
-                    )}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+            <Button
+              className="w-full"
+              disabled={distribution.status === 'paid' || distribution.status === 'cancelled'}
+              onClick={() => navigate(`/caterer-payments/new?catererId=${distribution.catererId}&distributionId=${distribution.id}&amount=${distribution.balanceDue}`)}
+            >
+              <DollarSign className="h-4 w-4 mr-2" />
+              Record Payment
+            </Button>
 
             <div className="w-full flex space-x-2">
               <Button
@@ -395,6 +337,80 @@ export default function DistributionDetailsPage({ params }: { params?: { id?: st
           </CardFooter>
         </Card>
 
+        {/* Payment Records */}
+        <Card className="md:col-span-3">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Payment Records</CardTitle>
+              <CardDescription>Payment history for this distribution</CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(`/caterer-payments/new?catererId=${distribution.catererId}&distributionId=${distribution.id}&amount=${distribution.balanceDue}`)}
+              disabled={distribution.status === 'paid' || distribution.status === 'cancelled'}
+            >
+              <DollarSign className="h-4 w-4 mr-2" />
+              Add Payment
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {paymentsLoading ? (
+              <div className="space-y-3">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : !payments || payments.length === 0 ? (
+              <div className="text-center py-8 text-gray-500 border border-dashed rounded-md">
+                No payment records found for this distribution.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Payment Mode</TableHead>
+                      <TableHead>Reference</TableHead>
+                      <TableHead>Receipt</TableHead>
+                      <TableHead>Notes</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {payments.map((payment) => (
+                      <TableRow key={payment.id}>
+                        <TableCell>{formatDate(payment.paymentDate)}</TableCell>
+                        <TableCell className="font-medium">{formatCurrency(payment.amount)}</TableCell>
+                        <TableCell className="capitalize">{payment.paymentMode}</TableCell>
+                        <TableCell>{payment.referenceNo || '-'}</TableCell>
+                        <TableCell>
+                          {payment.receiptImage ? (
+                            <a
+                              href={`/api/uploads/receipts/${payment.receiptImage}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-500 hover:text-blue-700 underline flex items-center"
+                            >
+                              <Image className="h-4 w-4 mr-1" />
+                              View
+                            </a>
+                          ) : (
+                            '-'
+                          )}
+                        </TableCell>
+                        <TableCell>{payment.notes || '-'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Distribution Items */}
         <Card className="md:col-span-3">
           <CardHeader>
             <CardTitle>Distribution Items</CardTitle>
@@ -440,6 +456,7 @@ export default function DistributionDetailsPage({ params }: { params?: { id?: st
           </CardContent>
         </Card>
       </div>
-    </div>
+      </div>
+    </Layout>
   );
 }

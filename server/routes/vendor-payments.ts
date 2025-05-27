@@ -60,8 +60,8 @@ router.post("/vendors/:id/payment", async (req, res) => {
       amount: paymentAmount.toString(),
       transactionDate: paymentData.paymentDate,
       type: "payment",
-      notes: paymentData.notes,
-      invoiceId: paymentData.purchaseId
+      notes: paymentData.notes || `Payment for supplier ${supplierId}`
+      // Remove invoiceId as it's causing foreign key constraint errors
     });
 
     res.status(200).json({

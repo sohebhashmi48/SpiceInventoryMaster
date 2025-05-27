@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import CategoryManager from "@/components/inventory/category-manager";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { queryClient } from "@/lib/queryClient";
 import AddSpiceForm from "@/components/inventory/add-spice-form";
 
 export default function SpicesPage() {
@@ -65,20 +66,20 @@ export default function SpicesPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Add Spice Dialog */}
+      {/* Add Product Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Add New Product</DialogTitle>
-            <DialogDescription>
-              Add a new product to your catalog.
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-6 bg-white">
+          <DialogHeader className="mb-4">
+            <DialogTitle className="text-xl font-bold">Add New Product</DialogTitle>
+            <DialogDescription className="text-gray-500">
+              Add a new product to your catalog with details and pricing information.
             </DialogDescription>
           </DialogHeader>
           <AddSpiceForm
             onSuccess={() => {
               setIsAddDialogOpen(false);
-              // Force a refresh of the data
-              window.location.reload();
+              // Refresh the data without full page reload
+              queryClient.invalidateQueries({ queryKey: ["/api/products"] });
             }}
           />
         </DialogContent>

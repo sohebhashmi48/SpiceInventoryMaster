@@ -44,7 +44,17 @@ import {
 import AddSupplierForm from "./add-supplier-form";
 import SupplierFilters, { SupplierFilters as FilterType } from "./supplier-filters";
 
-export default function SupplierTable() {
+interface FilterValues {
+  searchTerm: string;
+  ratingFilter: number | null;
+  statusFilter: boolean | null;
+}
+
+interface SupplierTableProps {
+  filterValues?: FilterValues;
+}
+
+export default function SupplierTable({ filterValues }: SupplierTableProps = {}) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [filters, setFilters] = useState<FilterType>({
@@ -131,7 +141,8 @@ export default function SupplierTable() {
   const filteredSuppliers = useMemo(() => {
     if (!suppliers) return [];
 
-    return suppliers.filter(supplier => {
+    // First apply the existing filters
+    let result = suppliers.filter(supplier => {
       // Filter by name (search across name, contact name, email)
       const nameMatch = filters.name
         ? supplier.name.toLowerCase().includes(filters.name.toLowerCase()) ||
@@ -171,7 +182,49 @@ export default function SupplierTable() {
 
       return nameMatch && locationMatch && minAmountMatch && maxAmountMatch && dateMatch;
     });
-  }, [suppliers, filters]);
+
+    // Then apply the new filters from parent component if provided
+    if (filterValues) {
+      result = result.filter(supplier => {
+        // Apply search filter
+        if (filterValues.searchTerm) {
+          const searchTermLower = filterValues.searchTerm.toLowerCase();
+          const nameMatch = supplier.name?.toLowerCase().includes(searchTermLower);
+          const contactMatch = supplier.contactName?.toLowerCase().includes(searchTermLower);
+          const emailMatch = supplier.email?.toLowerCase().includes(searchTermLower);
+          const phoneMatch = supplier.phone?.toLowerCase().includes(searchTermLower);
+          const addressMatch = supplier.address?.toLowerCase().includes(searchTermLower);
+
+          // Check if any tags match the search term
+          const tagMatch = supplier.tags?.some(tag =>
+            tag.toLowerCase().includes(searchTermLower)
+          );
+
+          if (!(nameMatch || contactMatch || emailMatch || phoneMatch || addressMatch || tagMatch)) {
+            return false;
+          }
+        }
+
+        // Apply rating filter
+        if (filterValues.ratingFilter !== null && supplier.rating) {
+          if (supplier.rating < filterValues.ratingFilter) {
+            return false;
+          }
+        }
+
+        // Apply status filter
+        if (filterValues.statusFilter !== null) {
+          if (supplier.isActive !== filterValues.statusFilter) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+    }
+
+    return result;
+  }, [suppliers, filters, filterValues]);
 
   return (
     <div>

@@ -4,10 +4,11 @@ import PageHeader from "@/components/common/page-header";
 import VendorTable from "@/components/vendors/vendor-table";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Store, CreditCard, CheckSquare, UserPlus } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Store, CreditCard, CheckSquare, UserPlus, AlertCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Vendor } from "@shared/schema";
-import { 
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -16,15 +17,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import AddVendorForm from "@/components/vendors/add-vendor-form";
+import SupplierPaymentReminders from "@/components/dashboard/supplier-payment-reminders";
 
 export default function VendorsPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
-  
+
   const { data: vendors } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
   });
-  
+
   const vendorsWithBalances = vendors?.filter(vendor => Number(vendor.moneyOwed) > 0);
   const topVendors = vendors?.filter(vendor => (vendor.rating || 0) >= 4);
 
@@ -54,7 +56,24 @@ export default function VendorsPage() {
           </DialogContent>
         </Dialog>
       </PageHeader>
-      
+
+      {/* Supplier Payment Reminders */}
+      <div className="mb-6">
+        <Card className="overflow-hidden">
+          <CardHeader className="pb-2 pt-3">
+            <CardTitle className="text-base flex items-center">
+              <AlertCircle className="h-4 w-4 mr-2 text-orange-500" />
+              Supplier Payment Reminders
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="max-h-[200px] overflow-y-auto">
+              <SupplierPaymentReminders className="h-full" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
         <TabsList>
           <TabsTrigger value="all" className="flex items-center">
@@ -80,11 +99,11 @@ export default function VendorsPage() {
             )}
           </TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="all" className="mt-6">
           <VendorTable />
         </TabsContent>
-        
+
         <TabsContent value="outstanding" className="mt-6">
           <div className="bg-amber-50 border-l-4 border-amber-500 p-4 mb-6 rounded-r-md">
             <div className="flex">
@@ -101,7 +120,7 @@ export default function VendorsPage() {
           </div>
           <VendorTable />
         </TabsContent>
-        
+
         <TabsContent value="top" className="mt-6">
           <div className="bg-green-50 border-l-4 border-green-500 p-4 mb-6 rounded-r-md">
             <div className="flex">

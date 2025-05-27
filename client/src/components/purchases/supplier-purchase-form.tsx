@@ -39,7 +39,9 @@ import {
   DollarSign,
   Percent,
   Calculator,
-  CheckCircle
+  CheckCircle,
+  Upload,
+  Image
 } from "lucide-react";
 import {
   Select,
@@ -109,6 +111,9 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
   const [isCalculating, setIsCalculating] = useState(false);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [purchaseData, setPurchaseData] = useState<PurchaseFormValues | null>(null);
+  const [receiptImage, setReceiptImage] = useState<File | null>(null);
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [tempItem, setTempItem] = useState({
     itemName: "",
     quantity: "1", // Default to 1 for better user experience
@@ -287,6 +292,79 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
     }
   };
 
+  // Handle receipt image upload
+  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload an image file (JPEG, PNG, etc.)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Please upload an image smaller than 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Set the file and create a preview
+    setReceiptImage(file);
+    setReceiptPreview(URL.createObjectURL(file));
+  };
+
+  // Remove receipt image
+  const removeReceiptImage = () => {
+    setReceiptImage(null);
+    setReceiptPreview(null);
+    if (receiptPreview) {
+      URL.revokeObjectURL(receiptPreview);
+    }
+  };
+
+  // Upload receipt image to server
+  const uploadReceiptImage = async (): Promise<string | null> => {
+    if (!receiptImage) return null;
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('receipt', receiptImage);
+
+      const response = await fetch('/api/receipts/upload', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.filename;
+    } catch (error) {
+      console.error('Receipt upload error:', error);
+      toast({
+        title: "Failed to upload receipt",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+      return null;
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   // Create purchase mutation
   const createPurchaseMutation = useMutation({
     mutationFn: async (data: PurchaseFormValues) => {
@@ -339,7 +417,7 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
     },
   });
 
-  const onSubmit = (data: PurchaseFormValues) => {
+  const onSubmit = async (data: PurchaseFormValues) => {
     // Filter out items with empty names before submitting
     const filteredItems = data.items.filter(item => item.itemName && item.itemName.trim() !== "");
 
@@ -365,11 +443,28 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
   };
 
   // Function to handle confirmed submission
-  const handleConfirmedSubmit = () => {
+  const handleConfirmedSubmit = async () => {
     if (purchaseData) {
-      // The form schema will automatically transform the date string to a Date object
-      createPurchaseMutation.mutate(purchaseData);
-      setConfirmDialogOpen(false);
+      setIsUploading(true);
+      try {
+        // Upload receipt image if one is selected
+        let receiptFilename = null;
+        if (receiptImage) {
+          receiptFilename = await uploadReceiptImage();
+        }
+
+        // Add receipt image filename to purchase data
+        const dataWithReceipt = {
+          ...purchaseData,
+          receiptImage: receiptFilename
+        };
+
+        // The form schema will automatically transform the date string to a Date object
+        createPurchaseMutation.mutate(dataWithReceipt);
+        setConfirmDialogOpen(false);
+      } finally {
+        setIsUploading(false);
+      }
     }
   };
 
@@ -735,6 +830,84 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
           </CardContent>
         </Card>
 
+        {/* Receipt Upload Card */}
+        <Card className="mt-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center">
+              <Image className="h-5 w-5 mr-2 text-blue-600" />
+              Receipt Image
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <div className="border-2 border-dashed border-blue-200 dark:border-blue-900 rounded-lg p-6 text-center">
+                  {receiptPreview ? (
+                    <div className="space-y-4">
+                      <img
+                        src={receiptPreview}
+                        alt="Receipt preview"
+                        className="max-h-48 mx-auto object-contain"
+                      />
+                      <div className="flex justify-center space-x-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={removeReceiptImage}
+                          className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <Upload className="h-12 w-12 mx-auto text-blue-400" />
+                      <div className="text-blue-700 dark:text-blue-300">
+                        <p className="font-medium">Upload Receipt Image</p>
+                        <p className="text-sm text-blue-500 dark:text-blue-400">
+                          Drag and drop or click to browse
+                        </p>
+                      </div>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleReceiptUpload}
+                        className="hidden"
+                        id="receipt-upload"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => document.getElementById('receipt-upload')?.click()}
+                        className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                      >
+                        <Upload className="h-4 w-4 mr-1" />
+                        Select Image
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div className="bg-blue-50 dark:bg-gray-800 p-4 rounded-lg h-full">
+                  <h4 className="font-medium text-blue-700 dark:text-blue-300 mb-2">Receipt Guidelines</h4>
+                  <ul className="text-sm space-y-2 text-blue-600 dark:text-blue-400">
+                    <li>• Upload a clear image of the receipt</li>
+                    <li>• Make sure all details are visible</li>
+                    <li>• Maximum file size: 5MB</li>
+                    <li>• Supported formats: JPEG, PNG, GIF</li>
+                    <li>• The receipt will be stored with the purchase record</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="mt-6">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center">
@@ -921,6 +1094,9 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
                         <div>{purchaseData.paymentMethod}</div>
                       </>
                     )}
+
+                    <div className="font-medium">Receipt Image:</div>
+                    <div>{receiptImage ? "Yes (will be uploaded)" : "No"}</div>
                   </div>
                 </div>
               )}

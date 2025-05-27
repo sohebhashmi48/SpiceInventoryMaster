@@ -43,6 +43,9 @@ export const products = pgTable("products", {
   origin: text("origin"),
   description: text("description"),
   price: numeric("price").default("0"),
+  marketPrice: numeric("market_price").default("0"),
+  retailPrice: numeric("retail_price").default("0"),
+  catererPrice: numeric("caterer_price").default("0"),
   unit: text("unit").default("kg"),
   stocksQty: integer("stocks_qty").default(0),
   isActive: boolean("is_active").notNull().default(true),
@@ -118,6 +121,7 @@ export const purchases = pgTable("purchases", {
   totalGstAmount: numeric("total_gst_amount").notNull().default("0"),
   grandTotal: numeric("grand_total").notNull().default("0"),
   notes: text("notes"),
+  receiptImage: text("receipt_image"),
   status: text("status").notNull().default("active"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -265,6 +269,7 @@ export const catererPayments = pgTable("caterer_payments", {
   paymentMode: text("payment_mode").notNull(),
   referenceNo: text("reference_no"),
   notes: text("notes"),
+  receiptImage: text("receipt_image"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -279,6 +284,8 @@ export const purchaseWithItemsSchema = insertPurchaseSchema.extend({
   // Add supplierId field
   supplierId: z.number().optional(),
   items: z.array(insertPurchaseItemSchema.omit({ purchaseId: true })),
+  // Receipt image
+  receiptImage: z.string().nullable().optional(),
   // Payment related fields
   isPaid: z.boolean().optional(),
   paymentAmount: z.union([
@@ -315,7 +322,23 @@ export const insertDistributionSchema = createInsertSchema(distributions)
 export const insertDistributionItemSchema = createInsertSchema(distributionItems)
   .omit({ id: true, createdAt: true });
 export const insertCatererPaymentSchema = createInsertSchema(catererPayments)
-  .omit({ id: true, createdAt: true });
+  .omit({ id: true, createdAt: true })
+  .extend({
+    // Allow both string and number for amount to support form submissions
+    amount: z.union([
+      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
+      z.number()
+    ]),
+    // Allow both string and Date for paymentDate to support form submissions
+    paymentDate: z.union([
+      z.string().refine(val => !isNaN(Date.parse(val)), {
+        message: "Invalid date format"
+      }).transform(val => new Date(val)),
+      z.date()
+    ]),
+    // Allow receipt image to be optional
+    receiptImage: z.string().nullable().optional(),
+  });
 
 export type InsertCaterer = z.infer<typeof insertCatererSchema>;
 export type InsertDistribution = z.infer<typeof insertDistributionSchema>;
@@ -336,6 +359,8 @@ export const distributionWithItemsSchema = insertDistributionSchema.extend({
     }),
     z.date()
   ]),
+  // Receipt image
+  receiptImage: z.string().nullable().optional(),
   items: z.array(insertDistributionItemSchema.omit({ distributionId: true }))
 });
 

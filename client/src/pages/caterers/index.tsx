@@ -1,185 +1,245 @@
-import { useState } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
-import { Caterer, useCaterers, useDeleteCaterer } from '../../hooks/use-caterers';
-import { Button } from '../../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Input } from '../../components/ui/input';
+import { Caterer, useCaterers, useDeleteCaterer, RelatedRecordsError, DeleteCatererOptions } from '@/hooks/use-caterers';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
-  Table, TableBody, TableCell, TableHead,
-  TableHeader, TableRow
-} from '../../components/ui/table';
-import {
-  ChefHat, Plus, Search, Edit, Trash2,
-  CreditCard, Phone, Mail, MapPin
+  ChefHat, Plus, Search, Filter, Grid, List, AlertCircle
 } from 'lucide-react';
-import { Badge } from '../../components/ui/badge';
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel,
-  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
-  AlertDialogHeader, AlertDialogTitle
-} from '../../components/ui/alert-dialog';
-import { formatCurrency } from '../../lib/utils';
+import CatererDeleteDialog from '@/components/caterers/caterer-delete-dialog';
+import CatererLayout from '@/components/caterers/caterer-layout';
+import CatererCard from '@/components/caterers/caterer-card';
+import { formatCurrency } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
 export default function CaterersPage() {
-  const [location, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
   const { data: caterers, isLoading } = useCaterers();
-  const deleteCaterer = useDeleteCaterer();
-  const [searchQuery, setSearchQuery] = useState('');
+  const deleteCatererMutation = useDeleteCaterer();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchTerm);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [balanceFilter, setBalanceFilter] = useState<string>("all");
+  const [isFilterVisible, setIsFilterVisible] = useState(false);
+  const [view, setView] = useState<"grid" | "list">("grid");
   const [catererToDelete, setCatererToDelete] = useState<Caterer | null>(null);
+  const [relatedRecords, setRelatedRecords] = useState<RelatedRecordsError['relatedRecords'] | undefined>(undefined);
 
   // Helper function to navigate
   const navigate = (path: string) => setLocation(path);
 
-  const filteredCaterers = caterers?.filter(caterer =>
-    caterer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (caterer.contactName && caterer.contactName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (caterer.email && caterer.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (caterer.phone && caterer.phone.toLowerCase().includes(searchQuery.toLowerCase()))
+  // Debounce search term changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Memoize filter conditions
+  const filterConditions = useMemo(
+    () => ({
+      isActive: statusFilter === "active",
+      hasBalance: balanceFilter === "withBalance",
+      noBalance: balanceFilter === "noBalance"
+    }),
+    [statusFilter, balanceFilter]
   );
 
-  const handleDelete = () => {
-    if (catererToDelete) {
-      deleteCaterer.mutate(catererToDelete.id);
-      setCatererToDelete(null);
+  // Filter caterers based on search term and filters
+  const filteredCaterers = useMemo(() => {
+    if (!caterers) return [];
+
+    return caterers.filter(caterer => {
+      const matchesSearch = !debouncedSearchTerm || 
+        caterer.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+        (caterer.contactName && caterer.contactName.toLowerCase().includes(debouncedSearchTerm.toLowerCase()));
+
+      const matchesStatus = !filterConditions.isActive || caterer.isActive;
+      const matchesBalance = (
+        balanceFilter === "all" ||
+        (balanceFilter === "withBalance" && Number(caterer.balanceDue) > 0) ||
+        (balanceFilter === "noBalance" && Number(caterer.balanceDue) === 0)
+      );
+
+      return matchesSearch && matchesStatus && matchesBalance;
+    });
+  }, [caterers, debouncedSearchTerm, filterConditions, balanceFilter]);
+
+  // Handle delete click
+  const handleDeleteClick = useCallback(async (caterer: Caterer) => {
+    try {
+      const response = await fetch(`/api/caterers/${caterer.id}/check-related-records`);
+      const data = await response.json();
+
+      setCatererToDelete(caterer);
+      if (data.hasRelatedRecords) {
+        setRelatedRecords({
+          bills: data.distributionsCount || 0,
+          payments: data.paymentsCount || 0,
+          total: data.totalCount || 0
+        });
+      } else {
+        setRelatedRecords(undefined);
+      }
+    } catch (error) {
+      console.error('Error checking related records:', error);
+      setCatererToDelete(caterer);
+      setRelatedRecords(undefined);
     }
-  };
+  }, []);
+
+  // Handle delete confirmation
+  const handleDelete = useCallback((id: number, options?: DeleteCatererOptions) => {
+    deleteCatererMutation.mutate({ id, options }, {
+      onSuccess: () => {
+        setCatererToDelete(null);
+        setRelatedRecords(undefined);
+      },
+      onError: (error: any) => {
+        if (error.relatedRecords) {
+          setRelatedRecords(error.relatedRecords);
+        } else {
+          setCatererToDelete(null);
+          setRelatedRecords(undefined);
+        }
+      }
+    });
+  }, [deleteCatererMutation]);
+
+  const handleEdit = useCallback((caterer: Caterer) => {
+    navigate(`/caterers/${caterer.id}`);
+  }, [navigate]);
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <div className="flex items-center">
-          <ChefHat className="h-6 w-6 mr-2 text-primary" />
-          <h1 className="text-2xl font-bold">Caterers</h1>
-        </div>
-        <Button onClick={() => navigate('/caterers/new')} className="bg-primary">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Caterer
-        </Button>
-      </div>
+    <CatererLayout title="Caterer Management" description="View and manage your caterers">
+      <div className="space-y-6">
+        {/* Search and Filter UI */}
+        <div className="flex flex-col space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="relative w-64">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                <Input
+                  type="text"
+                  placeholder="Search caterers..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setIsFilterVisible(!isFilterVisible)}
+                className={cn(
+                  "h-10 w-10",
+                  isFilterVisible && "bg-gray-100"
+                )}
+              >
+                <Filter className="h-4 w-4" />
+              </Button>
+              <div className="flex items-center space-x-1 ml-4">
+                <Button
+                  variant={view === "grid" ? "secondary" : "ghost"}
+                  size="icon"
+                  onClick={() => setView("grid")}
+                  className="h-10 w-10"
+                >
+                  <Grid className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant={view === "list" ? "secondary" : "ghost"}
+                  size="icon"
+                  onClick={() => setView("list")}
+                  className="h-10 w-10"
+                >
+                  <List className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle>Caterer Management</CardTitle>
-          <div className="relative w-full max-w-sm">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search caterers..."
-              className="pl-10"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+            <Button onClick={() => navigate('/caterers/new')}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Caterer
+            </Button>
           </div>
-        </CardHeader>
-        <CardContent>
+
+          {/* Filter Options */}
+          {isFilterVisible && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-white rounded-lg border">
+              <div>
+                <Label>Status</Label>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Filter by status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="active">Active Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>Balance</Label>
+                <Select value={balanceFilter} onValueChange={setBalanceFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Filter by balance" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Balances</SelectItem>
+                    <SelectItem value="withBalance">With Balance</SelectItem>
+                    <SelectItem value="noBalance">No Balance</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSearchTerm("");
+                    setStatusFilter("all");
+                    setBalanceFilter("all");
+                  }}
+                  className="text-sm h-10"
+                >
+                  Clear All Filters
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Caterer Grid/List View */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
           {isLoading ? (
             <div className="flex justify-center items-center h-64">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             </div>
-          ) : filteredCaterers && filteredCaterers.length > 0 ? (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Contact</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Balance Due</TableHead>
-                    <TableHead>Total Orders</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredCaterers.map((caterer) => (
-                    <TableRow key={caterer.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex flex-col">
-                          <span>{caterer.name}</span>
-                          {caterer.contactName && (
-                            <span className="text-sm text-muted-foreground">
-                              Contact: {caterer.contactName}
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col space-y-1">
-                          {caterer.phone && (
-                            <div className="flex items-center text-sm">
-                              <Phone className="h-3 w-3 mr-1" />
-                              <span>{caterer.phone}</span>
-                            </div>
-                          )}
-                          {caterer.email && (
-                            <div className="flex items-center text-sm">
-                              <Mail className="h-3 w-3 mr-1" />
-                              <span>{caterer.email}</span>
-                            </div>
-                          )}
-                          {caterer.address && (
-                            <div className="flex items-center text-sm">
-                              <MapPin className="h-3 w-3 mr-1" />
-                              <span className="truncate max-w-[200px]">{caterer.address}</span>
-                            </div>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={caterer.isActive ? "success" : "secondary"}>
-                          {caterer.isActive ? "Active" : "Inactive"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {formatCurrency(Number(caterer.balanceDue || 0))}
-                      </TableCell>
-                      <TableCell>
-                        {caterer.totalOrders || 0}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end space-x-2">
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => {
-                              // Force navigation with window.location to avoid potential routing issues
-                              window.location.href = `/distributions/new?catererId=${caterer.id}`;
-                            }}
-                            title="Create Distribution"
-                          >
-                            <CreditCard className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => {
-                              // Force navigation with window.location to avoid potential routing issues
-                              window.location.href = `/caterers/${caterer.id}`;
-                            }}
-                            title="Edit Caterer"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                            onClick={() => setCatererToDelete(caterer)}
-                            title="Delete Caterer"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+          ) : filteredCaterers.length > 0 ? (
+            <div className={view === "grid" ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" : "space-y-4"}>
+              {filteredCaterers.map((caterer) => (
+                <CatererCard
+                  key={caterer.id}
+                  caterer={caterer}
+                  onEdit={handleEdit}
+                  onDelete={handleDeleteClick}
+                />
+              ))}
             </div>
           ) : (
             <div className="text-center py-10">
               <p className="text-muted-foreground">No caterers found</p>
-              {searchQuery && (
+              {(searchTerm || statusFilter !== "all" || balanceFilter !== "all") && (
                 <p className="text-sm text-muted-foreground mt-2">
-                  Try adjusting your search query
+                  Try adjusting your search or filters
                 </p>
               )}
               <Button
@@ -192,29 +252,17 @@ export default function CaterersPage() {
               </Button>
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <AlertDialog open={!!catererToDelete} onOpenChange={(open) => !open && setCatererToDelete(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete the caterer "{catererToDelete?.name}".
-              This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-red-500 hover:bg-red-600"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
+      {/* Delete Dialog */}
+      <CatererDeleteDialog
+        open={!!catererToDelete}
+        caterer={catererToDelete}
+        relatedRecords={relatedRecords}
+        onOpenChange={(open) => !open && setCatererToDelete(null)}
+        onDelete={handleDelete}
+      />
+    </CatererLayout>
   );
 }

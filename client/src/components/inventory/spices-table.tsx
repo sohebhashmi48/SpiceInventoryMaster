@@ -23,9 +23,9 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   MoreHorizontal,
@@ -35,7 +35,9 @@ import {
   Eye,
   Check,
   X,
-  ArrowUpDown
+  ArrowUpDown,
+  RefreshCw,
+  Plus
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +49,11 @@ export default function SpicesTable() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [selectedSpice, setSelectedSpice] = useState<Spice | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
+  const [isUpdatePriceDialogOpen, setIsUpdatePriceDialogOpen] = useState(false);
+  const [activePriceType, setActivePriceType] = useState<'market' | 'retail' | 'caterer'>('market');
+  const [marketPrice, setMarketPrice] = useState<number>(0);
+  const [retailPrice, setRetailPrice] = useState<number>(0);
+  const [catererPrice, setCatererPrice] = useState<number>(0);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortField, setSortField] = useState<keyof Spice>("name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
@@ -92,7 +99,24 @@ export default function SpicesTable() {
     };
 
     loadAveragePrices();
+
+    // Call the debug function to check product IDs
+    checkProductIds();
   }, [spices]);
+
+  // Debug function to check product IDs
+  const checkProductIds = async () => {
+    try {
+      const response = await fetch('/api/products/debug/ids');
+      if (!response.ok) {
+        throw new Error('Failed to fetch product IDs');
+      }
+      const data = await response.json();
+      console.log('Product IDs:', data);
+    } catch (error) {
+      console.error('Error fetching product IDs:', error);
+    }
+  };
 
   // Filter spices based on search term
   const filteredSpices = spices?.filter(spice =>
@@ -189,6 +213,22 @@ export default function SpicesTable() {
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex items-center gap-2">
+          <h2 className="text-2xl font-bold">Products</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              checkProductIds();
+              refetch();
+            }}
+          >
+            <RefreshCw className="mr-2 h-4 w-4" /> Refresh
+          </Button>
+        </div>
+      </div>
+
       <div className="flex flex-col sm:flex-row justify-between gap-4">
         <div className="relative max-w-md">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -199,23 +239,6 @@ export default function SpicesTable() {
             className="pl-8 max-w-md"
           />
         </div>
-
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-secondary hover:bg-secondary-dark text-white">
-              Add New Product
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-xl">
-            <DialogHeader>
-              <DialogTitle>Add New Product</DialogTitle>
-              <DialogDescription>
-                Add a new product to your inventory catalog.
-              </DialogDescription>
-            </DialogHeader>
-            <AddSpiceForm onSuccess={() => setIsAddDialogOpen(false)} />
-          </DialogContent>
-        </Dialog>
       </div>
 
       <div className="rounded-md border">
@@ -239,7 +262,33 @@ export default function SpicesTable() {
                   <span className="text-xs text-muted-foreground ml-1">(calculated)</span>
                 </div>
               </TableHead>
-              <TableHead>Unit</TableHead>
+              <TableHead>
+                <div className="flex items-center">
+                  Market Price
+                  <span className="text-xs text-muted-foreground ml-1">(selling price)</span>
+                </div>
+              </TableHead>
+              <TableHead>
+                <div className="flex items-center">
+                  Retail Price
+                  <span className="text-xs text-muted-foreground ml-1">(retail)</span>
+                </div>
+              </TableHead>
+              <TableHead>
+                <div className="flex items-center">
+                  Caterer Price
+                  <span className="text-xs text-muted-foreground ml-1">(caterers)</span>
+                </div>
+              </TableHead>
+              <TableHead>
+                <div
+                  className="flex items-center cursor-pointer"
+                  onClick={() => toggleSort('stocksQty')}
+                >
+                  Stock Quantity
+                  <ArrowUpDown className="ml-2 h-4 w-4" />
+                </div>
+              </TableHead>
               <TableHead>
                 <div
                   className="flex items-center cursor-pointer"
@@ -292,7 +341,73 @@ export default function SpicesTable() {
                       <span className="text-muted-foreground">Loading...</span>
                     )}
                   </TableCell>
-                  <TableCell>{spice.unit}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <div className="flex items-center">
+                        <span className="font-medium">₹{Number(spice.marketPrice || 0).toFixed(2)}/{spice.unit}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 ml-2"
+                          onClick={() => {
+                            setSelectedSpice(spice);
+                            setActivePriceType('market');
+                            setIsUpdatePriceDialogOpen(true);
+                          }}
+                        >
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <div className="flex items-center">
+                        <span className="font-medium text-orange-600">₹{Number(spice.retailPrice || 0).toFixed(2)}/{spice.unit}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 ml-2"
+                          onClick={() => {
+                            setSelectedSpice(spice);
+                            setActivePriceType('retail');
+                            setIsUpdatePriceDialogOpen(true);
+                          }}
+                        >
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <div className="flex items-center">
+                        <span className="font-medium text-purple-600">₹{Number(spice.catererPrice || 0).toFixed(2)}/{spice.unit}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 ml-2"
+                          onClick={() => {
+                            setSelectedSpice(spice);
+                            setActivePriceType('caterer');
+                            setIsUpdatePriceDialogOpen(true);
+                          }}
+                        >
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {spice.stocksQty <= 10 ? (
+                      <span className="text-red-600 font-medium">{spice.stocksQty} {spice.unit}</span>
+                    ) : (
+                      <span>{spice.stocksQty} {spice.unit}</span>
+                    )}
+                    {spice.stocksQty <= 10 && (
+                      <div className="text-xs text-red-500 mt-1">Low on stock</div>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {spice.isActive ? (
                       <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
@@ -420,13 +535,321 @@ export default function SpicesTable() {
                     )
                   }
                 </p>
-                <p><strong>Stock Quantity:</strong> {selectedSpice.stocksQty}</p>
+                <p>
+                  <strong>Market Price (Selling Price):</strong>
+                  <span className="text-blue-600 font-medium ml-1">₹{Number(selectedSpice.marketPrice || 0).toFixed(2)} / {selectedSpice.unit}</span>
+                </p>
+                <p>
+                  <strong>Retail Price:</strong>
+                  <span className="text-orange-600 font-medium ml-1">₹{Number(selectedSpice.retailPrice || 0).toFixed(2)} / {selectedSpice.unit}</span>
+                </p>
+                <p>
+                  <strong>Caterer Price:</strong>
+                  <span className="text-purple-600 font-medium ml-1">₹{Number(selectedSpice.catererPrice || 0).toFixed(2)} / {selectedSpice.unit}</span>
+                </p>
+                <p>
+                  <strong>Stock Quantity:</strong>
+                  {selectedSpice.stocksQty <= 10 ? (
+                    <span className="text-red-600 font-medium ml-1">
+                      {selectedSpice.stocksQty} {selectedSpice.unit}
+                      <span className="ml-2 text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full">Low on stock</span>
+                    </span>
+                  ) : (
+                    <span className="ml-1">{selectedSpice.stocksQty} {selectedSpice.unit}</span>
+                  )}
+                </p>
                 <p><strong>Status:</strong> {selectedSpice.isActive ? "Active" : "Inactive"}</p>
               </div>
             </div>
           ) : (
             <p>No spice selected.</p>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isUpdatePriceDialogOpen} onOpenChange={(open) => {
+        setIsUpdatePriceDialogOpen(open);
+        if (open && selectedSpice) {
+          setMarketPrice(selectedSpice.marketPrice || 0);
+          setRetailPrice(selectedSpice.retailPrice || 0);
+          setCatererPrice(selectedSpice.catererPrice || 0);
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {activePriceType === 'market' && "Update Market Price"}
+              {activePriceType === 'retail' && "Update Retail Price"}
+              {activePriceType === 'caterer' && "Update Caterer Price"}
+            </DialogTitle>
+            <DialogDescription>
+              Set the price for {selectedSpice?.name}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {/* Market Price */}
+            {activePriceType === 'market' && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-blue-600">Market Price (Selling Price)</h3>
+                <div className="flex items-center justify-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setMarketPrice(prev => Math.max(0, prev - 1))}
+                  >
+                    <span className="text-lg">-</span>
+                  </Button>
+                  <div className="flex items-center border rounded-md overflow-hidden">
+                    <span className="px-3 py-2 bg-muted">₹</span>
+                    <Input
+                      type="number"
+                      value={marketPrice}
+                      onChange={(e) => setMarketPrice(parseFloat(e.target.value) || 0)}
+                      min={0}
+                      step={0.01}
+                      className="border-0 w-24 text-center"
+                    />
+                    <span className="px-3 py-2 bg-muted">/{selectedSpice?.unit}</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setMarketPrice(prev => prev + 1)}
+                  >
+                    <span className="text-lg">+</span>
+                  </Button>
+                </div>
+                <div className="flex justify-between items-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMarketPrice(prev => Math.max(0, prev - 5))}
+                  >
+                    -₹5
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMarketPrice(prev => Math.max(0, prev - 10))}
+                  >
+                    -₹10
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMarketPrice(prev => prev + 5)}
+                  >
+                    +₹5
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMarketPrice(prev => prev + 10)}
+                  >
+                    +₹10
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Retail Price */}
+            {activePriceType === 'retail' && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-orange-600">Retail Price</h3>
+                <div className="flex items-center justify-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setRetailPrice(prev => Math.max(0, prev - 1))}
+                  >
+                    <span className="text-lg">-</span>
+                  </Button>
+                  <div className="flex items-center border rounded-md overflow-hidden">
+                    <span className="px-3 py-2 bg-muted">₹</span>
+                    <Input
+                      type="number"
+                      value={retailPrice}
+                      onChange={(e) => setRetailPrice(parseFloat(e.target.value) || 0)}
+                      min={0}
+                      step={0.01}
+                      className="border-0 w-24 text-center"
+                    />
+                    <span className="px-3 py-2 bg-muted">/{selectedSpice?.unit}</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setRetailPrice(prev => prev + 1)}
+                  >
+                    <span className="text-lg">+</span>
+                  </Button>
+                </div>
+                <div className="flex justify-between items-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRetailPrice(prev => Math.max(0, prev - 5))}
+                  >
+                    -₹5
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRetailPrice(prev => Math.max(0, prev - 10))}
+                  >
+                    -₹10
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRetailPrice(prev => prev + 5)}
+                  >
+                    +₹5
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRetailPrice(prev => prev + 10)}
+                  >
+                    +₹10
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Caterer Price */}
+            {activePriceType === 'caterer' && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-purple-600">Caterer Price</h3>
+                <div className="flex items-center justify-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setCatererPrice(prev => Math.max(0, prev - 1))}
+                  >
+                    <span className="text-lg">-</span>
+                  </Button>
+                  <div className="flex items-center border rounded-md overflow-hidden">
+                    <span className="px-3 py-2 bg-muted">₹</span>
+                    <Input
+                      type="number"
+                      value={catererPrice}
+                      onChange={(e) => setCatererPrice(parseFloat(e.target.value) || 0)}
+                      min={0}
+                      step={0.01}
+                      className="border-0 w-24 text-center"
+                    />
+                    <span className="px-3 py-2 bg-muted">/{selectedSpice?.unit}</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setCatererPrice(prev => prev + 1)}
+                  >
+                    <span className="text-lg">+</span>
+                  </Button>
+                </div>
+                <div className="flex justify-between items-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCatererPrice(prev => Math.max(0, prev - 5))}
+                  >
+                    -₹5
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCatererPrice(prev => Math.max(0, prev - 10))}
+                  >
+                    -₹10
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCatererPrice(prev => prev + 5)}
+                  >
+                    +₹5
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCatererPrice(prev => prev + 10)}
+                  >
+                    +₹10
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="sm:justify-between">
+            <Button
+              variant="ghost"
+              onClick={() => setIsUpdatePriceDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!selectedSpice) return;
+
+                try {
+                  // Create the update payload based on the active price type
+                  const updateData: any = {};
+
+                  if (activePriceType === 'market') {
+                    updateData.marketPrice = marketPrice;
+                  } else if (activePriceType === 'retail') {
+                    updateData.retailPrice = retailPrice;
+                  } else if (activePriceType === 'caterer') {
+                    updateData.catererPrice = catererPrice;
+                  }
+
+                  console.log(`Updating product with ID: ${selectedSpice.id}`, updateData);
+                  const response = await fetch(`/api/products/${selectedSpice.id}`, {
+                    method: 'PATCH',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(updateData),
+                  });
+
+                  console.log('Update response status:', response.status);
+                  if (response.status === 404) {
+                    throw new Error(`Product with ID ${selectedSpice.id} not found. Please refresh the page and try again.`);
+                  }
+
+                  if (!response.ok) {
+                    throw new Error(`Failed to update ${activePriceType} price`);
+                  }
+
+                  const priceTypeLabel =
+                    activePriceType === 'market' ? 'Market Price' :
+                    activePriceType === 'retail' ? 'Retail Price' : 'Caterer Price';
+
+                  toast({
+                    title: `${priceTypeLabel} updated`,
+                    description: `${priceTypeLabel} for ${selectedSpice.name} has been updated successfully`,
+                  });
+
+                  setIsUpdatePriceDialogOpen(false);
+                  refetch();
+                } catch (error: any) {
+                  toast({
+                    title: "Error",
+                    description: error.message,
+                    variant: "destructive",
+                  });
+                }
+              }}
+            >
+              {activePriceType === 'market' && "Update Market Price"}
+              {activePriceType === 'retail' && "Update Retail Price"}
+              {activePriceType === 'caterer' && "Update Caterer Price"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       </div>

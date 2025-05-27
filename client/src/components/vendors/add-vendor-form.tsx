@@ -27,7 +27,6 @@ const formSchema = insertVendorSchema.extend({
   address: z.string().optional().nullable(),
   isActive: z.boolean().default(true),
   paymentTerms: z.string().optional().nullable(),
-  creditLimit: z.coerce.number().min(0, "Credit limit cannot be negative").optional().nullable(),
   balanceDue: z.coerce.number().min(0, "Balance due cannot be negative").optional().nullable(),
   totalPaid: z.coerce.number().min(0, "Total paid cannot be negative").optional().nullable(),
   notes: z.string().optional().nullable(),
@@ -79,7 +78,6 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
     defaultValues: existingVendor ? {
       ...existingVendor,
       // Convert numeric string values to numbers for the form
-      creditLimit: existingVendor.creditLimit ? Number(existingVendor.creditLimit) : null,
       balanceDue: existingVendor.balanceDue ? Number(existingVendor.balanceDue) : null,
       totalPaid: existingVendor.totalPaid ? Number(existingVendor.totalPaid) : null,
       rating: existingVendor.rating ? Number(existingVendor.rating) : null,
@@ -91,7 +89,6 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
       address: "",
       isActive: true,
       paymentTerms: "",
-      creditLimit: null,
       balanceDue: null,
       totalPaid: null,
       notes: "",
@@ -230,28 +227,7 @@ export default function AddVendorForm({ onSuccess, existingVendor }: AddVendorFo
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="creditLimit"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Credit Limit ($)</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      placeholder="0.00"
-                      value={field.value === null ? "" : field.value}
-                      onChange={(e) => field.onChange(e.target.value === "" ? null : Number(e.target.value))}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
-                      min="0"
-                      step="0.01"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {/* Credit Limit field removed */}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

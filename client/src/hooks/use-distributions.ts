@@ -165,18 +165,31 @@ export function useDeleteDistribution() {
 
   return useMutation({
     mutationFn: async (id: number) => {
-      const distribution = await apiRequest<Distribution>(`/api/distributions/${id}`);
-      await apiRequest<{ success: boolean }>(`/api/distributions/${id}`, {
-        method: 'DELETE',
-      });
-      return distribution;
+      try {
+        // First get the distribution to have the data for invalidation
+        const distribution = await apiRequest<Distribution>(`/api/distributions/${id}`);
+
+        // Then delete it
+        await apiRequest<{ success: boolean }>(`/api/distributions/${id}`, {
+          method: 'DELETE',
+        });
+
+        return distribution;
+      } catch (error) {
+        console.error('Error deleting distribution:', error);
+        throw error;
+      }
     },
     onSuccess: (data) => {
+      // Invalidate all relevant queries
       queryClient.invalidateQueries({ queryKey: ['distributions'] });
-      queryClient.invalidateQueries({ queryKey: ['distributions', 'caterer', data.catererId] });
+      if (data && data.catererId) {
+        queryClient.invalidateQueries({ queryKey: ['distributions', 'caterer', data.catererId] });
+        queryClient.invalidateQueries({ queryKey: ['caterers', data.catererId] });
+      }
       queryClient.invalidateQueries({ queryKey: ['caterers'] });
-      queryClient.invalidateQueries({ queryKey: ['caterers', data.catererId] });
-      queryClient.invalidateQueries({ queryKey: ['spices'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['caterer-payments'] });
 
       toast({
         title: 'Distribution deleted',

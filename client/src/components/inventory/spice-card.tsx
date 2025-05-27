@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Spice, Category } from "@shared/schema";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { formatQuantityWithUnit, UnitType } from "@/lib/utils";
 
 interface SpiceCardProps {
   spice: Spice;
@@ -19,6 +21,8 @@ interface SpiceCardProps {
 }
 
 export default function SpiceCard({ spice, categories, onView, onEdit, onDelete }: SpiceCardProps) {
+  // We'll use the market price directly from the spice object
+
   const getCategoryName = (categoryId: number) => {
     return categories?.find(c => c.id === categoryId)?.name || "Unknown";
   };
@@ -88,8 +92,21 @@ export default function SpiceCard({ spice, categories, onView, onEdit, onDelete 
         </div>
       </CardContent>
       <CardFooter className="border-t pt-3 flex justify-between">
-        <div className="font-medium">₹{Number(spice.price).toFixed(2)}/{spice.unit}</div>
-        <div className="text-sm text-muted-foreground">{spice.stocksQty}Kg in stock</div>
+        <div className="font-medium">
+          <div className="text-xs text-muted-foreground mb-1">Market Price:</div>
+          <span className="text-blue-600">₹{Number(spice.marketPrice).toFixed(2)}/{spice.unit}</span>
+        </div>
+        <div className="text-sm text-muted-foreground">
+          {spice.stocksQty <= 10 ? (
+            <span className="text-red-600">
+              {formatQuantityWithUnit(spice.stocksQty, spice.unit as UnitType, true)} in stock
+            </span>
+          ) : (
+            <span>
+              {formatQuantityWithUnit(spice.stocksQty, spice.unit as UnitType, true)} in stock
+            </span>
+          )}
+        </div>
       </CardFooter>
     </Card>
   );

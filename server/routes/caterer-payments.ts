@@ -52,6 +52,22 @@ router.get('/caterer/:id', async (req, res) => {
   }
 });
 
+// Get payments by distribution ID
+router.get('/distribution/:id', async (req, res) => {
+  try {
+    const distributionId = parseInt(req.params.id);
+    if (isNaN(distributionId)) {
+      return res.status(400).json({ error: 'Invalid distribution ID' });
+    }
+
+    const payments = await storage.getCatererPaymentsByDistribution(distributionId);
+    res.json(payments);
+  } catch (error) {
+    console.error('Error fetching payments by distribution:', error);
+    res.status(500).json({ error: 'Failed to fetch payments' });
+  }
+});
+
 // Create a new caterer payment
 router.post('/', async (req, res) => {
   try {

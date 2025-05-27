@@ -22,6 +22,8 @@ import {
   Star
 } from "lucide-react";
 import SupplierPurchaseHistory from "@/components/suppliers/supplier-purchase-history";
+import SupplierPurchaseHistoryNew from "@/components/suppliers/supplier-purchase-history-new";
+import SupplierPurchaseHistoryBillView from "@/components/suppliers/supplier-purchase-history-bill-view";
 import { formatCurrency } from "@/lib/utils";
 
 export default function SupplierDetailsPage() {
@@ -36,7 +38,7 @@ export default function SupplierDetailsPage() {
 
   // Fetch supplier details
   const { data: supplier, isLoading } = useQuery<Vendor>({
-    queryKey: [`/api/vendors/${supplierId}`],
+    queryKey: [`/api/suppliers/${supplierId}`],
     enabled: !!supplierId,
   });
 
@@ -229,7 +231,7 @@ export default function SupplierDetailsPage() {
           {isLoading ? (
             <Skeleton className="h-64 w-full" />
           ) : supplier ? (
-            <SupplierPurchaseHistory supplierId={supplierId} />
+            <SupplierPurchaseHistoryBillView supplierId={supplierId} />
           ) : (
             <Card>
               <CardContent className="p-6 text-center">

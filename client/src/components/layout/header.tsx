@@ -8,9 +8,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
-import { BellIcon, LogOut, Menu, Settings, User as UserIcon } from 'lucide-react';
+import { LogOut, Menu, Settings, User as UserIcon } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { cn } from '@/lib/utils';
+import NotificationDropdown from './notification-dropdown';
 
 interface HeaderProps {
   toggleSidebar: () => void;
@@ -18,7 +19,6 @@ interface HeaderProps {
 
 export default function Header({ toggleSidebar }: HeaderProps) {
   const { user, logoutMutation } = useAuth();
-  const [notificationCount] = useState(3);
 
   const handleLogout = () => {
     logoutMutation.mutate();
@@ -55,18 +55,7 @@ export default function Header({ toggleSidebar }: HeaderProps) {
 
           <div className="flex items-center">
             <div className="relative mr-4">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="relative p-2 rounded-full hover:bg-primary-light focus:outline-none"
-              >
-                <BellIcon className="h-5 w-5" />
-                {notificationCount > 0 && (
-                  <span className="absolute top-1 right-1 bg-secondary text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-                    {notificationCount}
-                  </span>
-                )}
-              </Button>
+              <NotificationDropdown />
             </div>
 
             <DropdownMenu>

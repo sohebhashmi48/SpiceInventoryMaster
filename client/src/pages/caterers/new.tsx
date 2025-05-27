@@ -23,7 +23,6 @@ const catererFormSchema = z.object({
   state: z.string().optional(),
   pincode: z.string().optional(),
   gstNumber: z.string().optional(),
-  creditLimit: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -49,7 +48,6 @@ export default function NewCatererPage() {
       state: '',
       pincode: '',
       gstNumber: '',
-      creditLimit: '',
       notes: '',
     },
   });
@@ -189,25 +187,7 @@ export default function NewCatererPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Financial Information</CardTitle>
-              <CardDescription>Enter financial details for this caterer</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="creditLimit">Credit Limit (₹)</Label>
-                <Input
-                  id="creditLimit"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  {...form.register("creditLimit")}
-                  placeholder="Enter maximum credit limit"
-                />
-              </div>
-            </CardContent>
-          </Card>
+          {/* Financial Information Card removed */}
 
           <Card>
             <CardHeader>

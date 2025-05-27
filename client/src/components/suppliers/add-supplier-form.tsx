@@ -20,7 +20,6 @@ const supplierSchema = z.object({
   email: z.string().email("Invalid email address").optional().or(z.literal("")),
   phone: z.string().optional(),
   address: z.string().optional(),
-  creditLimit: z.string().optional(),
   notes: z.string().optional(),
   tags: z.array(z.string()).default([]),
   newTag: z.string().optional(),
@@ -54,7 +53,6 @@ export default function AddSupplierForm({ onSuccess, existingSupplier }: AddSupp
       email: "",
       phone: "",
       address: "",
-      creditLimit: "",
       notes: "",
       tags: [],
       newTag: "",
@@ -70,7 +68,6 @@ export default function AddSupplierForm({ onSuccess, existingSupplier }: AddSupp
         email: existingSupplier.email || "",
         phone: existingSupplier.phone || "",
         address: existingSupplier.address || "",
-        creditLimit: existingSupplier.creditLimit ? existingSupplier.creditLimit.toString() : "",
         notes: existingSupplier.notes || "",
         tags: existingSupplier.tags || [],
         newTag: "",
@@ -160,10 +157,9 @@ export default function AddSupplierForm({ onSuccess, existingSupplier }: AddSupp
     // Remove the newTag field before submitting
     const { newTag, ...submitData } = data;
 
-    // Convert creditLimit to a number if it exists
+    // No need to convert creditLimit anymore
     const formattedData = {
-      ...submitData,
-      creditLimit: submitData.creditLimit ? parseFloat(submitData.creditLimit) : undefined
+      ...submitData
     };
 
     if (existingSupplier) {
@@ -232,17 +228,7 @@ export default function AddSupplierForm({ onSuccess, existingSupplier }: AddSupp
           />
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="creditLimit">Credit Limit</Label>
-          <Input
-            id="creditLimit"
-            type="number"
-            step="0.01"
-            min="0"
-            {...form.register("creditLimit")}
-            placeholder="Enter credit limit"
-          />
-        </div>
+        {/* Credit Limit field removed */}
 
         <div className="space-y-2 md:col-span-2">
           <Label htmlFor="notes">Notes</Label>

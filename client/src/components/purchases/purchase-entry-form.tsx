@@ -18,7 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Trash2, Save, Printer, RotateCcw, ShoppingCart, Scale } from "lucide-react";
+import { Plus, Trash2, Save, Printer, RotateCcw, ShoppingCart, Scale, Upload, Image } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -68,6 +68,9 @@ interface TempItem {
 export default function PurchaseEntryForm() {
   const { toast } = useToast();
   const [isCalculating, setIsCalculating] = useState(false);
+  const [receiptImage, setReceiptImage] = useState<File | null>(null);
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [tempItem, setTempItem] = useState<TempItem>({
     itemName: "",
     quantity: "1",
@@ -195,9 +198,6 @@ export default function PurchaseEntryForm() {
     });
   };
 
-  // Initialize router for navigation
-  const router = useRouter();
-
   // Create purchase mutation
   const createPurchaseMutation = useMutation({
     mutationFn: async (data: PurchaseFormValues) => {
@@ -205,6 +205,9 @@ export default function PurchaseEntryForm() {
       return await res.json();
     },
     onSuccess: (_, data) => {
+      // Store the isPaid value before resetting the form
+      const shouldRedirect = data.isPaid;
+
       toast({
         title: "Purchase created successfully",
         description: "The purchase has been saved to the system and inventory has been updated.",
@@ -219,10 +222,11 @@ export default function PurchaseEntryForm() {
       resetForm();
 
       // Redirect to inventory page if payment was made
-      if (data.isPaid) {
+      if (shouldRedirect) {
+        console.log("Redirecting to inventory page after successful purchase with payment");
         // Use a small timeout to ensure the toast is visible before redirecting
         setTimeout(() => {
-          router.push("/inventory");
+          window.location.href = "/inventory";
         }, 1500);
       }
     },
@@ -235,7 +239,7 @@ export default function PurchaseEntryForm() {
     },
   });
 
-  const onSubmit = (data: PurchaseFormValues) => {
+  const onSubmit = async (data: PurchaseFormValues) => {
     // Filter out items with empty names before submitting
     const filteredItems = data.items.filter(item => item.itemName && item.itemName.trim() !== "");
 
@@ -249,10 +253,17 @@ export default function PurchaseEntryForm() {
       return;
     }
 
-    // Update the data with filtered items
+    // Upload receipt image if one is selected
+    let receiptFilename = null;
+    if (receiptImage) {
+      receiptFilename = await uploadReceiptImage();
+    }
+
+    // Update the data with filtered items and receipt image
     const filteredData = {
       ...data,
-      items: filteredItems
+      items: filteredItems,
+      receiptImage: receiptFilename
     };
 
     // The form schema will automatically transform the date string to a Date object
@@ -273,10 +284,86 @@ export default function PurchaseEntryForm() {
       status: "active",
       items: [],
     });
+
+    // Reset receipt image
+    removeReceiptImage();
   };
 
   const printBill = () => {
     window.print();
+  };
+
+  // Handle receipt image upload
+  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload an image file (JPEG, PNG, etc.)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Please upload an image smaller than 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Set the file and create a preview
+    setReceiptImage(file);
+    setReceiptPreview(URL.createObjectURL(file));
+  };
+
+  // Upload receipt image to server
+  const uploadReceiptImage = async (): Promise<string | null> => {
+    if (!receiptImage) return null;
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('receipt', receiptImage);
+
+      const response = await fetch('/api/receipts/upload', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.filename;
+    } catch (error) {
+      console.error('Receipt upload error:', error);
+      toast({
+        title: "Failed to upload receipt",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+      return null;
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Remove receipt image
+  const removeReceiptImage = () => {
+    setReceiptImage(null);
+    setReceiptPreview(null);
+    if (receiptPreview) {
+      URL.revokeObjectURL(receiptPreview);
+    }
   };
 
   return (
@@ -566,6 +653,81 @@ export default function PurchaseEntryForm() {
                 </div>
               </div>
             )}
+
+            {/* Receipt Upload Section */}
+            <div className="mt-6 border-t pt-6">
+              <h3 className="text-lg font-medium text-blue-700 dark:text-blue-300 mb-4 flex items-center">
+                <Image className="h-5 w-5 mr-2" />
+                Receipt Image
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <div className="border-2 border-dashed border-blue-200 dark:border-blue-900 rounded-lg p-6 text-center">
+                    {receiptPreview ? (
+                      <div className="space-y-4">
+                        <img
+                          src={receiptPreview}
+                          alt="Receipt preview"
+                          className="max-h-48 mx-auto object-contain"
+                        />
+                        <div className="flex justify-center space-x-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={removeReceiptImage}
+                            className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                          >
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <Upload className="h-12 w-12 mx-auto text-blue-400" />
+                        <div className="text-blue-700 dark:text-blue-300">
+                          <p className="font-medium">Upload Receipt Image</p>
+                          <p className="text-sm text-blue-500 dark:text-blue-400">
+                            Drag and drop or click to browse
+                          </p>
+                        </div>
+                        <Input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleReceiptUpload}
+                          className="hidden"
+                          id="receipt-upload"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => document.getElementById('receipt-upload')?.click()}
+                          className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                        >
+                          <Upload className="h-4 w-4 mr-1" />
+                          Select Image
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="bg-blue-50 dark:bg-gray-800 p-4 rounded-lg h-full">
+                    <h4 className="font-medium text-blue-700 dark:text-blue-300 mb-2">Receipt Guidelines</h4>
+                    <ul className="text-sm space-y-2 text-blue-600 dark:text-blue-400">
+                      <li>• Upload a clear image of the receipt</li>
+                      <li>• Make sure all details are visible</li>
+                      <li>• Maximum file size: 5MB</li>
+                      <li>• Supported formats: JPEG, PNG, GIF</li>
+                      <li>• The receipt will be stored with the purchase record</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
 

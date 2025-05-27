@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -16,21 +16,20 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Inventory, Spice, Vendor } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { MoreHorizontal, Edit, Trash2, AlertTriangle, Search, Plus } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, AlertTriangle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatQuantityWithUnit } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -44,12 +43,32 @@ import {
 } from "@/components/ui/alert-dialog";
 import AddInventoryForm from "./add-inventory-form";
 
-export default function InventoryTable() {
+interface InventoryTableProps {
+  filters?: {
+    searchQuery?: string;
+    productId?: number | null;
+    supplierId?: number | null;
+    status?: 'all' | 'active' | 'expiring' | 'expired';
+    minQuantity?: number | null;
+    maxQuantity?: number | null;
+    expiryDateStart?: Date | null;
+    expiryDateEnd?: Date | null;
+  };
+}
+
+export default function InventoryTable({ filters = {} }: InventoryTableProps) {
   const { toast } = useToast();
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(filters.searchQuery || "");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Inventory | null>(null);
   const [itemToDelete, setItemToDelete] = useState<number | null>(null);
+
+  // Update searchQuery when filters.searchQuery changes
+  useEffect(() => {
+    if (filters.searchQuery !== undefined) {
+      setSearchQuery(filters.searchQuery);
+    }
+  }, [filters.searchQuery]);
 
   const { data: inventory, isLoading: inventoryLoading } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory"],
@@ -98,35 +117,6 @@ export default function InventoryTable() {
     return new Date(dateString).toLocaleDateString();
   };
 
-  const handleDelete = (id: number) => {
-    setItemToDelete(id);
-  };
-
-  const confirmDelete = () => {
-    if (itemToDelete !== null) {
-      deleteInventoryMutation.mutate(itemToDelete);
-    }
-  };
-
-  const handleEdit = (item: Inventory) => {
-    setEditingItem(item);
-    setIsAddDialogOpen(true);
-  };
-
-  const filteredInventory = inventory?.filter((item) => {
-    // Use productName and supplierName directly if available
-    const spiceName = item.productName?.toLowerCase() || (item.productId ? getSpiceName(item.productId).toLowerCase() : "");
-    const vendorName = item.supplierName?.toLowerCase() || (item.supplierId ? getVendorName(item.supplierId).toLowerCase() : "");
-    const batchNumber = item.batchNumber.toLowerCase();
-    const query = searchQuery.toLowerCase();
-
-    return (
-      spiceName.includes(query) ||
-      vendorName.includes(query) ||
-      batchNumber.includes(query)
-    );
-  });
-
   const isExpiringSoon = (expiryDate: string | Date) => {
     const expiry = new Date(expiryDate);
     const today = new Date();
@@ -145,24 +135,108 @@ export default function InventoryTable() {
     return Number(quantity) < 5;
   };
 
+  const handleDelete = (id: number) => {
+    setItemToDelete(id);
+  };
+
+  const confirmDelete = () => {
+    if (itemToDelete !== null) {
+      deleteInventoryMutation.mutate(itemToDelete);
+    }
+  };
+
+  const handleEdit = (item: Inventory) => {
+    setEditingItem(item);
+    setIsAddDialogOpen(true);
+  };
+
+  const filteredInventory = inventory?.filter((item) => {
+    // First check if the item is active and has quantity > 0
+    // Only show inactive items if explicitly requested with status filter
+    const isItemActive = item.status === 'active';
+    const hasQuantity = Number(item.quantity) > 0;
+
+    // Skip inactive or zero quantity items unless specifically requested
+    if (!isItemActive || !hasQuantity) {
+      // Only show inactive items if explicitly looking for them
+      const showingInactive = filters.status === 'expired' || filters.status === 'expiring';
+      if (!showingInactive) {
+        return false;
+      }
+    }
+
+    // Get product and supplier names
+    const spiceName = getSpiceName(item.productId).toLowerCase();
+    const vendorName = getVendorName(item.supplierId).toLowerCase();
+    const batchNumber = item.batchNumber.toLowerCase();
+    const query = searchQuery.toLowerCase();
+    const quantity = Number(item.quantity);
+
+    // Basic search filter
+    const matchesSearch =
+      spiceName.includes(query) ||
+      vendorName.includes(query) ||
+      batchNumber.includes(query);
+
+    // Product filter
+    const matchesProduct =
+      !filters.productId ||
+      item.productId === filters.productId;
+
+    // Supplier filter
+    const matchesSupplier =
+      !filters.supplierId ||
+      item.supplierId === filters.supplierId;
+
+    // Status filter
+    let matchesStatus = true;
+    if (filters.status) {
+      if (filters.status === 'expired') {
+        matchesStatus = isExpired(item.expiryDate);
+      } else if (filters.status === 'expiring') {
+        matchesStatus = isExpiringSoon(item.expiryDate);
+      } else if (filters.status === 'active') {
+        matchesStatus = !isExpired(item.expiryDate) && !isExpiringSoon(item.expiryDate) && isItemActive && hasQuantity;
+      }
+    }
+
+    // Quantity filter
+    const matchesMinQuantity =
+      filters.minQuantity === undefined ||
+      filters.minQuantity === null ||
+      quantity >= filters.minQuantity;
+
+    const matchesMaxQuantity =
+      filters.maxQuantity === undefined ||
+      filters.maxQuantity === null ||
+      quantity <= filters.maxQuantity;
+
+    // Expiry date filter
+    const expiryDate = new Date(item.expiryDate);
+    const matchesExpiryStart =
+      !filters.expiryDateStart ||
+      expiryDate >= filters.expiryDateStart;
+
+    const matchesExpiryEnd =
+      !filters.expiryDateEnd ||
+      expiryDate <= filters.expiryDateEnd;
+
+    return (
+      matchesSearch &&
+      matchesProduct &&
+      matchesSupplier &&
+      matchesStatus &&
+      matchesMinQuantity &&
+      matchesMaxQuantity &&
+      matchesExpiryStart &&
+      matchesExpiryEnd
+    );
+  });
+
   return (
     <div>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search inventory..."
-            className="pl-10"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
+      <div className="mb-6">
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-secondary hover:bg-secondary-dark text-white">
-              <Plus className="h-4 w-4 mr-2" /> Add Inventory
-            </Button>
-          </DialogTrigger>
           <DialogContent className="max-w-xl">
             <DialogHeader>
               <DialogTitle>{editingItem ? "Edit Inventory Item" : "Add New Inventory Item"}</DialogTitle>
@@ -221,17 +295,17 @@ export default function InventoryTable() {
               filteredInventory?.map((item) => (
                 <TableRow key={item.id}>
                   <TableCell className="font-medium">
-                    {item.productName || (item.productId ? getSpiceName(item.productId) : "Unknown")}
+                    {getSpiceName(item.productId)}
                   </TableCell>
                   <TableCell>{item.batchNumber}</TableCell>
                   <TableCell>
-                    {item.supplierName || (item.supplierId ? getVendorName(item.supplierId) : "Unknown")}
+                    {getVendorName(item.supplierId)}
                   </TableCell>
                   <TableCell className="text-right">
                     {isLowStock(item.quantity) && (
                       <AlertTriangle className="h-4 w-4 text-red-500 inline mr-1" />
                     )}
-                    {item.quantity} {item.unit || "kg"}
+                    {formatQuantityWithUnit(item.quantity, 'kg', true)}
                   </TableCell>
                   <TableCell className="text-right">${Number(item.totalValue).toFixed(2)}</TableCell>
                   <TableCell>

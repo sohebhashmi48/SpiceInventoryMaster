@@ -2,12 +2,14 @@ import { useState } from "react";
 import Layout from "@/components/layout/layout";
 import PageHeader from "@/components/common/page-header";
 import InventoryTable from "@/components/inventory/inventory-table";
+import InventoryFilters from "@/components/inventory/inventory-filters";
+import InventoryDashboard from "@/components/inventory/inventory-dashboard";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Barcode, Package, PackageCheck, AlertTriangle, Clock } from "lucide-react";
+import { Barcode, Package, PackageCheck, AlertTriangle, Clock, BarChart } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Inventory } from "@shared/schema";
-import { 
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -20,19 +22,29 @@ import AddInventoryForm from "@/components/inventory/add-inventory-form";
 export default function InventoryPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
-  
+  const [filters, setFilters] = useState({
+    searchQuery: "",
+    productId: null as number | null,
+    supplierId: null as number | null,
+    status: "all" as 'all' | 'active' | 'expiring' | 'expired',
+    minQuantity: null as number | null,
+    maxQuantity: null as number | null,
+    expiryDateStart: null as Date | null,
+    expiryDateEnd: null as Date | null,
+  });
+
   const { data: inventory } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory"],
   });
-  
+
   const { data: lowStockItems } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory/alerts/low-stock"],
   });
-  
+
   const { data: expiringItems } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory/alerts/expiring"],
   });
-  
+
   const isExpiringSoon = (expiryDate: string | Date) => {
     const expiry = new Date(expiryDate);
     const today = new Date();
@@ -40,15 +52,15 @@ export default function InventoryPage() {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays <= 30 && diffDays > 0;
   };
-  
+
   const isExpired = (expiryDate: string | Date) => {
     const expiry = new Date(expiryDate);
     const today = new Date();
     return expiry < today;
   };
-  
+
   const expiredItems = inventory?.filter(item => isExpired(item.expiryDate));
-  
+
   return (
     <Layout>
       <PageHeader
@@ -74,12 +86,16 @@ export default function InventoryPage() {
           </DialogContent>
         </Dialog>
       </PageHeader>
-      
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
         <TabsList>
           <TabsTrigger value="all" className="flex items-center">
             <Package className="h-4 w-4 mr-2" />
             All Items
+          </TabsTrigger>
+          <TabsTrigger value="dashboard" className="flex items-center">
+            <BarChart className="h-4 w-4 mr-2" />
+            Dashboard
           </TabsTrigger>
           <TabsTrigger value="low-stock" className="flex items-center">
             <AlertTriangle className="h-4 w-4 mr-2" />
@@ -113,11 +129,18 @@ export default function InventoryPage() {
             Scan Barcode
           </TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="all" className="mt-6">
-          <InventoryTable />
+          <InventoryFilters onFilterChange={setFilters} />
+          <div className="mt-6">
+            <InventoryTable filters={filters} />
+          </div>
         </TabsContent>
-        
+
+        <TabsContent value="dashboard" className="mt-6">
+          <InventoryDashboard />
+        </TabsContent>
+
         <TabsContent value="low-stock" className="mt-6">
           <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-r-md">
             <div className="flex">
@@ -132,9 +155,9 @@ export default function InventoryPage() {
               </div>
             </div>
           </div>
-          <InventoryTable />
+          <InventoryTable filters={{ ...filters, minQuantity: 0, maxQuantity: 5 }} />
         </TabsContent>
-        
+
         <TabsContent value="expiring" className="mt-6">
           <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 mb-6 rounded-r-md">
             <div className="flex">
@@ -149,9 +172,9 @@ export default function InventoryPage() {
               </div>
             </div>
           </div>
-          <InventoryTable />
+          <InventoryTable filters={{ ...filters, status: 'expiring' }} />
         </TabsContent>
-        
+
         <TabsContent value="expired" className="mt-6">
           <div className="bg-neutral-50 border-l-4 border-neutral-500 p-4 mb-6 rounded-r-md">
             <div className="flex">
@@ -166,9 +189,9 @@ export default function InventoryPage() {
               </div>
             </div>
           </div>
-          <InventoryTable />
+          <InventoryTable filters={{ ...filters, status: 'expired' }} />
         </TabsContent>
-        
+
         <TabsContent value="barcode" className="mt-6">
           <div className="bg-primary-light/20 border rounded-md p-6 text-center max-w-md mx-auto">
             <Barcode className="h-12 w-12 text-primary mx-auto mb-4" />

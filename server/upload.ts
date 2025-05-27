@@ -10,7 +10,15 @@ const __dirname = path.dirname(__filename);
 // Set up storage for uploaded files
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = path.join(__dirname, 'public', 'uploads', 'spices');
+    // Determine the upload directory based on the file type or route
+    let uploadDir;
+
+    if (req.path.includes('/receipts')) {
+      uploadDir = path.join(__dirname, 'public', 'uploads', 'receipts');
+    } else {
+      // Default to spices directory
+      uploadDir = path.join(__dirname, 'public', 'uploads', 'spices');
+    }
 
     // Create directory if it doesn't exist
     if (!fs.existsSync(uploadDir)) {
@@ -23,7 +31,16 @@ const storage = multer.diskStorage({
     // Generate a unique filename with timestamp and original extension
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
-    cb(null, 'spice-' + uniqueSuffix + ext);
+
+    // Prefix based on the file type or route
+    let prefix = 'file';
+    if (req.path.includes('/receipts')) {
+      prefix = 'receipt';
+    } else if (req.path.includes('/spices') || req.path.includes('/products')) {
+      prefix = 'spice';
+    }
+
+    cb(null, `${prefix}-${uniqueSuffix}${ext}`);
   }
 });
 
@@ -45,5 +62,18 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5MB max file size
   }
 });
+
+// Helper function to get the URL for a file
+export const getFileUrl = (filename: string | null, type: 'receipt' | 'spice' = 'spice'): string | null => {
+  if (!filename) return null;
+
+  const folder = type === 'receipt' ? 'receipts' : 'spices';
+  return `/api/uploads/${folder}/${filename}`;
+};
+
+// Helper function specifically for receipt images
+export const getReceiptUrl = (filename: string | null): string | null => {
+  return getFileUrl(filename, 'receipt');
+};
 
 export default upload;

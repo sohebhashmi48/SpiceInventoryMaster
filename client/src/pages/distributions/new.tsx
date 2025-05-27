@@ -206,14 +206,14 @@ export default function NewDistributionPage() {
                 <Label htmlFor="catererId">Caterer</Label>
                 <Select
                   onValueChange={(value) => form.setValue("catererId", value)}
-                  defaultValue={form.getValues().catererId}
+                  defaultValue={form.getValues().catererId || undefined}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a caterer" />
                   </SelectTrigger>
                   <SelectContent>
                     {caterersLoading ? (
-                      <SelectItem value="loading" disabled>Loading caterers...</SelectItem>
+                      <SelectItem value="loading-caterers" disabled>Loading caterers...</SelectItem>
                     ) : caterers && caterers.length > 0 ? (
                       caterers.map((caterer) => (
                         <SelectItem key={caterer.id} value={caterer.id.toString()}>
@@ -221,7 +221,7 @@ export default function NewDistributionPage() {
                         </SelectItem>
                       ))
                     ) : (
-                      <SelectItem value="none" disabled>No caterers found</SelectItem>
+                      <SelectItem value="no-caterers" disabled>No caterers found</SelectItem>
                     )}
                   </SelectContent>
                 </Select>
@@ -278,14 +278,14 @@ export default function NewDistributionPage() {
                         <TableCell>
                           <Select
                             onValueChange={(value) => handleProductChange(index, value)}
-                            defaultValue={field.spiceId.toString()}
+                            defaultValue={field.spiceId.toString() || undefined}
                           >
                             <SelectTrigger>
                               <SelectValue placeholder="Select a product" />
                             </SelectTrigger>
                             <SelectContent>
                               {productsLoading ? (
-                                <SelectItem value="loading" disabled>Loading products...</SelectItem>
+                                <SelectItem value="loading-products" disabled>Loading products...</SelectItem>
                               ) : products && products.length > 0 ? (
                                 products.map((product) => (
                                   <SelectItem key={product.id} value={product.id.toString()}>
@@ -293,7 +293,7 @@ export default function NewDistributionPage() {
                                   </SelectItem>
                                 ))
                               ) : (
-                                <SelectItem value="none" disabled>No products found</SelectItem>
+                                <SelectItem value="no-products" disabled>No products found</SelectItem>
                               )}
                             </SelectContent>
                           </Select>

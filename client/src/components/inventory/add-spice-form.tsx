@@ -50,6 +50,9 @@ export default function AddSpiceForm({ onSuccess, existingSpice }: AddSpiceFormP
   const { toast } = useToast();
   const [imagePreview, setImagePreview] = useState<string | null>(existingSpice?.imagePath || null);
   const [averagePrice, setAveragePrice] = useState<number | null>(null);
+  const [marketPrice, setMarketPrice] = useState<number>(existingSpice?.marketPrice || 0);
+  const [retailPrice, setRetailPrice] = useState<number>(existingSpice?.retailPrice || 0);
+  const [catererPrice, setCatererPrice] = useState<number>(existingSpice?.catererPrice || 0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: categories, isLoading: categoriesLoading } = useQuery<Category[]>({
@@ -75,6 +78,11 @@ const createSpiceMutation = useMutation({
         // Default to 0 if no average price is available
         formData.append('price', '0');
       }
+
+      // Add the new price fields
+      formData.append('marketPrice', String(marketPrice));
+      formData.append('retailPrice', String(retailPrice));
+      formData.append('catererPrice', String(catererPrice));
 
       // Default stocksQty to 0 - will be updated by inventory
       formData.append('stocksQty', '0');
@@ -201,96 +209,89 @@ const createSpiceMutation = useMutation({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 relative pb-16">
+        {/* Product Name and Category in first row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField
             control={form.control}
             name="name"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Product Name</FormLabel>
+                <FormLabel className="text-sm font-medium">Product Name</FormLabel>
                 <FormControl>
-                  <Input placeholder="Enter product name" {...field} />
+                  <Input
+                    placeholder="Enter product name"
+                    {...field}
+                    className="h-10 px-3 py-2 rounded-md border"
+                  />
                 </FormControl>
-                <FormMessage />
+                <FormMessage className="text-xs text-red-500" />
               </FormItem>
             )}
           />
 
           <FormField
             control={form.control}
-            name="origin"
+            name="categoryId"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Origin/Country</FormLabel>
-                <FormControl>
-                  <Input placeholder="Enter country of origin" value={field.value || ""} onChange={field.onChange} onBlur={field.onBlur} ref={field.ref} />
-                </FormControl>
-                <FormMessage />
+                <FormLabel className="text-sm font-medium">Category</FormLabel>
+                <Select
+                  disabled={categoriesLoading}
+                  onValueChange={(value) => field.onChange(parseInt(value))}
+                  value={field.value?.toString() ?? ""}
+                >
+                  <FormControl>
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {categories?.map((category) => (
+                      <SelectItem key={category.id} value={category.id.toString()}>
+                        {category.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage className="text-xs text-red-500" />
               </FormItem>
             )}
           />
         </div>
 
-        <FormField
-          control={form.control}
-          name="categoryId"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Category</FormLabel>
-              <Select
-                disabled={categoriesLoading}
-                onValueChange={(value) => field.onChange(parseInt(value))}
-                value={field.value?.toString() ?? ""}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {categories?.map((category) => (
-                    <SelectItem key={category.id} value={category.id.toString()}>
-                      {category.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
+        {/* Description field */}
         <FormField
           control={form.control}
           name="description"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Description</FormLabel>
+              <FormLabel className="text-sm font-medium">Description</FormLabel>
               <FormControl>
                 <Textarea
                   placeholder="Enter product description"
-                  className="min-h-[100px]"
+                  className="min-h-[100px] resize-none px-3 py-2 rounded-md border"
                   value={field.value || ""}
                   onChange={field.onChange}
                   onBlur={field.onBlur}
                   ref={field.ref}
                 />
               </FormControl>
-              <FormMessage />
+              <FormMessage className="text-xs text-red-500" />
             </FormItem>
           )}
         />
 
+        {/* Unit and Origin in one row */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField
             control={form.control}
             name="unit"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Unit</FormLabel>
+                <FormLabel className="text-sm font-medium">Unit</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value || "kg"}>
                   <FormControl>
-                    <SelectTrigger>
+                    <SelectTrigger className="h-10">
                       <SelectValue placeholder="Select unit" />
                     </SelectTrigger>
                   </FormControl>
@@ -301,33 +302,137 @@ const createSpiceMutation = useMutation({
                     <SelectItem value="oz">Ounce (oz)</SelectItem>
                   </SelectContent>
                 </Select>
-                <FormMessage />
+                <FormMessage className="text-xs text-red-500" />
               </FormItem>
             )}
           />
 
+          <FormField
+            control={form.control}
+            name="origin"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel className="text-sm font-medium">Origin/Country</FormLabel>
+                <FormControl>
+                  <Input
+                    placeholder="Enter country of origin"
+                    value={field.value || ""}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                    ref={field.ref}
+                    className="h-10 px-3 py-2 rounded-md border"
+                  />
+                </FormControl>
+                <FormMessage className="text-xs text-red-500" />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        {/* Average Price Display */}
+        <div className="bg-gray-50 p-4 rounded-md border">
+          <div className="text-sm font-medium mb-2">Average Price from Inventory</div>
+          <div className="h-10 px-3 py-2 rounded-md border bg-white flex items-center">
+            {averagePrice !== null ? (
+              <span className="text-green-600 font-medium">₹{averagePrice.toFixed(2)}</span>
+            ) : (
+              <span className="text-muted-foreground italic">No price data available</span>
+            )}
+          </div>
+          <div className="text-xs text-muted-foreground mt-2">
+            This price is automatically calculated from your inventory
+          </div>
+        </div>
+
+        {/* Price Fields */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Market Price */}
           <div className="flex flex-col space-y-2">
-            <div className="text-sm font-medium">Average Price from Inventory</div>
-            <div className="h-10 px-3 py-2 rounded-md border border-input bg-background flex items-center">
-              {averagePrice !== null ? (
-                <span className="text-green-600 font-medium">₹{averagePrice.toFixed(2)}</span>
-              ) : (
-                <span className="text-muted-foreground italic">No price data available</span>
-              )}
+            <div className="text-sm font-medium">Market Price</div>
+            <div className="flex items-center border rounded-md overflow-hidden">
+              <span className="px-3 py-2 bg-gray-100 text-gray-700">₹</span>
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={marketPrice || ''}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/^0+(?=\d)/, ''); // Remove leading zeros
+                  const numValue = value === '' ? 0 : parseFloat(value);
+                  if (!isNaN(numValue) || value === '') {
+                    setMarketPrice(numValue);
+                  }
+                }}
+                className="border-0 h-10"
+              />
+              <span className="px-3 py-2 bg-gray-100 text-gray-700">/{form.watch("unit") || "kg"}</span>
             </div>
-            <div className="text-xs text-muted-foreground">
-              This price is automatically calculated from your inventory
+            <div className="text-xs text-blue-600">
+              Standard selling price
+            </div>
+          </div>
+
+          {/* Retail Price */}
+          <div className="flex flex-col space-y-2">
+            <div className="text-sm font-medium">Retail Price</div>
+            <div className="flex items-center border rounded-md overflow-hidden">
+              <span className="px-3 py-2 bg-gray-100 text-gray-700">₹</span>
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={retailPrice || ''}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/^0+(?=\d)/, ''); // Remove leading zeros
+                  const numValue = value === '' ? 0 : parseFloat(value);
+                  if (!isNaN(numValue) || value === '') {
+                    setRetailPrice(numValue);
+                  }
+                }}
+                className="border-0 h-10"
+              />
+              <span className="px-3 py-2 bg-gray-100 text-gray-700">/{form.watch("unit") || "kg"}</span>
+            </div>
+            <div className="text-xs text-orange-600">
+              Price for retail customers
+            </div>
+          </div>
+
+          {/* Caterer Price */}
+          <div className="flex flex-col space-y-2">
+            <div className="text-sm font-medium">Caterer Price</div>
+            <div className="flex items-center border rounded-md overflow-hidden">
+              <span className="px-3 py-2 bg-gray-100 text-gray-700">₹</span>
+              <Input
+                type="text"
+                inputMode="decimal"
+                value={catererPrice || ''}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/^0+(?=\d)/, ''); // Remove leading zeros
+                  const numValue = value === '' ? 0 : parseFloat(value);
+                  if (!isNaN(numValue) || value === '') {
+                    setCatererPrice(numValue);
+                  }
+                }}
+                className="border-0 h-10"
+              />
+              <span className="px-3 py-2 bg-gray-100 text-gray-700">/{form.watch("unit") || "kg"}</span>
+            </div>
+            <div className="text-xs text-purple-600">
+              Special price for caterers
             </div>
           </div>
         </div>
 
+        {/* Active Status */}
         <FormField
           control={form.control}
           name="isActive"
           render={({ field }) => (
-            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4 bg-white">
               <div className="space-y-0.5">
                 <FormLabel className="text-base">Active Status</FormLabel>
+                <FormDescription className="text-xs text-gray-500">
+                  Enable this to make the product visible in your catalog
+                </FormDescription>
                 <FormMessage />
               </div>
               <FormControl>
@@ -340,22 +445,27 @@ const createSpiceMutation = useMutation({
           )}
         />
 
+        {/* Product Image */}
         <FormField
           control={form.control}
           name="image"
           render={({ field: { onChange } }) => (
             <FormItem>
-              <FormLabel>Product Image</FormLabel>
+              <FormLabel className="text-sm font-medium">Product Image</FormLabel>
               <FormControl>
-                <div className="space-y-4">
+                <div className="border rounded-md p-4 bg-white">
                   <div className="flex flex-wrap items-start gap-4">
-                    {imagePreview && (
-                      <div className="w-40 h-40 relative rounded-md overflow-hidden border flex-shrink-0">
+                    {imagePreview ? (
+                      <div className="w-40 h-40 relative rounded-md overflow-hidden border flex-shrink-0 bg-white">
                         <img
                           src={imagePreview.startsWith('data:') ? imagePreview : `/api${imagePreview}`}
                           alt="Product preview"
                           className="w-full h-full object-cover"
                         />
+                      </div>
+                    ) : (
+                      <div className="w-40 h-40 flex items-center justify-center rounded-md border flex-shrink-0 bg-gray-50">
+                        <ImageIcon className="h-10 w-10 text-gray-300" />
                       </div>
                     )}
                     <div className="flex-1 min-w-[200px]">
@@ -376,7 +486,7 @@ const createSpiceMutation = useMutation({
                           onClick={() => fileInputRef.current?.click()}
                           className="w-full"
                         >
-                          <ImageIcon className="mr-2 h-4 w-4" />
+                          <Upload className="mr-2 h-4 w-4" />
                           {imagePreview ? "Change Image" : "Upload Image"}
                         </Button>
                         {imagePreview && (
@@ -397,22 +507,28 @@ const createSpiceMutation = useMutation({
                   </div>
                 </div>
               </FormControl>
-              <FormDescription>
+              <FormDescription className="text-xs text-gray-500 mt-2">
                 Upload an image of the product. Recommended size: 500x500 pixels.
               </FormDescription>
-              <FormMessage />
+              <FormMessage className="text-xs text-red-500" />
             </FormItem>
           )}
         />
 
+        {/* Form Buttons */}
         <div className="flex justify-end space-x-2 sticky bottom-0 left-0 right-0 bg-white py-4 border-t mt-8 z-10">
-          <Button variant="outline" type="button" onClick={onSuccess}>
+          <Button
+            variant="outline"
+            type="button"
+            onClick={onSuccess}
+            className="px-4 py-2 h-10"
+          >
             Cancel
           </Button>
           <Button
             type="submit"
             disabled={createSpiceMutation.isPending}
-            className="bg-secondary hover:bg-secondary-dark text-white"
+            className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 h-10"
           >
             {createSpiceMutation.isPending && (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

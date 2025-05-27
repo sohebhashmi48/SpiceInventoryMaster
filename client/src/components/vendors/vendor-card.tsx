@@ -122,15 +122,7 @@ export default function VendorCard({ vendor, onEdit, onDelete }: VendorCardProps
               </div>
             </div>
 
-            <div className="bg-muted/50 rounded-md p-2">
-              <div className="text-xs text-muted-foreground mb-1">Credit Limit</div>
-              <div className="flex items-center">
-                <span className="mr-1 text-muted-foreground">₹</span>
-                <span className="font-medium">
-                  {Number(vendor.creditLimit || 0).toFixed(2)}
-                </span>
-              </div>
-            </div>
+            {/* Credit Limit field removed */}
           </div>
         </div>
       </CardContent>

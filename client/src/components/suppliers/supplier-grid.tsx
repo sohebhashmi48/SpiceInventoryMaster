@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Vendor } from "@shared/schema";
@@ -29,7 +29,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Mail, Phone, MapPin, Edit, Trash2, Plus, Star, ShoppingCart, Eye, DollarSign } from "lucide-react";
 import AddSupplierForm from "./add-supplier-form";
 
-export default function SupplierGrid() {
+interface FilterValues {
+  searchTerm: string;
+  ratingFilter: number | null;
+  statusFilter: boolean | null;
+}
+
+interface SupplierGridProps {
+  filterValues?: FilterValues;
+}
+
+export default function SupplierGrid({ filterValues }: SupplierGridProps = {}) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -219,9 +229,59 @@ export default function SupplierGrid() {
     );
   };
 
+  // Filter suppliers based on filter values
+  const filteredSuppliers = useMemo(() => {
+    if (!suppliers) return [];
+
+    return suppliers.filter(supplier => {
+      // Apply search filter
+      if (filterValues?.searchTerm) {
+        const searchTermLower = filterValues.searchTerm.toLowerCase();
+        const nameMatch = supplier.name?.toLowerCase().includes(searchTermLower);
+        const contactMatch = supplier.contactName?.toLowerCase().includes(searchTermLower);
+        const emailMatch = supplier.email?.toLowerCase().includes(searchTermLower);
+        const phoneMatch = supplier.phone?.toLowerCase().includes(searchTermLower);
+        const addressMatch = supplier.address?.toLowerCase().includes(searchTermLower);
+
+        // Check if any tags match the search term
+        const tagMatch = supplier.tags?.some(tag =>
+          tag.toLowerCase().includes(searchTermLower)
+        );
+
+        if (!(nameMatch || contactMatch || emailMatch || phoneMatch || addressMatch || tagMatch)) {
+          return false;
+        }
+      }
+
+      // Apply rating filter
+      if (filterValues?.ratingFilter !== null && supplier.rating) {
+        if (supplier.rating < filterValues.ratingFilter) {
+          return false;
+        }
+      }
+
+      // Apply status filter
+      if (filterValues?.statusFilter !== null) {
+        if (supplier.isActive !== filterValues.statusFilter) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [suppliers, filterValues]);
+
   return (
     <div>
-      <div className="flex justify-end mb-6">
+      <div className="flex justify-between items-center mb-6">
+        <Button
+          variant="outline"
+          onClick={() => setLocation('/purchase-history')}
+          className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 border-blue-200"
+        >
+          <Eye className="h-4 w-4 mr-2" /> Show All Purchases
+        </Button>
+
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
             <Button className="bg-secondary hover:bg-secondary-dark text-white">
@@ -248,175 +308,152 @@ export default function SupplierGrid() {
         </Dialog>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {suppliersLoading
           ? Array(8)
               .fill(0)
               .map((_, i) => (
                 <Card key={i} className="overflow-hidden">
                   <CardContent className="p-0">
-                    <div className="p-6">
-                      <Skeleton className="h-5 w-3/4 mb-2" />
-                      <Skeleton className="h-4 w-1/2 mb-4" />
-                      <div className="space-y-2">
-                        <Skeleton className="h-3 w-full" />
-                        <Skeleton className="h-3 w-full" />
-                        <Skeleton className="h-3 w-2/3" />
+                    <div className="p-5">
+                      <Skeleton className="h-6 w-3/4 mb-3" />
+                      <Skeleton className="h-4 w-1/2 mb-3" />
+                      <div className="space-y-2 mt-4">
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-4 w-2/3" />
+                      </div>
+                      <div className="mt-3">
+                        <Skeleton className="h-4 w-full mt-2" />
+                        <div className="flex gap-1 mt-1">
+                          <Skeleton className="h-6 w-16 rounded-full" />
+                          <Skeleton className="h-6 w-16 rounded-full" />
+                        </div>
                       </div>
                     </div>
                   </CardContent>
-                  <CardFooter className="flex justify-between p-4 pt-0">
-                    <Skeleton className="h-9 w-9 rounded-md" />
-                    <Skeleton className="h-9 w-9 rounded-md" />
+                  <CardFooter className="flex justify-between p-3 pt-0 border-t">
+                    <Skeleton className="h-9 w-full rounded-md" />
                   </CardFooter>
                 </Card>
               ))
-          : suppliers?.map((supplier) => (
+          : filteredSuppliers.length > 0 ? filteredSuppliers.map((supplier) => (
               <Card key={supplier.id} className="overflow-hidden">
                 <CardContent className="p-0">
-                  <div className="p-6">
-                    <div className="flex justify-between items-start mb-2">
-                      <h3 className="font-semibold text-lg line-clamp-1">{supplier.name}</h3>
-                      <div className="flex flex-col gap-1">
-                        <Badge
-                          variant={Number(supplier.balanceDue || 0) > 0 ? "destructive" : "outline"}
-                          className="ml-2 shrink-0"
-                        >
-                          {Number(supplier.balanceDue || 0) > 0 ? "Due" : "Paid"}
-                        </Badge>
-                        {Number(supplier.creditLimit || 0) > 0 && (
-                          <Badge
-                            variant="secondary"
-                            className="ml-2 shrink-0"
-                          >
-                            Credit: ₹{Number(supplier.creditLimit || 0).toFixed(2)}
-                          </Badge>
-                        )}
-                      </div>
+                  <div className="p-5">
+                    <div className="flex justify-between items-start mb-3">
+                      <h3 className="font-semibold text-xl line-clamp-1">{supplier.name}</h3>
+                      <Badge
+                        variant={Number(supplier.balanceDue || 0) > 0 ? "destructive" : "outline"}
+                        className="ml-2 shrink-0"
+                      >
+                        {Number(supplier.balanceDue || 0) > 0 ? "Due" : "Paid"}
+                      </Badge>
                     </div>
                     {supplier.contactName && (
                       <p className="text-sm text-muted-foreground mb-3">{supplier.contactName}</p>
                     )}
                     {renderRating(supplier.rating)}
 
-                    {Number(supplier.creditLimit || 0) > 0 && (
-                      <div className="mt-3 border-t pt-2">
-                        <h4 className="text-sm font-medium mb-1">Credit Information</h4>
-                        <div className="grid grid-cols-2 gap-1 text-xs">
-                          <div className="text-muted-foreground">Total Credit:</div>
-                          <div className="font-medium">₹{Number(supplier.creditLimit || 0).toFixed(2)}</div>
-
-                          <div className="text-muted-foreground">Credit Used:</div>
-                          <div className="font-medium">₹{Number(supplier.balanceDue || 0).toFixed(2)}</div>
-
-                          <div className="text-muted-foreground">Remaining Credit:</div>
-                          <div className="font-medium">₹{Math.max(0, Number(supplier.creditLimit || 0) - Number(supplier.balanceDue || 0)).toFixed(2)}</div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Balance Due - Prominently displayed */}
-                    {Number(supplier.balanceDue || 0) > 0 && (
-                      <div className="mt-3 mb-3 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center">
-                            <span className="text-red-500 font-bold mr-1">₹</span>
-                            <span className="font-medium text-red-600 dark:text-red-400">Balance Due:</span>
-                          </div>
-                          <span className="font-bold text-red-600 dark:text-red-400">
-                            ₹{Number(supplier.balanceDue || 0).toFixed(2)}
-                          </span>
-                        </div>
-                        {supplier.creditLimit && Number(supplier.creditLimit) > 0 && (
-                          <div className="text-xs text-red-500 mt-1 flex justify-between">
-                            <span>Credit Limit:</span>
-                            <span>₹{Number(supplier.creditLimit).toFixed(2)}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
                     <div className="mt-4 space-y-2">
                       {supplier.email && (
                         <div className="flex items-center text-sm">
-                          <Mail className="h-3 w-3 mr-2 text-muted-foreground" />
+                          <Mail className="h-4 w-4 mr-2 text-muted-foreground" />
                           <span className="truncate">{supplier.email}</span>
                         </div>
                       )}
                       {supplier.phone && (
                         <div className="flex items-center text-sm">
-                          <Phone className="h-3 w-3 mr-2 text-muted-foreground" />
+                          <Phone className="h-4 w-4 mr-2 text-muted-foreground" />
                           <span>{supplier.phone}</span>
                         </div>
                       )}
                       {supplier.address && (
                         <div className="flex items-start text-sm">
-                          <MapPin className="h-3 w-3 mr-2 text-muted-foreground mt-1" />
-                          <span className="line-clamp-2">{supplier.address}</span>
+                          <MapPin className="h-4 w-4 mr-2 text-muted-foreground mt-0.5" />
+                          <span className="line-clamp-1">{supplier.address}</span>
                         </div>
                       )}
 
                       {/* Display supplier tags */}
                       {supplier.tags && supplier.tags.length > 0 && (
                         <div className="mt-3">
-                          <div className="text-xs text-muted-foreground mb-1">Products Supplied:</div>
+                          <div className="text-sm text-muted-foreground mb-1">Products Supplied:</div>
                           <div className="flex flex-wrap gap-1">
-                            {supplier.tags.map((tag, index) => (
-                              <Badge key={index} variant="outline" className="text-xs">
+                            {supplier.tags.slice(0, 3).map((tag, index) => (
+                              <Badge key={index} variant="outline" className="text-sm">
                                 {tag}
                               </Badge>
                             ))}
+                            {supplier.tags.length > 3 && (
+                              <Badge variant="outline" className="text-sm">
+                                +{supplier.tags.length - 3} more
+                              </Badge>
+                            )}
                           </div>
                         </div>
                       )}
                     </div>
                   </div>
                 </CardContent>
-                <CardFooter className="flex flex-col gap-2 p-4 pt-0 border-t">
-                  <div className="flex justify-between w-full">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEdit(supplier)}
-                      className="text-blue-600 hover:text-blue-800 hover:bg-blue-50"
-                    >
-                      <Edit className="h-4 w-4 mr-1" />
-                      Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(supplier.id)}
-                      className="text-red-600 hover:text-red-800 hover:bg-red-50"
-                    >
-                      <Trash2 className="h-4 w-4 mr-1" />
-                      Delete
-                    </Button>
-                  </div>
+                <CardFooter className="flex flex-wrap gap-2 p-3 pt-0 border-t">
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
-                    onClick={() => setLocation(`/suppliers/${supplier.id}`)}
-                    className="w-full text-blue-600 hover:text-blue-800 hover:bg-blue-50 border-blue-200"
+                    onClick={() => handleEdit(supplier)}
+                    className="flex-1 h-9 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2"
                   >
-                    <Eye className="h-4 w-4 mr-1" />
-                    View Details
+                    <Edit className="h-4 w-4 mr-1" />
+                    Edit
                   </Button>
                   <Button
-                    variant="outline"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDelete(supplier.id)}
+                    className="flex-1 h-9 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 px-2"
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Delete
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setLocation(`/suppliers/${supplier.id}`)}
+                    className="flex-1 h-9 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2"
+                  >
+                    <Eye className="h-4 w-4 mr-1" />
+                    Details
+                  </Button>
+                  <Button
+                    variant="ghost"
                     size="sm"
                     onClick={() => {
                       setSupplierToPurchaseFrom(supplier);
                       setPurchaseConfirmOpen(true);
                     }}
-                    className="w-full text-green-600 hover:text-green-800 hover:bg-green-50 border-green-200"
+                    className="flex-1 h-9 text-sm text-green-600 hover:text-green-800 hover:bg-green-50 px-2"
                   >
                     <ShoppingCart className="h-4 w-4 mr-1" />
-                    Buy from Supplier
+                    Buy
                   </Button>
                 </CardFooter>
               </Card>
-            ))}
+            )) : (
+              <div className="col-span-full text-center py-8">
+                <div className="text-gray-500 mb-2">No suppliers found matching your filters</div>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    // Reset filters if parent component provided a way to do so
+                    if (filterValues) {
+                      window.location.reload(); // Simple way to reset all filters
+                    }
+                  }}
+                >
+                  Reset Filters
+                </Button>
+              </div>
+            )}
       </div>
 
       <AlertDialog open={supplierToDelete !== null} onOpenChange={(open) => !open && setSupplierToDelete(null)}>

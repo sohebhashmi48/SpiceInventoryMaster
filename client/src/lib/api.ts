@@ -47,10 +47,13 @@ export const apiRequest = async <T>(
   }
 
   try {
+    console.log(`API Request: ${options?.method || 'GET'} ${url}`, fetchOptions);
     const response = await fetch(url, fetchOptions);
+    console.log(`API Response status: ${response.status} ${response.statusText}`);
 
     // Handle unauthorized responses
     if (response.status === 401) {
+      console.error('Unauthorized API request');
       // Redirect to login page if unauthorized
       window.location.href = '/auth';
       throw new Error('Unauthorized');
@@ -59,16 +62,31 @@ export const apiRequest = async <T>(
     // Handle other error responses
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      console.error('API error response:', errorData);
       throw new Error(errorData.message || 'An error occurred');
     }
 
     // For 204 No Content responses, return an empty object
     if (response.status === 204) {
+      console.log('204 No Content response');
       return {} as T;
     }
 
+    // Clone the response to log it without consuming it
+    const clonedResponse = response.clone();
+
     // Parse JSON response for other successful responses
     const data = await response.json();
+
+    // Log the response data
+    clonedResponse.text().then(text => {
+      try {
+        console.log('API Response data:', JSON.parse(text));
+      } catch (e) {
+        console.log('API Response text:', text);
+      }
+    }).catch(err => console.error('Error logging response:', err));
+
     return data as T;
   } catch (error) {
     console.error('API request error:', error);

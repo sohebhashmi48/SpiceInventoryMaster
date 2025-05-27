@@ -1,19 +1,24 @@
 import { useState, useEffect } from 'react';
-import { useLocation } from 'wouter';
+import { useLocation, useRoute } from 'wouter';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   useCaterer,
   useUpdateCaterer,
-  useDeleteCaterer
+  useDeleteCaterer,
+  DeleteCatererOptions,
+  RelatedRecordsError
 } from '../../hooks/use-caterers';
+import CatererDeleteDialog from '../../components/caterers/caterer-delete-dialog';
 import {
   useDistributionsByCaterer
 } from '../../hooks/use-distributions';
 import {
   useCatererPaymentsByCaterer
 } from '../../hooks/use-caterer-payments';
+import CatererPurchaseHistory from '../../components/caterers/caterer-purchase-history';
+import PaymentReminders from '../../components/dashboard/payment-reminders';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -27,7 +32,8 @@ import {
 import {
   ChefHat, ArrowLeft, Save, Trash2, Edit,
   Phone, Mail, MapPin, CreditCard, Receipt,
-  DollarSign, Eye, Plus, FileText
+  DollarSign, Eye, Plus, FileText, Image,
+  CheckCircle, XCircle
 } from 'lucide-react';
 import { Badge } from '../../components/ui/badge';
 import {
@@ -49,17 +55,18 @@ const catererFormSchema = z.object({
   state: z.string().optional(),
   pincode: z.string().optional(),
   gstNumber: z.string().optional(),
-  creditLimit: z.string().optional(),
   notes: z.string().optional(),
 });
 
 type CatererFormValues = z.infer<typeof catererFormSchema>;
 
-export default function CatererDetailsPage({ params }: { params?: { id?: string } }) {
+export default function CatererDetailsPage() {
   const [location, setLocation] = useLocation();
+  const [, params] = useRoute("/caterers/:id");
 
   // Check if params and params.id exist before parsing
   const id = params?.id ? parseInt(params.id) : 0;
+  console.log("Caterer ID from params:", id, "Raw params:", params);
 
   const { data: caterer, isLoading: catererLoading } = useCaterer(id);
   const { data: distributions, isLoading: distributionsLoading } = useDistributionsByCaterer(id);
@@ -69,6 +76,7 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
 
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [relatedRecords, setRelatedRecords] = useState<RelatedRecordsError['relatedRecords'] | undefined>(undefined);
 
   // Helper function to navigate
   const navigate = (path: string) => setLocation(path);
@@ -86,7 +94,6 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
       state: '',
       pincode: '',
       gstNumber: '',
-      creditLimit: '',
       notes: '',
     },
   });
@@ -104,7 +111,6 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
         state: caterer.state || '',
         pincode: caterer.pincode || '',
         gstNumber: caterer.gstNumber || '',
-        creditLimit: caterer.creditLimit ? caterer.creditLimit.toString() : '',
         notes: caterer.notes || '',
       });
     }
@@ -135,13 +141,29 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
   };
 
   // Handle caterer deletion
-  const handleDelete = () => {
-    if (!caterer) return;
+  const handleDelete = (id: number, options?: DeleteCatererOptions) => {
+    if (!id) {
+      console.error('Cannot delete caterer: Invalid ID');
+      return;
+    }
 
-    deleteCaterer.mutate(caterer.id, {
+    console.log(`Deleting caterer with ID: ${id}, options:`, options);
+
+    deleteCaterer.mutate({ id, options }, {
       onSuccess: () => {
+        setIsDeleteDialogOpen(false);
         navigate('/caterers');
       },
+      onError: (error: any) => {
+        // Check if this is a related records error
+        if (error.relatedRecords) {
+          console.log('Related records found:', error.relatedRecords);
+          setRelatedRecords(error.relatedRecords);
+        } else {
+          // For other errors, close the dialog
+          setIsDeleteDialogOpen(false);
+        }
+      }
     });
   };
 
@@ -214,28 +236,44 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
                 <Edit className="h-4 w-4 mr-2" />
                 Edit
               </Button>
-              <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive">
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete the caterer and all associated data. This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDelete} className="bg-red-500 hover:bg-red-600">
-                      Delete
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  // First, check if the caterer has related records
+                  try {
+                    const response = await fetch(`/api/caterers/${id}/check-related-records`);
+                    const data = await response.json();
+
+                    if (data.hasRelatedRecords) {
+                      console.log('Caterer has related records:', data);
+                      setRelatedRecords({
+                        bills: data.distributionsCount || 0,
+                        payments: data.paymentsCount || 0,
+                        total: data.totalCount || 0
+                      });
+                    } else {
+                      // No related records, show simple confirmation
+                      setRelatedRecords(undefined);
+                    }
+                    setIsDeleteDialogOpen(true);
+                  } catch (error) {
+                    console.error('Error checking related records:', error);
+                    // Fallback to simple confirmation
+                    setRelatedRecords(undefined);
+                    setIsDeleteDialogOpen(true);
+                  }
+                }}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </Button>
+              <CatererDeleteDialog
+                caterer={caterer}
+                open={isDeleteDialogOpen}
+                onOpenChange={setIsDeleteDialogOpen}
+                onDelete={handleDelete}
+                relatedRecords={relatedRecords}
+              />
             </>
           )}
         </div>
@@ -246,6 +284,7 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
           <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="distributions">Distributions</TabsTrigger>
           <TabsTrigger value="payments">Payments</TabsTrigger>
+          <TabsTrigger value="purchases">Purchases</TabsTrigger>
         </TabsList>
 
         <TabsContent value="details">
@@ -359,25 +398,7 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
                   </CardContent>
                 </Card>
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Financial Information</CardTitle>
-                    <CardDescription>Edit financial details for this caterer</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="creditLimit">Credit Limit (₹)</Label>
-                      <Input
-                        id="creditLimit"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        {...form.register("creditLimit")}
-                        placeholder="Enter maximum credit limit"
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
+                {/* Financial Information Card removed */}
 
                 <Card>
                   <CardHeader>
@@ -422,18 +443,25 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
               </div>
             </form>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Basic Information</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <h3 className="text-xl font-bold">{caterer.name}</h3>
-                    {caterer.contactName && (
-                      <p className="text-gray-500">Contact: {caterer.contactName}</p>
-                    )}
-                  </div>
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {/* Payment Reminders - Left Side */}
+              <div className="lg:col-span-1">
+                <PaymentReminders className="h-fit" />
+              </div>
+
+              {/* Caterer Information - Right Side */}
+              <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Basic Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <h3 className="text-xl font-bold">{caterer.name}</h3>
+                      {caterer.contactName && (
+                        <p className="text-gray-500">Contact: {caterer.contactName}</p>
+                      )}
+                    </div>
 
                   <div className="flex flex-col space-y-2">
                     {caterer.phone && (
@@ -481,10 +509,7 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
                     </div>
                   )}
 
-                  <div className="space-y-1">
-                    <Label className="text-sm text-gray-500">Credit Limit</Label>
-                    <p>{caterer.creditLimit ? formatCurrency(caterer.creditLimit) : 'Not set'}</p>
-                  </div>
+                  {/* Credit Limit field removed */}
 
                   <div className="space-y-1">
                     <Label className="text-sm text-gray-500">Total Orders</Label>
@@ -513,7 +538,28 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
                     </div>
                   </div>
                 </CardContent>
-                <CardFooter className="flex justify-between border-t pt-4">
+                <CardFooter className="flex flex-col border-t pt-4 space-y-2">
+                  <div className="flex justify-between w-full">
+                    <Button
+                      variant="outline"
+                      className="w-full mr-2"
+                      onClick={() => navigate(`/caterer-billing?catererId=${caterer.id}`)}
+                    >
+                      <CreditCard className="h-4 w-4 mr-2" />
+                      Create Bill
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => {
+                        // Use our new redirect page
+                        navigate(`/caterer-payment-form?catererId=${caterer.id}`);
+                      }}
+                    >
+                      <DollarSign className="h-4 w-4 mr-2" />
+                      Record Payment
+                    </Button>
+                  </div>
                   <Button
                     variant="outline"
                     className="w-full"
@@ -525,16 +571,17 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
                 </CardFooter>
               </Card>
 
-              {caterer.notes && (
-                <Card className="md:col-span-3">
-                  <CardHeader>
-                    <CardTitle>Notes</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="whitespace-pre-line">{caterer.notes}</p>
-                  </CardContent>
-                </Card>
-              )}
+                {caterer.notes && (
+                  <Card className="md:col-span-3">
+                    <CardHeader>
+                      <CardTitle>Notes</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="whitespace-pre-line">{caterer.notes}</p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
             </div>
           )}
         </TabsContent>
@@ -626,7 +673,10 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
                 <CardTitle>Payment History</CardTitle>
                 <CardDescription>All payments made by this caterer</CardDescription>
               </div>
-              <Button onClick={() => navigate(`/caterer-payments/new?catererId=${caterer.id}`)}>
+              <Button onClick={() => {
+                // Use our new redirect page
+                navigate(`/caterer-payment-form?catererId=${caterer.id}`);
+              }}>
                 <Plus className="h-4 w-4 mr-2" />
                 Record Payment
               </Button>
@@ -646,6 +696,7 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
                         <TableHead>Payment Mode</TableHead>
                         <TableHead>Reference</TableHead>
                         <TableHead>Distribution</TableHead>
+                        <TableHead>Receipt</TableHead>
                         <TableHead>Notes</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -669,6 +720,21 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
                               '-'
                             )}
                           </TableCell>
+                          <TableCell>
+                            {payment && payment.receiptImage ? (
+                              <a
+                                href={`/api/uploads/receipts/${payment.receiptImage}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-500 hover:text-blue-700 underline flex items-center"
+                              >
+                                <Image className="h-4 w-4 mr-1" />
+                                View
+                              </a>
+                            ) : (
+                              '-'
+                            )}
+                          </TableCell>
                           <TableCell>{payment.notes || '-'}</TableCell>
                         </TableRow>
                       ))}
@@ -680,7 +746,10 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
                   <DollarSign className="h-12 w-12 mx-auto text-gray-400 mb-4" />
                   <h3 className="text-lg font-medium mb-2">No Payments Yet</h3>
                   <p className="text-gray-500 mb-4">This caterer hasn't made any payments yet.</p>
-                  <Button onClick={() => navigate(`/caterer-payments/new?catererId=${caterer.id}`)}>
+                  <Button onClick={() => {
+                    // Use our new redirect page
+                    navigate(`/caterer-payment-form?catererId=${caterer.id}`);
+                  }}>
                     <Plus className="h-4 w-4 mr-2" />
                     Record First Payment
                   </Button>
@@ -688,6 +757,14 @@ export default function CatererDetailsPage({ params }: { params?: { id?: string 
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="purchases">
+          {caterer && (
+            <div className="space-y-4">
+              <CatererPurchaseHistory catererId={caterer.id} />
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

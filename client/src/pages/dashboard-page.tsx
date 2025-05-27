@@ -6,6 +6,8 @@ import SalesChart from "@/components/dashboard/sales-chart";
 import PieChart from "@/components/dashboard/pie-chart";
 import RecentAlerts from "@/components/dashboard/recent-alerts";
 import RecentActivity from "@/components/dashboard/recent-activity";
+import PaymentReminders from "@/components/dashboard/payment-reminders";
+import SupplierPaymentReminders from "@/components/dashboard/supplier-payment-reminders";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { File, Plus, DollarSign, ArrowRight, Package, ShoppingCart, AlertTriangle } from "lucide-react";
@@ -88,6 +90,12 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <SalesChart className="lg:col-span-2" />
         <PieChart />
+      </div>
+
+      {/* Payment Reminders Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <PaymentReminders />
+        <SupplierPaymentReminders />
       </div>
 
       {/* Alerts and Activity Row */}

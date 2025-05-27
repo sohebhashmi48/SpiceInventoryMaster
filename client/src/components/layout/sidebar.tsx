@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import {
   Search, LayoutDashboard, PackageSearch, Store, Receipt,
   BarChart2, Users, Settings, HelpCircle, Leaf, FileText,
-  ChefHat, CreditCard
+  ChefHat, CreditCard, DollarSign
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 
@@ -27,7 +27,8 @@ export default function Sidebar({ isMobileOpen, closeMobileSidebar }: SidebarPro
     { name: 'Products', path: '/spices', icon: <Leaf className="h-5 w-5" /> },
     { name: 'Suppliers', path: '/suppliers', icon: <Store className="h-5 w-5" /> },
     { name: 'Caterers', path: '/caterers', icon: <ChefHat className="h-5 w-5" /> },
-    { name: 'Caterer Billing', path: '/distributions', icon: <CreditCard className="h-5 w-5" /> },
+    { name: 'Caterer Billing', path: '/caterer-billing', icon: <CreditCard className="h-5 w-5" /> },
+    { name: 'Caterer Payments', path: '/caterer-payments', icon: <DollarSign className="h-5 w-5" /> },
     { name: 'Purchases', path: '/purchases', icon: <FileText className="h-5 w-5" /> },
     { name: 'Reports', path: '/reports', icon: <BarChart2 className="h-5 w-5" /> },
   ];

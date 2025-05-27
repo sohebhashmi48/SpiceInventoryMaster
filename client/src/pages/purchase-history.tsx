@@ -57,11 +57,24 @@ export default function PurchaseHistoryPage() {
   // Fetch all purchase history
   const { data: purchaseHistory, isLoading } = useQuery<PurchaseHistoryItem[]>({
     queryKey: ["/api/purchase-history"],
+    queryFn: async () => {
+      console.log("Fetching purchase history");
+      const response = await fetch("/api/purchase-history", {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        console.error("Failed to fetch purchase history:", response.status);
+        throw new Error(`Failed to fetch purchase history: ${response.status}`);
+      }
+      const data = await response.json();
+      console.log("Purchase history data:", data);
+      return data;
+    },
   });
 
   // Fetch all vendors for filter
   const { data: vendors } = useQuery<Vendor[]>({
-    queryKey: ["/api/vendors"],
+    queryKey: ["/api/suppliers"],
   });
 
   // Fetch all products/spices for filter
@@ -264,8 +277,8 @@ export default function PurchaseHistoryPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All GST Rates</SelectItem>
-                      {uniqueGstPercentages.map((gst) => (
-                        <SelectItem key={gst} value={gst.toString()}>
+                      {uniqueGstPercentages && uniqueGstPercentages.map((gst) => (
+                        <SelectItem key={gst} value={gst ? gst.toString() : '0'}>
                           {gst}%
                         </SelectItem>
                       ))}

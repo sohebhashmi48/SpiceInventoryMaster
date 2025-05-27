@@ -22,22 +22,22 @@ export default function Layout({ children }: LayoutProps) {
   return (
     <div className="flex flex-col h-screen">
       <Header toggleSidebar={toggleSidebar} />
-      
+
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar 
-          isMobileOpen={sidebarOpen} 
-          closeMobileSidebar={closeSidebar} 
+        <Sidebar
+          isMobileOpen={sidebarOpen}
+          closeMobileSidebar={closeSidebar}
         />
-        
+
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto bg-neutral-100 p-4">
           {children}
         </main>
       </div>
-      
+
       {/* Overlay to close sidebar on mobile */}
       {sidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-50 z-10 lg:hidden"
           onClick={closeSidebar}
         />

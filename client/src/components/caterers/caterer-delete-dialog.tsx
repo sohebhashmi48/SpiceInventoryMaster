@@ -101,7 +101,7 @@ export default function CatererDeleteDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
-      <AlertDialogContent className="max-w-md">
+      <AlertDialogContent className={showConfirmation ? "max-w-2xl" : "max-w-md"}>
         {!showConfirmation ? (
           // Initial delete confirmation
           <>
@@ -149,18 +149,18 @@ export default function CatererDeleteDialog({
               </AlertDialogDescription>
             </AlertDialogHeader>
 
-            <div className="grid gap-4 py-4">
+            <div className="space-y-3 py-4">
               <Button
                 variant="outline"
-                className={`flex justify-start p-4 h-auto ${
+                className={`w-full flex items-start justify-start p-4 h-auto text-left ${
                   deleteOption === 'cancel' ? 'border-blue-500 bg-blue-50' : ''
                 }`}
                 onClick={() => setDeleteOption('cancel')}
               >
-                <X className="h-5 w-5 mr-2 text-blue-500" />
-                <div className="text-left">
-                  <div className="font-medium">Cancel Deletion</div>
-                  <div className="text-sm text-muted-foreground">
+                <X className="h-5 w-5 mr-3 mt-0.5 text-blue-500 flex-shrink-0" />
+                <div className="flex-1">
+                  <div className="font-medium text-base">Cancel Deletion</div>
+                  <div className="text-sm text-muted-foreground mt-1">
                     Return without deleting the caterer or any associated records.
                   </div>
                 </div>
@@ -168,15 +168,15 @@ export default function CatererDeleteDialog({
 
               <Button
                 variant="outline"
-                className={`flex justify-start p-4 h-auto ${
+                className={`w-full flex items-start justify-start p-4 h-auto text-left ${
                   deleteOption === 'cascade' ? 'border-amber-500 bg-amber-50' : ''
                 }`}
                 onClick={() => setDeleteOption('cascade')}
               >
-                <Trash2 className="h-5 w-5 mr-2 text-amber-500" />
-                <div className="text-left">
-                  <div className="font-medium">Delete All Related Records First</div>
-                  <div className="text-sm text-muted-foreground">
+                <Trash2 className="h-5 w-5 mr-3 mt-0.5 text-amber-500 flex-shrink-0" />
+                <div className="flex-1">
+                  <div className="font-medium text-base">Delete All Related Records First</div>
+                  <div className="text-sm text-muted-foreground mt-1">
                     Delete all bills, payments, and other records associated with this caterer, then delete the caterer.
                   </div>
                 </div>
@@ -184,27 +184,33 @@ export default function CatererDeleteDialog({
 
               <Button
                 variant="outline"
-                className={`flex justify-start p-4 h-auto ${
+                className={`w-full flex items-start justify-start p-4 h-auto text-left ${
                   deleteOption === 'force' ? 'border-red-500 bg-red-50' : ''
                 }`}
                 onClick={() => setDeleteOption('force')}
               >
-                <AlertTriangle className="h-5 w-5 mr-2 text-red-500" />
-                <div className="text-left">
-                  <div className="font-medium">Force Delete (Danger)</div>
-                  <div className="text-sm text-muted-foreground">
+                <AlertTriangle className="h-5 w-5 mr-3 mt-0.5 text-red-500 flex-shrink-0" />
+                <div className="flex-1">
+                  <div className="font-medium text-base">Force Delete (Danger)</div>
+                  <div className="text-sm text-muted-foreground mt-1">
                     Force delete the caterer directly. This may cause data inconsistencies and orphaned records.
                   </div>
                 </div>
               </Button>
             </div>
 
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setShowConfirmation(false)}>Back</AlertDialogCancel>
+            <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+              <AlertDialogCancel
+                onClick={() => setShowConfirmation(false)}
+                className="w-full sm:w-auto"
+              >
+                Back
+              </AlertDialogCancel>
               <Button
                 variant="destructive"
                 onClick={handleConfirmDelete}
                 disabled={deleteOption === 'cancel' || deleteOption === null}
+                className="w-full sm:w-auto"
               >
                 Confirm
               </Button>

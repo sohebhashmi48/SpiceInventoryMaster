@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maki Billing System - Enhanced</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+        
+        * {
+            font-family: 'Poppins', sans-serif;
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+        }
+        
+        .glass-card {
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .shadow-custom {
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+        
+        .hover-scale {
+            transition: transform 0.2s ease-in-out;
+        }
+        
+        .hover-scale:hover {
+            transform: scale(1.02);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(99, 102, 241, 0.4);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #f472b6 0%, #ef4444 100%);
+            transition: all 0.3s ease;
+        }
+        
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(244, 114, 182, 0.4);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+            transition: all 0.3s ease;
+        }
+        
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(52, 211, 153, 0.4);
+        }
+        
+        .table-header {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        }
+        
+        .quantity-btn {
+            transition: all 0.2s ease;
+        }
+        
+        .quantity-btn:hover {
+            transform: scale(1.1);
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .invoice-header {
+            border-bottom: 3px solid #6366f1;
+        }
+        
+        .total-section {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        }
+
+        .savings-badge {
+            background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.05);
+            }
+            100% {
+                transform: scale(1);
+            }
+        }
+        
+        select, input {
+            transition: all 0.3s ease;
+        }
+        
+        select:focus, input:focus {
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(99, 102, 241, 0.3);
+        }
+        
+        .company-logo {
+            width: 60px;
+            height: 60px;
+            background-color: #6366f1;
+            border-radius: 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        
+        /* Thermal Receipt Printing Styles */
+        @media print {
+            body { 
+                margin: 0;
+                padding: 0;
+                -webkit-print-color-adjust: exact; 
+                width: 57mm; 
+                font-size: 10px;
+                background-color: white;
+            }
+            
+            .no-print { 
+                display: none !important; 
+            }
+            
+            .receipt-container {
+                width: 57mm;
+                padding: 5px;
+                background-color: white;
+            }
+            
+            .receipt-header {
+                text-align: center;
+                margin-bottom: 10px;
+            }
+            
+            .receipt-item {
+                margin-bottom: 5px;
+                display: flex;
+                justify-content: space-between;
+                border-bottom: 1px dashed #ddd;
+                padding-bottom: 5px;
+            }
+            
+            .receipt-total {
+                margin-top: 10px;
+                font-weight: bold;
+                text-align: right;
+            }
+            
+            .container, .glass-card {
+                box-shadow: none;
+                background: white;
+                transform: none;
+                width: 100%;
+                max-width: 57mm;
+                margin: 0;
+                padding: 0;
+            }
+            
+            .thermal-print-only {
+                display: block !important;
+                margin: 0;
+                padding: 0;
+            }
+        }
+        
+        .thermal-print-only {
+            display: none;
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen py-8">
+    <div class="container mx-auto px-4 max-w-6xl">
+        <div class="glass-card rounded-3xl shadow-custom p-8 hover-scale">
+            <!-- Company & Client Info Section -->
+            <div class="bg-white rounded-2xl p-6 mb-8 shadow-lg fade-in">
+                <div class="flex flex-col lg:flex-row gap-6">
+                    <!-- Company Information -->
+                    <div class="flex-1 border-r border-gray-200 pr-6">
+                        <div class="flex items-center mb-4">
+                            <div class="company-logo mr-4">M</div>
+                            <div>
+                                <h2 class="text-2xl font-bold text-gray-800">Maki Grocery</h2>
+                                <p class="text-indigo-600 font-medium">Premium Quality Products</p>
+                            </div>
+                        </div>
+                        <div class="text-sm text-gray-600 space-y-1">
+                            <p class="flex items-center"><i class="fas fa-map-marker-alt w-5 text-indigo-500"></i> 123 Shopping Avenue, Market District</p>
+                            <p class="flex items-center"><i class="fas fa-phone-alt w-5 text-indigo-500"></i> +1 (123) 456-7890</p>
+                            <p class="flex items-center"><i class="fas fa-envelope w-5 text-indigo-500"></i> contact@makigrocery.com</p>
+                            <p class="flex items-center"><i class="fas fa-globe w-5 text-indigo-500"></i> www.makigrocery.com</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Client Information -->
+                    <div class="flex-1 pl-0 lg:pl-6">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+                            <i class="fas fa-user-circle text-indigo-500 mr-2"></i>
+                            Client Information
+                        </h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <i class="fas fa-user mr-2"></i>Client Name
+                                </label>
+                                <input type="text" id="clientName" placeholder="Enter client name" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <i class="fas fa-mobile-alt mr-2"></i>Mobile Number
+                                </label>
+                                <input type="text" id="clientMobile" placeholder="Enter mobile number" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <i class="fas fa-envelope mr-2"></i>Email (Optional)
+                                </label>
+                                <input type="email" id="clientEmail" placeholder="Enter email address" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <i class="fas fa-address-card mr-2"></i>Address (Optional)
+                                </label>
+                                <input type="text" id="clientAddress" placeholder="Enter address" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Bill Info -->
+                <div class="flex flex-col md:flex-row justify-between items-center mt-6 pt-6 border-t border-gray-200">
+                    <div class="bg-gray-100 px-6 py-3 rounded-xl mb-4 md:mb-0">
+                        <div class="flex space-x-6">
+                            <div>
+                                <p class="text-sm text-gray-500">Date</p>
+                                <p class="font-medium" id="currentDate"></p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-500">Time</p>
+                                <p class="font-medium" id="currentTime"></p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-500">Bill #</p>
+                                <p class="font-medium" id="billNumber"></p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex space-x-2">
+                        <a href="#" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium flex items-center">
+                            <i class="fas fa-history mr-1"></i> Transaction History
+                        </a>
+                        <span class="text-gray-300">|</span>
+                        <a href="#" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium flex items-center">
+                            <i class="fas fa-tag mr-1"></i> Special Offers
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Product Selection Form -->
+            <div class="bg-white rounded-2xl p-6 mb-8 shadow-lg fade-in">
+                <h2 class="text-2xl font-semibold text-gray-800 mb-6 flex items-center">
+                    <i class="fas fa-shopping-cart text-indigo-600 mr-3"></i>
+                    Add Products to Cart
+                </h2>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-box mr-2"></i>Select Product
+                        </label>
+                        <select id="productSelect" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white">
+                            <option value="">Choose Product...</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-balance-scale mr-2"></i>Quantity
+                        </label>
+                        <input type="number" id="quantityInput" placeholder="Enter quantity" min="0.01" step="0.01" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fas fa-weight mr-2"></i>Unit
+                        </label>
+                        <select id="unitSelect" class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white">
+                            <option value="kg">Kilogram (kg)</option>
+                            <option value="g">Gram (g)</option>
+                            <option value="pcs">Pieces (pcs)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="flex items-end">
+                        <button onclick="addToCart()" class="w-full btn-primary text-white px-6 py-3 rounded-xl font-semibold shadow-lg">
+                            <i class="fas fa-plus mr-2"></i>Add to Cart
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cart Display -->
+            <div id="cartSection" class="bg-white rounded-2xl shadow-lg overflow-hidden fade-in">
+                <div class="table-header text-white p-6">
+                    <h2 class="text-2xl font-semibold flex items-center">
+                        <i class="fas fa-shopping-basket mr-3"></i>
+                        Shopping Cart
+                    </h2>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">S.No.</th>
+                                <th class="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Product</th>
+                                <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Quantity</th>
+                                <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Unit Price</th>
+                                <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Total</th>
+                                <th class="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider no-print">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cartTableBody" class="bg-white divide-y divide-gray-200">
+                            <tr id="emptyCartRow">
+                                <td colspan="6" class="px-6 py-12 text-center text-gray-500">
+                                    <i class="fas fa-shopping-cart text-4xl mb-4 block"></i>
+                                    <p class="text-lg">Your cart is empty</p>
+                                    <p class="text-sm">Add products to get started</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Cart Summary -->
+                <div class="border-t border-gray-200">
+                    <div class="flex flex-col md:flex-row justify-between items-center p-6">
+                        <div class="flex flex-col md:flex-row gap-4 mb-4 md:mb-0 no-print">
+                            <button onclick="clearCart()" class="btn-secondary text-white px-6 py-3 rounded-xl font-semibold shadow-lg">
+                                <i class="fas fa-trash mr-2"></i>Clear Cart
+                            </button>
+                            <button onclick="saveCartScreenshot()" class="btn-success text-white px-6 py-3 rounded-xl font-semibold shadow-lg">
+                                <i class="fas fa-camera mr-2"></i>Save Receipt
+                            </button>
+                            <button onclick="printThermalReceipt()" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-semibold shadow-lg transition-all">
+                                <i class="fas fa-print mr-2"></i>Print Receipt
+                            </button>
+                        </div>
+                        
+                        <div class="flex flex-col md:flex-row items-center gap-4">
+                            <div class="savings-badge text-white px-4 py-2 rounded-xl text-center">
+                                <p class="text-xs font-medium">You Saved</p>
+                                <p class="text-xl font-bold" id="totalSavings">₹0.00</p>
+                            </div>
+                            
+                            <div class="total-section text-white px-8 py-4 rounded-2xl">
+                                <div class="text-center">
+                                    <p class="text-lg font-medium">Total Amount</p>
+                                    <p class="text-3xl font-bold" id="totalAmount">₹0.00</p>
+                                    <p class="text-sm opacity-90">Items: <span id="totalItems">0</span></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Thermal Receipt Template (Hidden by default, shown when printing) -->
+            <div id="thermalReceipt" class="thermal-print-only">
+                <div class="receipt-container">
+                    <div class="receipt-header">
+                        <h2>MAKI GROCERY</h2>
+                        <p>123 Shopping Avenue, Market District</p>
+                        <p>Tel: +1 (123) 456-7890</p>
+                        <p>Email: contact@makigrocery.com</p>
+                        <p>---------------------------------</p>
+                        <p>Bill #: <span id="receipt-bill-number"></span></p>
+                        <p>Date: <span id="receipt-date"></span></p>
+                        <p>Time: <span id="receipt-time"></span></p>
+                        <p>---------------------------------</p>
+                        <p>Customer: <span id="receipt-customer-name"></span></p>
+                        <p>Mobile: <span id="receipt-customer-mobile"></span></p>
+                        <p>---------------------------------</p>
+                    </div>
+                    
+                    <div id="receipt-items">
+                        <!-- Items will be populated here -->
+                    </div>
+                    
+                    <p>---------------------------------</p>
+                    <div class="receipt-summary">
+                        <p>Total Items: <span id="receipt-total-items"></span></p>
+                        <p>Sub Total: ₹<span id="receipt-subtotal"></span></p>
+                        <p>You Saved: ₹<span id="receipt-savings"></span></p>
+                        <p>---------------------------------</p>
+                        <div class="receipt-total">
+                            <p>TOTAL: ₹<span id="receipt-total"></span></p>
+                        </div>
+                    </div>
+                    
+                    <div class="receipt-footer">
+                        <p>---------------------------------</p>
+                        <p>Thank you for shopping with us!</p>
+                        <p>Visit again soon</p>
+                        <p>www.makigrocery.com</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="mt-8 text-center text-gray-600 no-print">
+                <p>
+                    <i class="fas fa-heart text-red-500 mr-1"></i>
+                    Thank you for choosing Maki Billing System
+                </p>
+                <p class="text-sm mt-2">
+                    © 2023 Maki Grocery. All rights reserved.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Product data with prices per kg and market prices (to calculate savings)
+        const products = {
+            "Sugar": { price: 60, marketPrice: 65 },
+            "Salt": { price: 20, marketPrice: 22 },
+            "Wheat Flour": { price: 45, marketPrice: 48 },
+            "Rice": { price: 55, marketPrice: 60 },
+            "Tea": { price: 400, marketPrice: 420 },
+            "Oil": { price: 120, marketPrice: 130 },
+            "Onion": { price: 40, marketPrice: 45 },
+            "Potato": { price: 30, marketPrice: 35 },
+            "Tomato": { price: 50, marketPrice: 55 },
+            "Milk": { price: 60, marketPrice: 65 },
+            "Butter": { price: 480, marketPrice: 500 },
+            "Cheese": { price: 350, marketPrice: 380 },
+            "Bread": { price: 40, marketPrice: 45 },
+            "Eggs": { price: 70, marketPrice: 75 }
+        };
+
+        let cart = [];
+        let billNumber = Math.floor(Math.random() * 100000) + 1;
+
+        // Initialize the application
+        function init() {
+            populateProductDropdown();
+            updateDateTime();
+            setInterval(updateDateTime, 1000);
+            document.getElementById('billNumber').textContent = billNumber.toString().padStart(6, '0');
+        }
+
+        // Populate product dropdown
+        function populateProductDropdown() {
+            const productSelect = document.getElementById('productSelect');
+            for (let product in products) {
+                const option = document.createElement('option');
+                option.value = product;
+                option.textContent = `${product} - ₹${products[product].price}/kg (Market: ₹${products[product].marketPrice}/kg)`;
+                productSelect.appendChild(option);
+            }
+        }
+
+        // Update date and time
+        function updateDateTime() {
+            const now = new Date();
+            document.getElementById('currentDate').textContent = now.toLocaleDateString('en-IN');
+            document.getElementById('currentTime').textContent = now.toLocaleTimeString('en-IN');
+        }
+
+        // Add product to cart
+        function addToCart() {
+            const productSelect = document.getElementById('productSelect');
+            const quantityInput = document.getElementById('quantityInput');
+            const unitSelect = document.getElementById('unitSelect');
+
+            const product = productSelect.value;
+            const quantity = parseFloat(quantityInput.value);
+            const unit = unitSelect.value;
+
+            // Validation
+            if (!product) {
+                showAlert('Please select a product', 'error');
+                return;
+            }
+
+            if (!quantity || quantity <= 0) {
+                showAlert('Please enter a valid quantity', 'error');
+                return;
+            }
+
+            // Convert to kg for calculation (or keep as is for pieces)
+            let quantityInKg;
+            let displayUnit;
+            
+            if (unit === 'g') {
+                quantityInKg = quantity / 1000;
+                displayUnit = 'kg';
+            } else if (unit === 'kg') {
+                quantityInKg = quantity;
+                displayUnit = 'kg';
+            } else { // pieces
+                quantityInKg = quantity;
+                displayUnit = 'pcs';
+            }
+
+            // Check if product already exists in cart
+            const existingItemIndex = cart.findIndex(item => item.product === product);
+
+            if (existingItemIndex !== -1) {
+                // Update existing item quantity
+                cart[existingItemIndex].quantityInKg += quantityInKg;
+                cart[existingItemIndex].displayQuantity = `${cart[existingItemIndex].quantityInKg.toFixed(2)}${displayUnit}`;
+                showAlert(`Updated ${product} quantity in cart`, 'success');
+            } else {
+                // Add new item to cart
+                cart.push({
+                    product: product,
+                    quantityInKg: quantityInKg,
+                    displayQuantity: `${quantityInKg.toFixed(2)}${displayUnit}`,
+                    displayUnit: displayUnit,
+                    pricePerKg: products[product].price,
+                    marketPricePerKg: products[product].marketPrice
+                });
+                showAlert(`${product} added to cart`, 'success');
+            }
+
+            // Reset form
+            quantityInput.value = '';
+            productSelect.value = '';
+
+            renderCart();
+        }
+
+        // Render cart table
+        function renderCart() {
+            const cartTableBody = document.getElementById('cartTableBody');
+            const emptyCartRow = document.getElementById('emptyCartRow');
+
+            if (cart.length === 0) {
+                emptyCartRow.style.display = 'table-row';
+                updateTotals();
+                return;
+            }
+
+            emptyCartRow.style.display = 'none';
+            cartTableBody.innerHTML = '';
+
+            cart.forEach((item, index) => {
+                const total = item.quantityInKg * item.pricePerKg;
+                const row = document.createElement('tr');
+                row.className = 'fade-in hover:bg-gray-50';
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${index + 1}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm font-medium text-gray-900">${item.product}</div>
+                        <div class="text-sm text-gray-500">₹${item.pricePerKg}/kg</div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                        <div class="flex items-center justify-center space-x-2">
+                            <button onclick="updateQuantity(${index}, -0.1)" class="quantity-btn bg-red-500 text-white w-8 h-8 rounded-full hover:bg-red-600 no-print">
+                                <i class="fas fa-minus text-xs"></i>
+                            </button>
+                            <span class="text-sm font-medium px-3">${item.displayQuantity}</span>
+                            <button onclick="updateQuantity(${index}, 0.1)" class="quantity-btn bg-green-500 text-white w-8 h-8 rounded-full hover:bg-green-600 no-print">
+                                <i class="fas fa-plus text-xs"></i>
+                            </button>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-900">₹${item.pricePerKg}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-semibold text-gray-900">₹${total.toFixed(2)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium no-print">
+                        <button onclick="removeFromCart(${index})" class="text-red-600 hover:text-red-900 bg-red-100 hover:bg-red-200 px-3 py-1 rounded-lg transition-colors">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                `;
+                cartTableBody.appendChild(row);
+            });
+
+            updateTotals();
+        }
+
+        // Update quantity
+        function updateQuantity(index, change) {
+            cart[index].quantityInKg += change;
+            
+            if (cart[index].quantityInKg <= 0) {
+                removeFromCart(index);
+                return;
+            }
+
+            cart[index].displayQuantity = `${cart[index].quantityInKg.toFixed(2)}${cart[index].displayUnit}`;
+            renderCart();
+        }
+
+        // Remove item from cart
+        function removeFromCart(index) {
+            const productName = cart[index].product;
+            cart.splice(index, 1);
+            showAlert(`${productName} removed from cart`, 'info');
+            renderCart();
+        }
+
+        // Clear entire cart
+        function clearCart() {
+            if (cart.length === 0) {
+                showAlert('Cart is already empty', 'info');
+                return;
+            }
+            
+            if (confirm('Are you sure you want to clear the entire cart?')) {
+                cart = [];
+                showAlert('Cart cleared successfully', 'info');
+                renderCart();
+            }
+        }
+
+        // Calculate savings
+        function calculateSavings() {
+            let totalMarketPrice = 0;
+            let totalPrice = 0;
+            
+            cart.forEach(item => {
+                totalMarketPrice += item.quantityInKg * item.marketPricePerKg;
+                totalPrice += item.quantityInKg * item.pricePerKg;
+            });
+            
+            return totalMarketPrice - totalPrice;
+        }
+
+        // Update totals
+        function updateTotals() {
+            const total = cart.reduce((sum, item) => sum + (item.quantityInKg * item.pricePerKg), 0);
+            const itemCount = cart.length;
+            const savings = calculateSavings();
+
+            document.getElementById('totalAmount').textContent = `₹${total.toFixed(2)}`;
+            document.getElementById('totalItems').textContent = itemCount;
+            document.getElementById('totalSavings').textContent = `₹${savings.toFixed(2)}`;
+        }
+
+        // Show alert messages
+        function showAlert(message, type) {
+            const alertColors = {
+                success: 'bg-green-500',
+                error: 'bg-red-500',
+                info: 'bg-blue-500'
+            };
+
+            const alert = document.createElement('div');
+            alert.className = `fixed top-4 right-4 ${alertColors[type]} text-white px-6 py-3 rounded-lg shadow-lg z-50 fade-in`;
+            alert.innerHTML = `
+                <div class="flex items-center">
+                    <i class="fas fa-${type === 'success' ? 'check' : type === 'error' ? 'exclamation-triangle' : 'info-circle'} mr-2"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+
+            document.body.appendChild(alert);
+
+            setTimeout(() => {
+                alert.remove();
+            }, 3000);
+        }
+
+        // Save cart screenshot
+        function saveCartScreenshot() {
+            const element = document.getElementById('cartSection');
+            html2canvas(element).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `maki-receipt-${billNumber}.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+                showAlert('Receipt saved successfully', 'success');
+            });
+        }
+        
+        // Print thermal receipt
+        function printThermalReceipt() {
+            if (cart.length === 0) {
+                showAlert('Add items to cart before printing', 'error');
+                return;
+            }
+            
+            // Populate receipt with data
+            const now = new Date();
+            const clientName = document.getElementById('clientName').value || 'Guest Customer';
+            const clientMobile = document.getElementById('clientMobile').value || 'N/A';
+            
+            // Set receipt header info
+            document.getElementById('receipt-bill-number').textContent = billNumber.toString().padStart(6, '0');
+            document.getElementById('receipt-date').textContent = now.toLocaleDateString('en-IN');
+            document.getElementById('receipt-time').textContent = now.toLocaleTimeString('en-IN');
+            document.getElementById('receipt-customer-name').textContent = clientName;
+            document.getElementById('receipt-customer-mobile').textContent = clientMobile;
+            
+            // Generate receipt items
+            const receiptItems = document.getElementById('receipt-items');
+            receiptItems.innerHTML = '';
+            
+            cart.forEach((item, index) => {
+                const total = item.quantityInKg * item.pricePerKg;
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'receipt-item';
+                itemDiv.innerHTML = `
+                    <div>
+                        <p>${item.product}</p>
+                        <p>${item.displayQuantity} x ₹${item.pricePerKg}</p>
+                    </div>
+                    <div>₹${total.toFixed(2)}</div>
+                `;
+                receiptItems.appendChild(itemDiv);
+            });
+            
+            // Set receipt totals
+            const total = cart.reduce((sum, item) => sum + (item.quantityInKg * item.pricePerKg), 0);
+            const savings = calculateSavings();
+            
+            document.getElementById('receipt-total-items').textContent = cart.length;
+            document.getElementById('receipt-subtotal').textContent = total.toFixed(2);
+            document.getElementById('receipt-savings').textContent = savings.toFixed(2);
+            document.getElementById('receipt-total').textContent = total.toFixed(2);
+            
+            // Print the receipt
+            window.print();
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>

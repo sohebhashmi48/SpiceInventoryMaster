@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useFieldArray, Controller } from "react-hook-form";
@@ -6,7 +6,7 @@ import { z } from "zod";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Spice, Vendor, purchaseWithItemsSchema } from "@shared/schema";
+import { Spice, Vendor, purchaseWithItemsSchema, purchaseWithItemsFormSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -64,8 +64,8 @@ const MEASUREMENT_UNITS = [
   { value: "pack", label: "Pack" },
 ];
 
-// Create a form schema based on the purchaseWithItemsSchema but with string date handling
-const formSchema = purchaseWithItemsSchema.extend({
+// Create a form schema based on the purchaseWithItemsFormSchema for lenient validation during data entry
+const formSchema = purchaseWithItemsFormSchema.extend({
   // Transform the string date from the input to a Date object
   purchaseDate: z.string()
     .refine(val => !isNaN(Date.parse(val)), {
@@ -124,6 +124,7 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
     amount: "0",
   });
   const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const paymentSectionRef = useRef<HTMLDivElement>(null);
 
   // Fetch supplier details if supplierId is provided
   const { data: supplier } = useQuery<Vendor>({
@@ -210,6 +211,34 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
       setIsCalculating(false);
     }
   }, [form.watch("items")]);
+
+  // Watch for payment section expansion and prevent unwanted scrolling
+  const isPaid = form.watch("isPaid");
+  useEffect(() => {
+    if (isPaid) {
+      // Store current scroll position before any DOM changes
+      const currentScrollY = window.scrollY;
+      const currentScrollX = window.scrollX;
+
+      // Temporarily lock scroll position
+      const lockScroll = () => {
+        window.scrollTo(currentScrollX, currentScrollY);
+      };
+
+      // Add scroll lock
+      window.addEventListener('scroll', lockScroll, { passive: false });
+
+      // Remove scroll lock after a short delay to allow DOM to settle
+      const timeout = setTimeout(() => {
+        window.removeEventListener('scroll', lockScroll);
+      }, 100);
+
+      return () => {
+        clearTimeout(timeout);
+        window.removeEventListener('scroll', lockScroll);
+      };
+    }
+  }, [isPaid]);
 
   // Calculate amount and GST for temp item
   const calculateTempItemValues = () => {
@@ -431,6 +460,30 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
       return;
     }
 
+    // Validate that all items have valid rates and quantities
+    for (const item of filteredItems) {
+      const rate = typeof item.rate === 'string' ? parseFloat(item.rate) : item.rate;
+      const quantity = typeof item.quantity === 'string' ? parseFloat(item.quantity) : item.quantity;
+
+      if (!rate || rate <= 0) {
+        toast({
+          title: "Invalid rate",
+          description: `Please enter a valid rate for ${item.itemName}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!quantity || quantity <= 0) {
+        toast({
+          title: "Invalid quantity",
+          description: `Please enter a valid quantity for ${item.itemName}`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     // Update the data with filtered items
     const filteredData = {
       ...data,
@@ -470,7 +523,7 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card>
             <CardHeader className="pb-3">
@@ -908,7 +961,7 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
           </CardContent>
         </Card>
 
-        <Card className="mt-6">
+        <Card className="mt-6" id="payment-section" ref={paymentSectionRef}>
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center">
               <DollarSign className="h-5 w-5 mr-2 text-green-600" />
@@ -916,7 +969,7 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
               <div>
                 <FormField
                   control={form.control}
@@ -942,8 +995,13 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
                 />
               </div>
 
-              {form.watch("isPaid") && (
-                <>
+              {/* Fixed height container to prevent layout shifts */}
+              <div
+                className={`transition-all duration-300 ease-in-out overflow-hidden ${
+                  form.watch("isPaid") ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+                }`}
+              >
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md">
                   <div className="space-y-2">
                     <FormField
                       control={form.control}
@@ -1022,7 +1080,7 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
                     />
                   </div>
 
-                  <div className="space-y-2 md:col-span-2">
+                  <div className="space-y-2">
                     <FormField
                       control={form.control}
                       name="paymentNotes"
@@ -1037,13 +1095,13 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
                       )}
                     />
                   </div>
-                </>
-              )}
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <div className="flex justify-end space-x-4 mt-6">
+        <div className="flex justify-end space-x-4 mt-6 pt-4 border-t">
           <Button
             type="button"
             variant="outline"

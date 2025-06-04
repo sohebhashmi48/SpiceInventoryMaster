@@ -230,6 +230,26 @@ CREATE TABLE caterer_payments (
   FOREIGN KEY (distribution_id) REFERENCES distributions(id)
 );
 
+-- Create payment reminders table
+CREATE TABLE payment_reminders (
+  id VARCHAR(36) PRIMARY KEY,
+  caterer_id INT NOT NULL,
+  distribution_id INT,
+  amount DECIMAL(10,2) NOT NULL,
+  original_due_date DATE NOT NULL,
+  reminder_date DATE NOT NULL,
+  next_reminder_date DATE,
+  status VARCHAR(50) NOT NULL DEFAULT 'pending',
+  is_read TINYINT(1) NOT NULL DEFAULT 0,
+  is_acknowledged TINYINT(1) NOT NULL DEFAULT 0,
+  acknowledged_at TIMESTAMP NULL,
+  notes TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (caterer_id) REFERENCES caterers(id),
+  FOREIGN KEY (distribution_id) REFERENCES distributions(id)
+);
+
 -- Create purchase price history table
 CREATE TABLE purchase_price_history (
   id INT AUTO_INCREMENT PRIMARY KEY,

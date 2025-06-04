@@ -20,6 +20,7 @@ export interface Caterer {
   totalPaid?: number;
   totalBilled?: number;
   totalOrders?: number;
+  shopCardImage?: string;
   notes?: string;
   createdAt?: string;
   updatedAt?: string;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -146,6 +146,12 @@ export default function ModernCatererBillingUI() {
 
   // Add product to bill
   const addProductToBill = (product: any) => {
+    // Validate product before adding
+    if (!product || !product.id || !product.name) {
+      console.warn('Invalid product data:', product);
+      return;
+    }
+
     // Check if product is already in the bill
     const existingItemIndex = fields.findIndex(item => item.productId === product.id);
 
@@ -168,7 +174,7 @@ export default function ModernCatererBillingUI() {
       const defaultUnit = product.unit || 'kg';
       append({
         productId: product.id,
-        productName: product.name,
+        productName: product.name, // Ensure product name is set
         quantity: defaultQuantity,
         unit: defaultUnit,
         rate: productRate,
@@ -488,6 +494,9 @@ export default function ModernCatererBillingUI() {
   const calculateTotals = React.useCallback(() => {
     try {
       const items = form.getValues('items');
+      console.log('=== CALCULATE TOTALS START ===');
+      console.log('Raw items from form:', items);
+
       if (!items || items.length === 0) {
         const emptyTotals = {
           totalAmount: 0,
@@ -496,18 +505,34 @@ export default function ModernCatererBillingUI() {
           balanceDue: 0
         };
         setCalculatedTotals(emptyTotals);
+        console.log('No items, setting empty totals:', emptyTotals);
+        console.log('=== CALCULATE TOTALS END ===');
         return emptyTotals;
       }
+
+      // Filter items first and log what we're working with
+      const validItems = items.filter(item =>
+        item.productName &&
+        item.productName.trim() !== '' &&
+        item.quantity > 0 // Only include items with quantity greater than 0
+      );
+
+      console.log('Valid items after filtering:', validItems);
 
       let totalAmount = 0;
       let totalGstAmount = 0;
 
-      items.forEach((item) => {
+      validItems.forEach((item, index) => {
         // Make sure quantity and rate are valid numbers with proper formatting
         const quantity = Number((parseFloat(item.quantity?.toString() || '0') || 0).toFixed(2));
         const rate = Number((parseFloat(item.rate?.toString() || '0') || 0).toFixed(2));
         const gstPercentage = Number((parseFloat(item.gstPercentage?.toString() || '0') || 0).toFixed(2));
         const unit = item.unit || 'kg';
+
+        console.log(`Processing item ${index} (${item.productName}):`);
+        console.log(`  - quantity: ${quantity} ${unit}`);
+        console.log(`  - rate: ₹${rate}`);
+        console.log(`  - gst: ${gstPercentage}%`);
 
         // Calculate item total with proper unit conversion
         const itemTotal = calculateItemAmount(quantity, unit, rate);
@@ -515,8 +540,14 @@ export default function ModernCatererBillingUI() {
         // Calculate GST amount with proper formatting
         const gstAmount = Number(((itemTotal * gstPercentage) / 100).toFixed(2));
 
+        console.log(`  - itemTotal: ₹${itemTotal}`);
+        console.log(`  - gstAmount: ₹${gstAmount}`);
+
         totalAmount = Number((totalAmount + itemTotal).toFixed(2));
         totalGstAmount = Number((totalGstAmount + gstAmount).toFixed(2));
+
+        console.log(`  - running totalAmount: ₹${totalAmount}`);
+        console.log(`  - running totalGstAmount: ₹${totalGstAmount}`);
       });
 
       // Get amount paid from form with proper formatting
@@ -530,6 +561,9 @@ export default function ModernCatererBillingUI() {
         grandTotal,
         balanceDue
       };
+
+      console.log('FINAL CALCULATED TOTALS:', totals);
+      console.log('=== CALCULATE TOTALS END ===');
 
       // Update the state with calculated totals
       setCalculatedTotals(totals);
@@ -546,7 +580,7 @@ export default function ModernCatererBillingUI() {
       setCalculatedTotals(errorTotals);
       return errorTotals;
     }
-  }, [form]);
+  }, [form, calculateItemAmount]);
 
   // Handle payment option change
   const handlePaymentOptionChange = (option: string) => {
@@ -597,8 +631,12 @@ export default function ModernCatererBillingUI() {
   // Watch for changes in form fields to recalculate totals
   useEffect(() => {
     const subscription = form.watch((value, { name, type }) => {
-      // Only recalculate for specific field changes to avoid infinite loops
-      if (name?.includes('amountPaid') || name?.includes('gstPercentage')) {
+      // Recalculate for any field changes that affect totals
+      if (name?.includes('amountPaid') ||
+          name?.includes('gstPercentage') ||
+          name?.includes('quantity') ||
+          name?.includes('rate') ||
+          name?.includes('items')) {
         // Use setTimeout to prevent blocking the UI
         setTimeout(() => {
           calculateTotals();
@@ -614,6 +652,47 @@ export default function ModernCatererBillingUI() {
     // Cleanup subscription on unmount
     return () => subscription.unsubscribe();
   }, []); // Remove form.watch dependency to prevent infinite loops
+
+  // Function to clean up empty rows
+  const cleanupEmptyRows = useCallback(() => {
+    const items = form.getValues('items');
+    if (!items) return;
+
+    // Find indices of empty rows (rows without product names)
+    const emptyRowIndices = items
+      .map((item, index) => (!item.productName || item.productName.trim() === '') ? index : -1)
+      .filter(index => index !== -1)
+      .reverse(); // Reverse to remove from end to beginning to maintain correct indices
+
+    // Remove empty rows
+    emptyRowIndices.forEach(index => {
+      remove(index);
+    });
+  }, [form, remove]);
+
+  // Additional effect to recalculate when fields array changes
+  useEffect(() => {
+    // Clean up empty rows first
+    cleanupEmptyRows();
+    // Then calculate totals
+    calculateTotals();
+  }, [fields.length, calculateTotals, cleanupEmptyRows]);
+
+  // Force initial calculation on mount
+  useEffect(() => {
+    // Reset calculated totals to ensure clean state
+    setCalculatedTotals({
+      totalAmount: 0,
+      totalGstAmount: 0,
+      grandTotal: 0,
+      balanceDue: 0
+    });
+
+    // Force calculation after a short delay
+    setTimeout(() => {
+      calculateTotals();
+    }, 200);
+  }, []); // Only run on mount
 
   // Handle form submission with improved error handling
   const onSubmit = async (data: BillFormValues) => {
@@ -1112,12 +1191,12 @@ export default function ModernCatererBillingUI() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="font-semibold">Product</TableHead>
-                  <TableHead className="text-center font-semibold">Quantity</TableHead>
-                  <TableHead className="text-right font-semibold">Rate</TableHead>
-                  <TableHead className="text-center font-semibold">GST %</TableHead>
-                  <TableHead className="text-right font-semibold">Amount</TableHead>
-                  <TableHead className="w-[50px]"></TableHead>
+                  <TableHead className="font-semibold w-[35%]">Product</TableHead>
+                  <TableHead className="text-center font-semibold w-[20%]">Quantity</TableHead>
+                  <TableHead className="text-right font-semibold w-[15%]">Rate</TableHead>
+                  <TableHead className="text-center font-semibold w-[10%]">GST %</TableHead>
+                  <TableHead className="text-right font-semibold w-[15%]">Amount</TableHead>
+                  <TableHead className="w-[5%]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1128,7 +1207,9 @@ export default function ModernCatererBillingUI() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  fields.map((field, index) => (
+                  fields
+                    .filter(field => field.productName && field.productName.trim() !== '') // Only show rows with valid product names
+                    .map((field, index) => (
                     <TableRow key={field.id}>
                       <TableCell className="py-4">
                         <div className="flex flex-col">
@@ -1156,14 +1237,14 @@ export default function ModernCatererBillingUI() {
                         </div>
                       </TableCell>
                       <TableCell className="text-center py-4">
-                        <div className="flex flex-col items-center space-y-2">
+                        <div className="flex flex-col items-center space-y-3">
                           <div className="flex items-center gap-2">
                             <Input
                               type="number"
                               min="0.01"
                               step="0.01"
-                              className="w-24 text-center"
-                              value={field.quantity || ''}
+                              className="w-20 text-center"
+                              value={form.watch(`items.${index}.quantity`) || ''}
                               onChange={(e) => {
                                 const value = e.target.value;
 
@@ -1218,17 +1299,12 @@ export default function ModernCatererBillingUI() {
                               quantity={field.quantity}
                             />
                           </div>
-                          <div className="text-center">
-                            <div className="text-sm font-medium text-gray-700">
-                              {formatQuantityWithUnit(
-                                field.quantity,
-                                productUnits[field.productId] || field.unit as UnitType,
-                                true
-                              )}
-                            </div>
-                            <span className="text-xs text-muted-foreground">
-                              Edit quantity directly
-                            </span>
+                          <div className="text-xs text-muted-foreground">
+                            {formatQuantityWithUnit(
+                              form.watch(`items.${index}.quantity`) || 0,
+                              productUnits[field.productId] || form.watch(`items.${index}.unit`) as UnitType,
+                              true
+                            )}
                           </div>
                         </div>
                       </TableCell>
@@ -1237,8 +1313,8 @@ export default function ModernCatererBillingUI() {
                           type="number"
                           min="0"
                           step="0.01"
-                          className="w-24 text-right ml-auto"
-                          value={field.rate || ''}
+                          className="w-20 text-right"
+                          value={form.watch(`items.${index}.rate`) || ''}
                           onChange={(e) => {
                             const value = e.target.value;
 
@@ -1282,8 +1358,8 @@ export default function ModernCatererBillingUI() {
                           min="0"
                           max="100"
                           step="0.01"
-                          className="w-16 text-center mx-auto"
-                          value={field.gstPercentage || ''}
+                          className="w-14 text-center"
+                          value={form.watch(`items.${index}.gstPercentage`) || ''}
                           onChange={(e) => {
                             const value = e.target.value;
 
@@ -1315,8 +1391,14 @@ export default function ModernCatererBillingUI() {
                           placeholder="5"
                         />
                       </TableCell>
-                      <TableCell className="text-right py-4 font-medium">
-                        {formatCurrency(calculateItemAmount(field.quantity, field.unit, field.rate))}
+                      <TableCell className="text-right py-4">
+                        <div className="font-medium text-lg">
+                          {formatCurrency(calculateItemAmount(
+                            form.watch(`items.${index}.quantity`) || 0,
+                            form.watch(`items.${index}.unit`) || 'kg',
+                            form.watch(`items.${index}.rate`) || 0
+                          ))}
+                        </div>
                       </TableCell>
                       <TableCell className="py-4">
                         <Button
@@ -1361,6 +1443,29 @@ export default function ModernCatererBillingUI() {
                     <div className="flex justify-between">
                       <span className="font-medium">Grand Total:</span>
                       <span className="font-bold text-lg">{formatCurrency(calculatedTotals.grandTotal)}</span>
+                    </div>
+                    <div className="flex justify-center mt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          console.log('Manual recalculation triggered');
+                          const items = form.getValues('items');
+                          console.log('Current form items:', items);
+                          console.log('Current calculated totals:', calculatedTotals);
+                          calculateTotals();
+                        }}
+                        className="text-xs"
+                      >
+                        <Calculator className="h-3 w-3 mr-1" />
+                        Recalculate
+                      </Button>
+                    </div>
+                    {/* Debug info - remove in production */}
+                    <div className="mt-2 text-xs text-gray-500 space-y-1">
+                      <div>Items count: {form.getValues('items')?.length || 0}</div>
+                      <div>Calc state: {JSON.stringify(calculatedTotals)}</div>
                     </div>
                   </div>
                 </div>

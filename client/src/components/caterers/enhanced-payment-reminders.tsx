@@ -40,6 +40,9 @@ interface PaymentReminder {
   nextReminderDate?: Date;
   status: 'pending' | 'overdue' | 'due_today' | 'upcoming';
   isRead: boolean;
+  isAcknowledged: boolean;
+  acknowledgedAt?: Date;
+  distributionId?: number;
   notes?: string;
 }
 
@@ -82,9 +85,59 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
     return caterer ? caterer.name : 'Unknown Caterer';
   };
 
-  // Convert distributions to reminders format
+  // State for custom reminders and notifications
+  const [customReminders, setCustomReminders] = useState<PaymentReminder[]>([]);
+  const [shownToasts, setShownToasts] = useState<Set<string>>(new Set());
+
+  // Fetch existing payment reminders from the server
+  useEffect(() => {
+    const fetchPaymentReminders = async () => {
+      try {
+        const response = await fetch('/api/payment-reminders', {
+          credentials: 'include',
+        });
+        if (response.ok) {
+          const reminders = await response.json();
+          // Map server reminders to include caterer names
+          const mappedReminders = reminders.map((reminder: any) => ({
+            ...reminder,
+            originalDueDate: new Date(reminder.originalDueDate),
+            reminderDate: new Date(reminder.reminderDate),
+            nextReminderDate: reminder.nextReminderDate ? new Date(reminder.nextReminderDate) : undefined,
+            acknowledgedAt: reminder.acknowledgedAt ? new Date(reminder.acknowledgedAt) : undefined,
+            catererName: getCatererName(reminder.catererId),
+            billNumber: reminder.notes?.includes('Bill') ?
+              reminder.notes.split(' ')[1] :
+              `R-${reminder.id.slice(0, 8)}`,
+            isAcknowledged: Boolean(reminder.isAcknowledged)
+          }));
+          setCustomReminders(mappedReminders);
+        }
+      } catch (error) {
+        console.error('Error fetching payment reminders:', error);
+      }
+    };
+
+    if (caterers && caterers.length > 0) {
+      fetchPaymentReminders();
+    }
+  }, [caterers]);
+
+  // Convert distributions to reminders format, but exclude those that already have payment reminders
   const remindersFromDistributions = distributions?.filter(
-    dist => Number(dist.balanceDue) > 0 && dist.status !== 'paid' && dist.status !== 'cancelled'
+    dist => {
+      // Only include distributions with balance due and not paid/cancelled
+      if (Number(dist.balanceDue) <= 0 || dist.status === 'paid' || dist.status === 'cancelled') {
+        return false;
+      }
+
+      // Exclude distributions that already have a payment reminder
+      const hasPaymentReminder = customReminders.some(reminder =>
+        reminder.distributionId === dist.id
+      );
+
+      return !hasPaymentReminder;
+    }
   ).map(dist => ({
     id: dist.id.toString(),
     catererName: getCatererName(dist.catererId),
@@ -95,11 +148,10 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
     nextReminderDate: undefined,
     status: 'overdue' as const,
     isRead: false,
+    isAcknowledged: false,
+    distributionId: dist.id,
     notes: `Bill ${dist.billNo} - ${dist.status}`
   })) || [];
-
-  const [customReminders, setCustomReminders] = useState<PaymentReminder[]>([]);
-  const [shownToasts, setShownToasts] = useState<Set<string>>(new Set());
 
   // Combine real data with custom reminders
   const allReminders = [...remindersFromDistributions, ...customReminders];
@@ -123,7 +175,7 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
 
     if (isBefore(reminder, today)) return 'overdue';
     if (isToday(reminder)) return 'due_today';
-    if (isBefore(reminder, addDays(today, 7))) return 'upcoming';
+    if (isBefore(reminder, addDays(today, 2))) return 'upcoming'; // Changed from 7 to 2 days
     return 'pending';
   };
 
@@ -155,24 +207,46 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
     }
   };
 
-  // Get today's notifications
-  const todayNotifications = allReminders.filter(reminder =>
-    isToday(new Date(reminder.reminderDate)) && !reminder.isRead
-  );
+  // Get notifications for reminders due within 2 days (including today)
+  const urgentNotifications = allReminders.filter(reminder => {
+    const reminderDate = new Date(reminder.reminderDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    reminderDate.setHours(0, 0, 0, 0);
 
-  // Show toast notifications for today's reminders (only once per session)
+    // Show notifications for overdue, due today, or due within 2 days
+    return (
+      !reminder.isRead &&
+      (isBefore(reminderDate, today) || isToday(reminderDate) || isBefore(reminderDate, addDays(today, 2)))
+    );
+  });
+
+  // Show toast notifications for urgent reminders (only once per session)
   useEffect(() => {
-    todayNotifications.forEach(reminder => {
+    urgentNotifications.forEach(reminder => {
       if (!Array.from(shownToasts).includes(reminder.id)) {
+        const daysUntilDue = Math.ceil((new Date(reminder.reminderDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+        let description = '';
+
+        if (daysUntilDue < 0) {
+          description = `${reminder.catererName} - ₹${reminder.amount.toLocaleString()} overdue`;
+        } else if (daysUntilDue === 0) {
+          description = `${reminder.catererName} - ₹${reminder.amount.toLocaleString()} due today`;
+        } else if (daysUntilDue === 1) {
+          description = `${reminder.catererName} - ₹${reminder.amount.toLocaleString()} due tomorrow`;
+        } else {
+          description = `${reminder.catererName} - ₹${reminder.amount.toLocaleString()} due in ${daysUntilDue} days`;
+        }
+
         toast({
           title: "Payment Reminder",
-          description: `${reminder.catererName} - ₹${reminder.amount.toLocaleString()} due today`,
+          description,
           variant: reminder.status === 'overdue' ? 'destructive' : 'default',
         });
         setShownToasts(prev => new Set([...Array.from(prev), reminder.id]));
       }
     });
-  }, [todayNotifications]);
+  }, [urgentNotifications]);
 
   const handleAddReminder = () => {
     if (!newReminder.catererName || !newReminder.amount || !newReminder.billNumber) {
@@ -193,6 +267,7 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
       reminderDate: newReminder.reminderDate,
       status: calculateStatus(newReminder.reminderDate),
       isRead: false,
+      isAcknowledged: false,
       notes: newReminder.notes
     };
 
@@ -237,25 +312,78 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
   // Update the handleNextReminderUpdate function
   const handleNextReminderUpdate = async (reminderId: string, date: Date) => {
     try {
-      const response = await fetch(`/api/payment-reminders/${reminderId}/next-reminder`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ nextReminderDate: date }),
-        credentials: 'include',
-      });
+      // Check if this is a distribution-based reminder (numeric ID) or a real payment reminder (UUID)
+      const isDistributionReminder = /^\d+$/.test(reminderId);
 
-      if (!response.ok) {
-        throw new Error('Failed to update reminder');
+      if (isDistributionReminder) {
+        // For distribution-based reminders, we need to create a new payment reminder
+        const distributionReminder = remindersFromDistributions.find(r => r.id === reminderId);
+        if (!distributionReminder) {
+          throw new Error('Distribution reminder not found');
+        }
+
+        // Find the caterer ID from the distribution
+        const distribution = distributions?.find(d => d.id.toString() === reminderId);
+        if (!distribution) {
+          throw new Error('Distribution not found');
+        }
+
+        // Create a new payment reminder
+        const newReminderData = {
+          catererId: distribution.catererId,
+          distributionId: distribution.id,
+          amount: Number(distribution.balanceDue),
+          originalDueDate: new Date(distribution.distributionDate),
+          reminderDate: new Date(distribution.distributionDate),
+          nextReminderDate: date,
+          status: 'pending',
+          notes: `Bill ${distribution.billNo} - ${distribution.status}`
+        };
+
+        const response = await fetch('/api/payment-reminders', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(newReminderData),
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to create payment reminder');
+        }
+
+        const newReminder = await response.json();
+
+        // Add to custom reminders
+        setCustomReminders(prev => [...prev, {
+          ...newReminder,
+          catererName: getCatererName(newReminder.catererId),
+          billNumber: distribution.billNo
+        }]);
+
+      } else {
+        // For real payment reminders, update normally
+        const response = await fetch(`/api/payment-reminders/${reminderId}/next-reminder`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ nextReminderDate: date }),
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to update reminder');
+        }
+
+        // Update local state
+        setCustomReminders(prev => prev.map(r =>
+          r.id === reminderId
+            ? { ...r, nextReminderDate: date }
+            : r
+        ));
       }
-
-      // Update local state
-      setCustomReminders(prev => prev.map(r => 
-        r.id === reminderId 
-          ? { ...r, nextReminderDate: date } 
-          : r
-      ));
 
       // Show success toast
       toast({
@@ -297,9 +425,9 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
         <div className="flex items-center space-x-2">
           <Bell className="h-5 w-5 text-red-500" />
           <h3 className="text-lg font-semibold">Payment Reminders</h3>
-          {todayNotifications.length > 0 && (
+          {urgentNotifications.length > 0 && (
             <Badge variant="destructive" className="ml-2">
-              {todayNotifications.length}
+              {urgentNotifications.length}
             </Badge>
           )}
         </div>
@@ -437,7 +565,7 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
                     <div className="text-xs text-gray-500">
                       Due: {format(new Date(reminder.originalDueDate), "MMM dd, yyyy")}
                     </div>
-                    
+
                     {/* Next Reminder Date */}
                     <div className="flex items-center justify-between pt-2 border-t border-gray-100">
                       <div className="flex items-center space-x-2">
@@ -451,7 +579,7 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
                             size="sm"
                             className="h-7 text-xs px-2"
                           >
-                            {reminder.nextReminderDate 
+                            {reminder.nextReminderDate
                               ? format(new Date(reminder.nextReminderDate), "MMM dd, yyyy")
                               : "Set Reminder"}
                           </Button>

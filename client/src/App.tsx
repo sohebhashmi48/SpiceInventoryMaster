@@ -8,6 +8,7 @@ import NotFound from "./pages/not-found";
 import AuthPage from "./pages/auth-page";
 import DashboardPage from "./pages/dashboard-page";
 import InventoryPage from "./pages/inventory-page";
+import InventoryHistoryPage from "./pages/inventory-history";
 import SuppliersPage from "./pages/suppliers";
 import BillingPage from "./pages/billing-page";
 import ReportsPage from "./pages/reports-page";
@@ -33,6 +34,8 @@ import NewCatererPaymentPage from "./pages/caterer-payments/new";
 import CatererPaymentFormRedirect from "./pages/caterer-payment-form";
 import CatererReportsPage from "./pages/caterer-reports-page";
 import PaymentRemindersPage from "./pages/caterers/payment-reminders";
+import NotificationsPage from "./pages/notifications";
+import CustomerBillingPage from "./pages/customer-billing";
 import { ProtectedRoute } from "./lib/protected-route";
 import { AuthProvider } from "./hooks/use-auth";
 import { store } from "./store";
@@ -44,6 +47,7 @@ function Router() {
       <Route path="/auth" component={AuthPage} />
       <ProtectedRoute path="/" component={DashboardPage} />
       <ProtectedRoute path="/inventory" component={InventoryPage} />
+      <ProtectedRoute path="/inventory-history" component={InventoryHistoryPage} />
       <ProtectedRoute path="/spices" component={SpicesPage} />
       <ProtectedRoute path="/suppliers" component={SuppliersPage} />
       <ProtectedRoute path="/suppliers/:supplierId" component={SupplierDetailsPage} />
@@ -62,6 +66,7 @@ function Router() {
       <ProtectedRoute path="/caterers/new" component={NewCatererPage} />
       <ProtectedRoute path="/caterers/payment-reminders" component={PaymentRemindersPage} />
       <ProtectedRoute path="/caterers/:id" component={CatererDetailsPage} />
+      <ProtectedRoute path="/notifications" component={NotificationsPage} />
       <ProtectedRoute path="/distributions" component={DistributionsPage} />
       <ProtectedRoute path="/distributions/new" component={NewDistributionPage} />
       <ProtectedRoute path="/distributions/:id" component={DistributionDetailsPage} />
@@ -70,6 +75,7 @@ function Router() {
       <ProtectedRoute path="/caterer-payments/new" component={NewCatererPaymentPage} />
       <ProtectedRoute path="/caterer-payment-form" component={CatererPaymentFormRedirect} />
       <ProtectedRoute path="/caterer-reports" component={CatererReportsPage} />
+      <ProtectedRoute path="/customer-billing" component={CustomerBillingPage} />
       <ProtectedRoute path="/billing" component={BillingPage} />
       <ProtectedRoute path="/purchases" component={PurchaseEntryPage} />
       <ProtectedRoute path="/reports" component={ReportsPage} />

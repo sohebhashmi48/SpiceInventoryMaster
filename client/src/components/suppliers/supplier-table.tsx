@@ -21,7 +21,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Vendor } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { MoreHorizontal, Edit, Trash2, Mail, Phone, DollarSign, MapPin, Plus, Star, ShoppingCart, Eye } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, Mail, Phone, DollarSign, MapPin, Plus, Star, ShoppingCart, Eye, CreditCard } from "lucide-react";
+import SupplierCardModal from "./supplier-card-modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -68,6 +69,7 @@ export default function SupplierTable({ filterValues }: SupplierTableProps = {})
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Vendor | null>(null);
   const [supplierToDelete, setSupplierToDelete] = useState<number | null>(null);
+  const [supplierCardToView, setSupplierCardToView] = useState<Vendor | null>(null);
 
   const { data: suppliers, isLoading: suppliersLoading } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
@@ -362,6 +364,10 @@ export default function SupplierTable({ filterValues }: SupplierTableProps = {})
                           <Eye className="h-4 w-4 mr-2 text-blue-600" />
                           View Details
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setSupplierCardToView(supplier)}>
+                          <CreditCard className="h-4 w-4 mr-2 text-purple-600" />
+                          View Card
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setLocation(`/supplier-purchase/${supplier.id}`)}>
                           <ShoppingCart className="h-4 w-4 mr-2 text-green-600" />
                           Buy from Supplier
@@ -407,6 +413,14 @@ export default function SupplierTable({ filterValues }: SupplierTableProps = {})
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Supplier Card Modal */}
+      <SupplierCardModal
+        supplier={supplierCardToView}
+        isOpen={!!supplierCardToView}
+        onClose={() => setSupplierCardToView(null)}
+        onEdit={handleEdit}
+      />
     </div>
   );
 }

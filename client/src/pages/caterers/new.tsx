@@ -11,6 +11,7 @@ import { Label } from '../../components/ui/label';
 import { Textarea } from '../../components/ui/textarea';
 import { ChefHat, ArrowLeft, Save } from 'lucide-react';
 import { toast } from '../../components/ui/use-toast';
+import CatererImageUpload from '../../components/caterers/caterer-image-upload';
 
 // Define the schema for the form
 const catererFormSchema = z.object({
@@ -24,6 +25,7 @@ const catererFormSchema = z.object({
   pincode: z.string().optional(),
   gstNumber: z.string().optional(),
   notes: z.string().optional(),
+  shopCardImage: z.string().optional(),
 });
 
 type CatererFormValues = z.infer<typeof catererFormSchema>;
@@ -31,6 +33,7 @@ type CatererFormValues = z.infer<typeof catererFormSchema>;
 export default function NewCatererPage() {
   const [location, setLocation] = useLocation();
   const createCaterer = useCreateCaterer();
+  const [shopCardImage, setShopCardImage] = useState<string | null>(null);
 
   // Helper function to navigate
   const navigate = (path: string) => setLocation(path);
@@ -49,13 +52,20 @@ export default function NewCatererPage() {
       pincode: '',
       gstNumber: '',
       notes: '',
+      shopCardImage: '',
     },
   });
 
   // Handle form submission
   const onSubmit = (data: CatererFormValues) => {
+    // Include the shop card image in the submission data
+    const formData = {
+      ...data,
+      shopCardImage: shopCardImage,
+    };
+
     // Send the data as is - the server will handle the conversion
-    createCaterer.mutate(data, {
+    createCaterer.mutate(formData, {
       onSuccess: () => {
         navigate('/caterers');
       },
@@ -204,6 +214,19 @@ export default function NewCatererPage() {
                   rows={5}
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Shop Card Image</CardTitle>
+              <CardDescription>Upload an image of your shop card or business logo</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <CatererImageUpload
+                currentImage={shopCardImage}
+                onImageChange={setShopCardImage}
+              />
             </CardContent>
           </Card>
         </div>

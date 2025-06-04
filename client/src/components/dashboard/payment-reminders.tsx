@@ -10,6 +10,7 @@ import { AlertCircle, Clock, CreditCard, DollarSign, ArrowRight } from 'lucide-r
 import { cn } from '@/lib/utils';
 import { Distribution } from '@/hooks/use-distributions';
 import { Caterer } from '@/hooks/use-caterers';
+import PaymentModal from '@/components/caterers/payment-modal';
 
 interface PaymentRemindersProps {
   className?: string;
@@ -149,17 +150,28 @@ export default function PaymentReminders({ className }: PaymentRemindersProps) {
                       >
                         View Bill
                       </Button>
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/distributions/${distribution.id}/payment`);
+                      <PaymentModal
+                        triggerText="Record Payment"
+                        triggerSize="sm"
+                        preselectedCatererId={distribution.catererId.toString()}
+                        preselectedDistributionId={distribution.id.toString()}
+                        preselectedAmount={distribution.balanceDue.toString()}
+                        onSuccess={() => {
+                          // Refresh the page data
+                          window.location.reload();
                         }}
                       >
-                        <CreditCard className="h-3 w-3 mr-1" />
-                        Record Payment
-                      </Button>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                          }}
+                        >
+                          <CreditCard className="h-3 w-3 mr-1" />
+                          Record Payment
+                        </Button>
+                      </PaymentModal>
                     </div>
                   </div>
                 ))}
@@ -226,17 +238,28 @@ export default function PaymentReminders({ className }: PaymentRemindersProps) {
                   >
                     View Bill
                   </Button>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/distributions/${distribution.id}/payment`);
+                  <PaymentModal
+                    triggerText="Record Payment"
+                    triggerSize="sm"
+                    preselectedCatererId={distribution.catererId.toString()}
+                    preselectedDistributionId={distribution.id.toString()}
+                    preselectedAmount={distribution.balanceDue.toString()}
+                    onSuccess={() => {
+                      // Refresh the page data
+                      window.location.reload();
                     }}
                   >
-                    <CreditCard className="h-3 w-3 mr-1" />
-                    Record Payment
-                  </Button>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
+                    >
+                      <CreditCard className="h-3 w-3 mr-1" />
+                      Record Payment
+                    </Button>
+                  </PaymentModal>
                 </div>
               </div>
             ))}

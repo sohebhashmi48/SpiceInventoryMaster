@@ -18,7 +18,10 @@ import {
   Distribution, InsertDistribution,
   DistributionItem, InsertDistributionItem,
   CatererPayment, InsertCatererPayment,
-  DistributionWithItems
+  DistributionWithItems,
+  CustomerBill, InsertCustomerBill,
+  CustomerBillItem, InsertCustomerBillItem,
+  CustomerBillWithItems
 } from "@shared/schema";
 import createMemoryStore from "memorystore";
 import session, { Store } from "express-session";
@@ -106,6 +109,10 @@ export interface IStorage {
   updateInventoryQuantity(spiceId: number, quantity: number, isAddition: boolean): Promise<boolean>;
   getInventoryAnalytics(): Promise<any>;
 
+  // Inventory history management
+  getInventoryHistory(inventoryId?: number, productId?: number): Promise<any[]>;
+  createInventoryHistoryEntry(entry: any): Promise<any>;
+
   // Invoice management
   getInvoice(id: number): Promise<Invoice | undefined>;
   getInvoices(): Promise<Invoice[]>;
@@ -169,6 +176,21 @@ export interface IStorage {
   createPaymentReminder(reminder: InsertPaymentReminder): Promise<PaymentReminder>;
   updatePaymentReminder(id: string, updates: Partial<PaymentReminder>): Promise<PaymentReminder | undefined>;
   deletePaymentReminder(id: string): Promise<boolean>;
+
+  // Customer billing
+  getCustomerBills(options?: {
+    page?: number;
+    limit?: number;
+    offset?: number;
+    search?: string;
+    status?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{ data: CustomerBill[]; pagination: any }>;
+  getCustomerBill(id: number): Promise<CustomerBill | undefined>;
+  createCustomerBill(bill: CustomerBillWithItems): Promise<CustomerBill>;
+  updateCustomerBill(id: number, bill: Partial<CustomerBillWithItems>): Promise<CustomerBill | undefined>;
+  deleteCustomerBill(id: number): Promise<boolean>;
 }
 
 export interface PaymentReminder {
@@ -181,6 +203,8 @@ export interface PaymentReminder {
   nextReminderDate?: Date;
   status: 'pending' | 'overdue' | 'due_today' | 'upcoming';
   isRead: boolean;
+  isAcknowledged: boolean;
+  acknowledgedAt?: Date;
   notes?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -1336,6 +1360,7 @@ export class MemStorage implements IStorage {
         totalPaid: caterer.total_paid,
         totalBilled: caterer.total_billed,
         totalOrders: caterer.total_orders,
+        shopCardImage: caterer.shop_card_image,
         notes: caterer.notes,
         createdAt: caterer.created_at,
         updatedAt: caterer.updated_at
@@ -1379,6 +1404,7 @@ export class MemStorage implements IStorage {
             total_paid DECIMAL(10,2) DEFAULT 0,
             total_billed DECIMAL(10,2) DEFAULT 0,
             total_orders INT DEFAULT 0,
+            shop_card_image VARCHAR(255),
             notes TEXT,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -1417,6 +1443,7 @@ export class MemStorage implements IStorage {
         totalPaid: dbCaterer.total_paid,
         totalBilled: dbCaterer.total_billed,
         totalOrders: dbCaterer.total_orders,
+        shopCardImage: dbCaterer.shop_card_image,
         notes: dbCaterer.notes,
         createdAt: dbCaterer.created_at,
         updatedAt: dbCaterer.updated_at
@@ -1458,6 +1485,7 @@ export class MemStorage implements IStorage {
             total_paid DECIMAL(10,2) DEFAULT 0,
             total_billed DECIMAL(10,2) DEFAULT 0,
             total_orders INT DEFAULT 0,
+            shop_card_image VARCHAR(255),
             notes TEXT,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -1470,8 +1498,8 @@ export class MemStorage implements IStorage {
       const query = `
         INSERT INTO caterers (
           name, contact_name, email, phone, address, city, state, pincode,
-          gst_number, is_active, credit_limit, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          gst_number, is_active, credit_limit, shop_card_image, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       // Prepare the values
@@ -1487,6 +1515,7 @@ export class MemStorage implements IStorage {
         caterer.gstNumber || null,
         caterer.isActive === false ? 0 : 1,
         caterer.creditLimit || 0,
+        caterer.shopCardImage || null,
         caterer.notes || null
       ];
 
@@ -1520,6 +1549,7 @@ export class MemStorage implements IStorage {
         totalPaid: dbCaterer.total_paid,
         totalBilled: dbCaterer.total_billed,
         totalOrders: dbCaterer.total_orders,
+        shopCardImage: dbCaterer.shop_card_image,
         notes: dbCaterer.notes,
         createdAt: dbCaterer.created_at,
         updatedAt: dbCaterer.updated_at
@@ -1629,6 +1659,11 @@ export class MemStorage implements IStorage {
       if (caterer.totalOrders !== undefined) {
         updateFields.push('total_orders = ?');
         values.push(caterer.totalOrders);
+      }
+
+      if (caterer.shopCardImage !== undefined) {
+        updateFields.push('shop_card_image = ?');
+        values.push(caterer.shopCardImage);
       }
 
       if (caterer.notes !== undefined) {
@@ -2443,16 +2478,27 @@ export class MemStorage implements IStorage {
               ) VALUES (?, ?, ?, ?, ?, ?)
             `, paymentParams);
 
-            // Update caterer's total paid
+            // Update caterer's total paid and balance due
             await conn.execute(`
               UPDATE caterers
               SET
-                total_paid = COALESCE(total_paid, 0) + ?
+                total_paid = COALESCE(total_paid, 0) + ?,
+                balance_due = GREATEST(0, COALESCE(balance_due, 0) - ?)
               WHERE id = ?
             `, [
               amountPaid,
+              amountPaid,
               catererId
             ]);
+
+            // If this distribution is now fully paid, remove any payment reminders for it
+            if (status === 'paid') {
+              console.log(`Distribution ${distributionId} is fully paid during creation, removing any existing payment reminders`);
+              await conn.execute(`
+                DELETE FROM payment_reminders
+                WHERE distribution_id = ?
+              `, [distributionId]);
+            }
           }
         } else {
           console.warn(`Caterer with ID ${catererId} not found. Skipping caterer updates.`);
@@ -2560,7 +2606,13 @@ export class MemStorage implements IStorage {
       await conn.beginTransaction();
 
       try {
-        // Delete distribution items first
+        // Delete payment reminders for this distribution first
+        await conn.execute(`
+          DELETE FROM payment_reminders
+          WHERE distribution_id = ?
+        `, [id]);
+
+        // Delete distribution items
         await conn.execute(`
           DELETE FROM distribution_items
           WHERE distribution_id = ?
@@ -2886,12 +2938,14 @@ export class MemStorage implements IStorage {
 
         const paymentId = (result as any).insertId;
 
-        // Update the caterer's total_paid
+        // Update the caterer's total_paid and balance_due
         await conn.execute(`
           UPDATE caterers
-          SET total_paid = COALESCE(total_paid, 0) + ?
+          SET
+            total_paid = COALESCE(total_paid, 0) + ?,
+            balance_due = GREATEST(0, COALESCE(balance_due, 0) - ?)
           WHERE id = ?
-        `, [amount, catererId]);
+        `, [amount, amount, catererId]);
 
         // If this payment is for a distribution, update the distribution's amount_paid and balance_due
         if (distributionId) {
@@ -2923,6 +2977,15 @@ export class MemStorage implements IStorage {
               newStatus,
               distributionId
             ]);
+
+            // If the distribution is now fully paid, remove any payment reminders for it
+            if (newStatus === 'paid') {
+              console.log(`Distribution ${distributionId} is now fully paid, removing payment reminders`);
+              await conn.execute(`
+                DELETE FROM payment_reminders
+                WHERE distribution_id = ?
+              `, [distributionId]);
+            }
           }
         }
 
@@ -3139,6 +3202,7 @@ export class MemStorage implements IStorage {
           creditLimit: supplier.credit_limit,
           balanceDue: supplier.balance_due,
           totalPaid: supplier.total_paid,
+          supplierImage: supplier.supplier_image,
           notes: supplier.notes,
           rating: supplier.rating,
           tags: tags,
@@ -3495,6 +3559,12 @@ export class MemStorage implements IStorage {
         values.push(JSON.stringify(supplier.tags));
       }
 
+      if (supplier.supplierImage !== undefined) {
+        fields.push('supplier_image');
+        placeholders.push('?');
+        values.push(supplier.supplierImage);
+      }
+
       const query = `INSERT INTO suppliers (${fields.join(', ')}) VALUES (${placeholders.join(', ')})`;
       const [result] = await conn.execute(query, values);
       const insertId = (result as any).insertId;
@@ -3563,6 +3633,7 @@ export class MemStorage implements IStorage {
         creditLimit: dbSupplier.credit_limit,
         balanceDue: dbSupplier.balance_due,
         totalPaid: dbSupplier.total_paid,
+        supplierImage: dbSupplier.supplier_image,
         notes: dbSupplier.notes,
         rating: dbSupplier.rating,
         tags: tags,
@@ -3634,6 +3705,10 @@ export class MemStorage implements IStorage {
         fields.push('tags = ?');
         values.push(JSON.stringify(supplier.tags));
       }
+      if (supplier.supplierImage !== undefined) {
+        fields.push('supplier_image = ?');
+        values.push(supplier.supplierImage);
+      }
 
       if (fields.length === 0) {
         return undefined;
@@ -3692,6 +3767,7 @@ export class MemStorage implements IStorage {
         creditLimit: dbSupplier.credit_limit,
         balanceDue: dbSupplier.balance_due,
         totalPaid: dbSupplier.total_paid,
+        supplierImage: dbSupplier.supplier_image,
         notes: dbSupplier.notes,
         rating: dbSupplier.rating,
         tags: tags,
@@ -4720,6 +4796,13 @@ export class MemStorage implements IStorage {
     const conn = await this.getConnection();
     try {
       const id = crypto.randomUUID();
+
+      // Format dates for MySQL (YYYY-MM-DD format)
+      const formatDateForMySQL = (date: Date | string) => {
+        const dateObj = typeof date === 'string' ? new Date(date) : date;
+        return dateObj.toISOString().split('T')[0];
+      };
+
       await conn.execute(
         `INSERT INTO payment_reminders (
           id, caterer_id, distribution_id, amount,
@@ -4731,9 +4814,9 @@ export class MemStorage implements IStorage {
           reminder.catererId,
           reminder.distributionId || null,
           reminder.amount,
-          reminder.originalDueDate,
-          reminder.reminderDate,
-          reminder.nextReminderDate || null,
+          formatDateForMySQL(reminder.originalDueDate),
+          formatDateForMySQL(reminder.reminderDate),
+          reminder.nextReminderDate ? formatDateForMySQL(reminder.nextReminderDate) : null,
           reminder.status || 'pending',
           reminder.notes || null
         ]
@@ -4752,14 +4835,47 @@ export class MemStorage implements IStorage {
   async updatePaymentReminder(id: string, updates: Partial<PaymentReminder>): Promise<PaymentReminder | undefined> {
     const conn = await this.getConnection();
     try {
-      const fields = Object.keys(updates).map(key => this.toSnakeCase(key));
-      const values = Object.values(updates);
-      
+      // Format dates for MySQL (YYYY-MM-DD format)
+      const formatDateForMySQL = (date: Date | string) => {
+        const dateObj = typeof date === 'string' ? new Date(date) : date;
+        return dateObj.toISOString().split('T')[0];
+      };
+
+      // Manual field mapping to ensure correct database column names
+      const fieldMappings: { [key: string]: string } = {
+        'catererId': 'caterer_id',
+        'distributionId': 'distribution_id',
+        'originalDueDate': 'original_due_date',
+        'reminderDate': 'reminder_date',
+        'nextReminderDate': 'next_reminder_date',
+        'isRead': 'is_read',
+        'isAcknowledged': 'is_acknowledged',
+        'acknowledgedAt': 'acknowledged_at',
+        'createdAt': 'created_at',
+        'updatedAt': 'updated_at'
+      };
+
+      const fields: string[] = [];
+      const values: any[] = [];
+
+      Object.entries(updates).forEach(([key, value]) => {
+        const dbField = fieldMappings[key] || key;
+        fields.push(`${dbField} = ?`);
+
+        // Format date values for MySQL
+        if ((value instanceof Date || typeof value === 'string') && (key === 'originalDueDate' || key === 'reminderDate' || key === 'nextReminderDate')) {
+          values.push(formatDateForMySQL(value));
+        } else {
+          values.push(value);
+        }
+      });
+
       if (fields.length === 0) return undefined;
 
-      const setClause = fields.map(field => `${field} = ?`).join(', ');
+      const setClause = fields.join(', ');
       const query = `UPDATE payment_reminders SET ${setClause} WHERE id = ?`;
 
+      console.log('Updating payment reminder:', { id, query, values });
       await conn.execute(query, [...values, id]);
 
       const [rows] = await conn.execute(
@@ -4768,6 +4884,9 @@ export class MemStorage implements IStorage {
       );
       const reminder = (rows as any[])[0];
       return reminder ? this.mapPaymentReminderFromDb(reminder) : undefined;
+    } catch (error) {
+      console.error('Error updating payment reminder:', error);
+      throw error;
     } finally {
       conn.release();
     }
@@ -4797,6 +4916,8 @@ export class MemStorage implements IStorage {
       nextReminderDate: row.next_reminder_date ? new Date(row.next_reminder_date) : undefined,
       status: row.status,
       isRead: Boolean(row.is_read),
+      isAcknowledged: Boolean(row.is_acknowledged),
+      acknowledgedAt: row.acknowledged_at ? new Date(row.acknowledged_at) : undefined,
       notes: row.notes,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at)
@@ -4886,7 +5007,7 @@ export class MemStorage implements IStorage {
     try {
       const fields = Object.keys(item).map(key => this.toSnakeCase(key));
       const values = Object.values(item);
-      
+
       if (fields.length === 0) return undefined;
 
       const setClause = fields.map(field => `${field} = ?`).join(', ');
@@ -4921,7 +5042,7 @@ export class MemStorage implements IStorage {
         'SELECT quantity FROM inventory WHERE product_id = ? AND status = "active" LIMIT 1',
         [productId]
       );
-      
+
       if ((rows as any[]).length === 0) {
         await conn.rollback();
         return false;
@@ -5051,6 +5172,467 @@ export class MemStorage implements IStorage {
       const id = (result as any).insertId;
       const [rows] = await conn.execute('SELECT * FROM invoice_items WHERE id = ?', [id]);
       return (rows as any[])[0];
+    } finally {
+      conn.release();
+    }
+  }
+
+  // Inventory history management
+  async getInventoryHistory(inventoryId?: number, productId?: number): Promise<any[]> {
+    const conn = await this.getConnection();
+    try {
+      // Check if inventory_history table exists
+      const [tables] = await conn.execute(`SHOW TABLES LIKE 'inventory_history'`);
+      if ((tables as any[]).length === 0) {
+        console.log("Inventory history table doesn't exist yet");
+        return [];
+      }
+
+      let query = `
+        SELECT
+          ih.*,
+          p.name as product_name,
+          s.name as supplier_name
+        FROM inventory_history ih
+        LEFT JOIN products p ON ih.product_id = p.id
+        LEFT JOIN suppliers s ON ih.supplier_id = s.id
+      `;
+
+      const params: any[] = [];
+      const conditions: string[] = [];
+
+      if (inventoryId) {
+        conditions.push('ih.inventory_id = ?');
+        params.push(inventoryId);
+      }
+
+      if (productId) {
+        conditions.push('ih.product_id = ?');
+        params.push(productId);
+      }
+
+      if (conditions.length > 0) {
+        query += ' WHERE ' + conditions.join(' AND ');
+      }
+
+      query += ' ORDER BY ih.created_at DESC';
+
+      const [rows] = await conn.execute(query, params);
+
+      // Map database fields to camelCase for the client
+      const historyItems = (rows as any[]).map(item => ({
+        id: item.id,
+        inventoryId: item.inventory_id,
+        productId: item.product_id,
+        productName: item.product_name,
+        supplierId: item.supplier_id,
+        supplierName: item.supplier_name,
+        changeType: item.change_type,
+        fieldChanged: item.field_changed,
+        oldValue: item.old_value,
+        newValue: item.new_value,
+        quantityBefore: item.quantity_before,
+        quantityAfter: item.quantity_after,
+        reason: item.reason,
+        userId: item.user_id,
+        userName: item.user_name,
+        createdAt: item.created_at
+      }));
+
+      return historyItems;
+    } catch (error) {
+      console.error("Error fetching inventory history:", error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async createInventoryHistoryEntry(entry: any): Promise<any> {
+    const conn = await this.getConnection();
+    try {
+      // Check if inventory_history table exists
+      const [tables] = await conn.execute(`SHOW TABLES LIKE 'inventory_history'`);
+      if ((tables as any[]).length === 0) {
+        console.log("Inventory history table doesn't exist, skipping history entry");
+        return null;
+      }
+
+      const [result] = await conn.execute(
+        `INSERT INTO inventory_history (
+          inventory_id, product_id, supplier_id, change_type,
+          field_changed, old_value, new_value, quantity_before,
+          quantity_after, reason, user_id, user_name
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          entry.inventoryId,
+          entry.productId,
+          entry.supplierId,
+          entry.changeType,
+          entry.fieldChanged || null,
+          entry.oldValue || null,
+          entry.newValue || null,
+          entry.quantityBefore || null,
+          entry.quantityAfter || null,
+          entry.reason || null,
+          entry.userId || null,
+          entry.userName || 'system'
+        ]
+      );
+
+      const id = (result as any).insertId;
+      const [rows] = await conn.execute('SELECT * FROM inventory_history WHERE id = ?', [id]);
+      return (rows as any[])[0];
+    } catch (error) {
+      console.error("Error creating inventory history entry:", error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  // Customer billing methods
+  async getCustomerBills(options: {
+    page?: number;
+    limit?: number;
+    offset?: number;
+    search?: string;
+    status?: string;
+    startDate?: string;
+    endDate?: string;
+  } = {}): Promise<{ data: CustomerBill[]; pagination: any }> {
+    const conn = await this.getConnection();
+    try {
+      const { page = 1, limit = 10, offset = 0, search, status, startDate, endDate } = options;
+
+      // Check if customer_bills table exists
+      const [tables] = await conn.execute(`SHOW TABLES LIKE 'customer_bills'`);
+      if ((tables as any[]).length === 0) {
+        console.log("Customer bills table doesn't exist yet");
+        return {
+          data: [],
+          pagination: { page, limit, total: 0, totalPages: 0 }
+        };
+      }
+
+      // Build WHERE conditions
+      const conditions: string[] = [];
+      const params: any[] = [];
+
+      if (search) {
+        conditions.push('(client_name LIKE ? OR client_mobile LIKE ? OR bill_no LIKE ?)');
+        params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      }
+
+      if (status) {
+        conditions.push('status = ?');
+        params.push(status);
+      }
+
+      if (startDate) {
+        conditions.push('bill_date >= ?');
+        params.push(startDate);
+      }
+
+      if (endDate) {
+        conditions.push('bill_date <= ?');
+        params.push(endDate);
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      // Get total count
+      const [countResult] = await conn.execute(
+        `SELECT COUNT(*) as total FROM customer_bills ${whereClause}`,
+        params
+      );
+      const total = (countResult as any[])[0].total;
+
+      // Get bills with pagination
+      const [rows] = await conn.execute(
+        `SELECT * FROM customer_bills ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+        [...params, limit, offset]
+      );
+
+      const bills = (rows as any[]).map(bill => ({
+        id: bill.id,
+        billNo: bill.bill_no,
+        billDate: bill.bill_date,
+        clientName: bill.client_name,
+        clientMobile: bill.client_mobile,
+        clientEmail: bill.client_email,
+        clientAddress: bill.client_address,
+        totalAmount: bill.total_amount,
+        marketTotal: bill.market_total,
+        savings: bill.savings,
+        itemCount: bill.item_count,
+        status: bill.status,
+        createdAt: bill.created_at,
+        updatedAt: bill.updated_at,
+      }));
+
+      return {
+        data: bills as CustomerBill[],
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        }
+      };
+    } catch (error) {
+      console.error("Error fetching customer bills:", error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async getCustomerBill(id: number): Promise<CustomerBill | undefined> {
+    const conn = await this.getConnection();
+    try {
+      // Get the bill
+      const [billRows] = await conn.execute(
+        'SELECT * FROM customer_bills WHERE id = ?',
+        [id]
+      );
+
+      const bill = (billRows as any[])[0];
+      if (!bill) {
+        return undefined;
+      }
+
+      // Get the bill items
+      const [itemRows] = await conn.execute(
+        'SELECT * FROM customer_bill_items WHERE bill_id = ? ORDER BY id',
+        [id]
+      );
+
+      const items = (itemRows as any[]).map(item => ({
+        id: item.id,
+        billId: item.bill_id,
+        productId: item.product_id,
+        productName: item.product_name,
+        quantity: item.quantity,
+        unit: item.unit,
+        pricePerKg: item.price_per_kg,
+        marketPricePerKg: item.market_price_per_kg,
+        total: item.total,
+        createdAt: item.created_at,
+      }));
+
+      return {
+        id: bill.id,
+        billNo: bill.bill_no,
+        billDate: bill.bill_date,
+        clientName: bill.client_name,
+        clientMobile: bill.client_mobile,
+        clientEmail: bill.client_email,
+        clientAddress: bill.client_address,
+        totalAmount: bill.total_amount,
+        marketTotal: bill.market_total,
+        savings: bill.savings,
+        itemCount: bill.item_count,
+        status: bill.status,
+        createdAt: bill.created_at,
+        updatedAt: bill.updated_at,
+        items,
+      } as any;
+    } catch (error) {
+      console.error(`Error fetching customer bill with ID ${id}:`, error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async createCustomerBill(bill: CustomerBillWithItems): Promise<CustomerBill> {
+    const conn = await this.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // Insert the bill
+      const [billResult] = await conn.execute(
+        `INSERT INTO customer_bills (
+          bill_no, bill_date, client_name, client_mobile, client_email,
+          client_address, total_amount, market_total, savings, item_count, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          bill.billNo,
+          bill.billDate,
+          bill.clientName,
+          bill.clientMobile,
+          bill.clientEmail || null,
+          bill.clientAddress || null,
+          bill.totalAmount,
+          bill.marketTotal,
+          bill.savings,
+          bill.itemCount,
+          bill.status
+        ]
+      );
+
+      const billId = (billResult as any).insertId;
+
+      // Insert the bill items
+      if (bill.items && bill.items.length > 0) {
+        for (const item of bill.items) {
+          await conn.execute(
+            `INSERT INTO customer_bill_items (
+              bill_id, product_id, product_name, quantity, unit,
+              price_per_kg, market_price_per_kg, total
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              billId,
+              item.productId,
+              item.productName,
+              item.quantity,
+              item.unit,
+              item.pricePerKg,
+              item.marketPricePerKg,
+              item.total
+            ]
+          );
+        }
+      }
+
+      await conn.commit();
+
+      // Return the created bill
+      const createdBill = await this.getCustomerBill(billId);
+      return createdBill as CustomerBill;
+    } catch (error) {
+      await conn.rollback();
+      console.error("Error creating customer bill:", error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async updateCustomerBill(id: number, bill: Partial<CustomerBillWithItems>): Promise<CustomerBill | undefined> {
+    const conn = await this.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // Update the bill
+      const updateFields: string[] = [];
+      const updateValues: any[] = [];
+
+      if (bill.billNo !== undefined) {
+        updateFields.push('bill_no = ?');
+        updateValues.push(bill.billNo);
+      }
+      if (bill.billDate !== undefined) {
+        updateFields.push('bill_date = ?');
+        updateValues.push(bill.billDate);
+      }
+      if (bill.clientName !== undefined) {
+        updateFields.push('client_name = ?');
+        updateValues.push(bill.clientName);
+      }
+      if (bill.clientMobile !== undefined) {
+        updateFields.push('client_mobile = ?');
+        updateValues.push(bill.clientMobile);
+      }
+      if (bill.clientEmail !== undefined) {
+        updateFields.push('client_email = ?');
+        updateValues.push(bill.clientEmail);
+      }
+      if (bill.clientAddress !== undefined) {
+        updateFields.push('client_address = ?');
+        updateValues.push(bill.clientAddress);
+      }
+      if (bill.totalAmount !== undefined) {
+        updateFields.push('total_amount = ?');
+        updateValues.push(bill.totalAmount);
+      }
+      if (bill.marketTotal !== undefined) {
+        updateFields.push('market_total = ?');
+        updateValues.push(bill.marketTotal);
+      }
+      if (bill.savings !== undefined) {
+        updateFields.push('savings = ?');
+        updateValues.push(bill.savings);
+      }
+      if (bill.itemCount !== undefined) {
+        updateFields.push('item_count = ?');
+        updateValues.push(bill.itemCount);
+      }
+      if (bill.status !== undefined) {
+        updateFields.push('status = ?');
+        updateValues.push(bill.status);
+      }
+
+      if (updateFields.length > 0) {
+        updateFields.push('updated_at = CURRENT_TIMESTAMP');
+        updateValues.push(id);
+
+        await conn.execute(
+          `UPDATE customer_bills SET ${updateFields.join(', ')} WHERE id = ?`,
+          updateValues
+        );
+      }
+
+      // If items are provided, replace all items
+      if (bill.items !== undefined) {
+        // Delete existing items
+        await conn.execute('DELETE FROM customer_bill_items WHERE bill_id = ?', [id]);
+
+        // Insert new items
+        if (bill.items.length > 0) {
+          for (const item of bill.items) {
+            await conn.execute(
+              `INSERT INTO customer_bill_items (
+                bill_id, product_id, product_name, quantity, unit,
+                price_per_kg, market_price_per_kg, total
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                id,
+                item.productId,
+                item.productName,
+                item.quantity,
+                item.unit,
+                item.pricePerKg,
+                item.marketPricePerKg,
+                item.total
+              ]
+            );
+          }
+        }
+      }
+
+      await conn.commit();
+
+      // Return the updated bill
+      return await this.getCustomerBill(id);
+    } catch (error) {
+      await conn.rollback();
+      console.error(`Error updating customer bill with ID ${id}:`, error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async deleteCustomerBill(id: number): Promise<boolean> {
+    const conn = await this.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // Delete bill items first (due to foreign key constraint)
+      await conn.execute('DELETE FROM customer_bill_items WHERE bill_id = ?', [id]);
+
+      // Delete the bill
+      const [result] = await conn.execute('DELETE FROM customer_bills WHERE id = ?', [id]);
+
+      await conn.commit();
+
+      return (result as any).affectedRows > 0;
+    } catch (error) {
+      await conn.rollback();
+      console.error(`Error deleting customer bill with ID ${id}:`, error);
+      throw error;
     } finally {
       conn.release();
     }

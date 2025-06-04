@@ -4,9 +4,10 @@ import PageHeader from "@/components/common/page-header";
 import InventoryTable from "@/components/inventory/inventory-table";
 import InventoryFilters from "@/components/inventory/inventory-filters";
 import InventoryDashboard from "@/components/inventory/inventory-dashboard";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Barcode, Package, PackageCheck, AlertTriangle, Clock, BarChart } from "lucide-react";
+import { Barcode, Package, PackageCheck, AlertTriangle, Clock, BarChart, History } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Inventory } from "@shared/schema";
 import {
@@ -20,6 +21,7 @@ import {
 import AddInventoryForm from "@/components/inventory/add-inventory-form";
 
 export default function InventoryPage() {
+  const [, setLocation] = useLocation();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
   const [filters, setFilters] = useState({
@@ -67,24 +69,34 @@ export default function InventoryPage() {
         title="Inventory Management"
         description="Track and manage your spice inventory"
       >
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-secondary hover:bg-secondary-dark text-white">
-              Add Inventory
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-xl">
-            <DialogHeader>
-              <DialogTitle>Add New Inventory Item</DialogTitle>
-              <DialogDescription>
-                Add a new item to your inventory. Fill in all the required information.
-              </DialogDescription>
-            </DialogHeader>
-            <AddInventoryForm
-              onSuccess={() => setIsAddDialogOpen(false)}
-            />
-          </DialogContent>
-        </Dialog>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setLocation('/inventory-history')}
+            className="flex items-center gap-2"
+          >
+            <History className="h-4 w-4" />
+            View History
+          </Button>
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-secondary hover:bg-secondary-dark text-white">
+                Add Inventory
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-xl">
+              <DialogHeader>
+                <DialogTitle>Add New Inventory Item</DialogTitle>
+                <DialogDescription>
+                  Add a new item to your inventory. Fill in all the required information.
+                </DialogDescription>
+              </DialogHeader>
+              <AddInventoryForm
+                onSuccess={() => setIsAddDialogOpen(false)}
+              />
+            </DialogContent>
+          </Dialog>
+        </div>
       </PageHeader>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
@@ -205,6 +217,7 @@ export default function InventoryPage() {
           </div>
         </TabsContent>
       </Tabs>
+
     </Layout>
   );
 }

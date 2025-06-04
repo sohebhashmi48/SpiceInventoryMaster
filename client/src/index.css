@@ -28,7 +28,7 @@
   --chart-3: 37 100% 75%; /* Accent */
   --chart-4: 95 38% 62%; /* Green */
   --chart-5: 329 86% 70%; /* Pink */
-  
+
   /* Sidebar specific colors */
   --sidebar-background: 16 35% 20%; /* Darker brown */
   --sidebar-foreground: 0 0% 98%;
@@ -65,7 +65,7 @@
   --chart-3: 37 100% 75%; /* Accent */
   --chart-4: 95 38% 62%; /* Green */
   --chart-5: 329 86% 70%; /* Pink */
-  
+
   /* Sidebar specific colors */
   --sidebar-background: 16 35% 20%; /* Darker brown */
   --sidebar-foreground: 0 0% 98%;
@@ -101,13 +101,125 @@
   scrollbar-width: none;
 }
 
+/* Payment modal specific styles */
+.payment-modal-content {
+  max-height: 95vh;
+  overflow-y: auto;
+}
+
+/* Ensure modals don't cause body scroll issues */
+.modal-open {
+  overflow: hidden;
+}
+
+/* Custom scrollbar for payment forms */
+.payment-form-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.payment-form-scroll::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.payment-form-scroll::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.payment-form-scroll::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Form container scrolling */
+.form-container-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.form-container-scroll::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.form-container-scroll::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.form-container-scroll::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Ensure forms don't overflow viewport */
+.form-page-container {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.form-content-area {
+  height: calc(100vh - 200px); /* Adjust based on header height */
+  overflow-y: auto;
+}
+
+/* Smooth transitions for dynamic content */
+.payment-section-transition {
+  transition: all 0.3s ease-in-out;
+}
+
+/* Prevent layout shift when content expands */
+.dynamic-form-section {
+  transition: height 0.3s ease-in-out, opacity 0.3s ease-in-out;
+}
+
+/* Ensure smooth scrolling behavior */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Prevent unwanted scrolling on form interactions */
+.no-scroll-jump {
+  scroll-margin-top: 20px;
+}
+
+/* Prevent layout shifts during dynamic content changes */
+.prevent-layout-shift {
+  contain: layout style;
+}
+
+/* Stable form container */
+.stable-form-container {
+  min-height: 100vh;
+  position: relative;
+}
+
+/* Prevent scroll jumping during form interactions */
+body.no-scroll {
+  overflow: hidden !important;
+}
+
+/* Smooth height transitions for collapsible content */
+.collapsible-content {
+  transition: max-height 0.3s ease-in-out, opacity 0.3s ease-in-out;
+  overflow: hidden;
+}
+
+.collapsible-content.expanded {
+  max-height: 500px;
+  opacity: 1;
+}
+
+.collapsible-content.collapsed {
+  max-height: 0;
+  opacity: 0;
+}
+
 /* Font Families */
 @layer base {
   :root {
     --font-sans: 'Roboto', sans-serif;
     --font-heading: 'Montserrat', sans-serif;
   }
-  
+
   h1, h2, h3, h4, h5, h6 {
     @apply font-heading;
   }
@@ -118,7 +230,7 @@
     transform: translateX(-100%);
     transition: transform 0.3s ease;
   }
-  
+
   .sidebar-expanded {
     transform: translateX(0);
     transition: transform 0.3s ease;

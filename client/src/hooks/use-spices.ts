@@ -8,6 +8,9 @@ export interface Spice {
   description?: string;
   category?: string;
   price: number;
+  marketPrice?: number;
+  retailPrice?: number;
+  catererPrice?: number;
   unit: string;
   quantity: number;
   minQuantity?: number;
@@ -21,6 +24,9 @@ export interface CreateSpiceData {
   description?: string;
   category?: string;
   price: number;
+  marketPrice?: number;
+  retailPrice?: number;
+  catererPrice?: number;
   unit: string;
   quantity: number;
   minQuantity?: number;

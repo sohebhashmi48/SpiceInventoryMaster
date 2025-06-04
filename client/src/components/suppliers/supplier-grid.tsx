@@ -26,8 +26,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Mail, Phone, MapPin, Edit, Trash2, Plus, Star, ShoppingCart, Eye, DollarSign } from "lucide-react";
+import { Mail, Phone, MapPin, Edit, Trash2, Plus, Star, ShoppingCart, Eye, DollarSign, CreditCard } from "lucide-react";
 import AddSupplierForm from "./add-supplier-form";
+import SupplierCardModal from "./supplier-card-modal";
 
 interface FilterValues {
   searchTerm: string;
@@ -45,6 +46,7 @@ export default function SupplierGrid({ filterValues }: SupplierGridProps = {}) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Vendor | null>(null);
   const [supplierToDelete, setSupplierToDelete] = useState<number | null>(null);
+  const [supplierCardToView, setSupplierCardToView] = useState<Vendor | null>(null);
 
   const { data: suppliers, isLoading: suppliersLoading } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
@@ -409,6 +411,15 @@ export default function SupplierGrid({ filterValues }: SupplierGridProps = {}) {
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => setSupplierCardToView(supplier)}
+                    className="flex-1 h-9 text-sm text-purple-600 hover:text-purple-800 hover:bg-purple-50 px-2"
+                  >
+                    <CreditCard className="h-4 w-4 mr-1" />
+                    View Card
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => handleDelete(supplier.id)}
                     className="flex-1 h-9 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 px-2"
                   >
@@ -598,6 +609,14 @@ export default function SupplierGrid({ filterValues }: SupplierGridProps = {}) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Supplier Card Modal */}
+      <SupplierCardModal
+        supplier={supplierCardToView}
+        isOpen={!!supplierCardToView}
+        onClose={() => setSupplierCardToView(null)}
+        onEdit={handleEdit}
+      />
     </div>
   );
 }

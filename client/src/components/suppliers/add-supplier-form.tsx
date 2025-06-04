@@ -12,6 +12,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Vendor } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
+import SupplierImageUpload from "./supplier-image-upload";
 
 // Define the form schema
 const supplierSchema = z.object({
@@ -23,6 +24,7 @@ const supplierSchema = z.object({
   notes: z.string().optional(),
   tags: z.array(z.string()).default([]),
   newTag: z.string().optional(),
+  supplierImage: z.string().optional(),
 });
 
 type SupplierFormValues = z.infer<typeof supplierSchema>;
@@ -35,6 +37,7 @@ interface AddSupplierFormProps {
 export default function AddSupplierForm({ onSuccess, existingSupplier }: AddSupplierFormProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [supplierImage, setSupplierImage] = useState<string | null>(existingSupplier?.supplierImage || null);
 
   // Fetch all products to suggest as tags
   const { data: products } = useQuery<any[]>({
@@ -56,6 +59,7 @@ export default function AddSupplierForm({ onSuccess, existingSupplier }: AddSupp
       notes: "",
       tags: [],
       newTag: "",
+      supplierImage: "",
     },
   });
 
@@ -71,7 +75,9 @@ export default function AddSupplierForm({ onSuccess, existingSupplier }: AddSupp
         notes: existingSupplier.notes || "",
         tags: existingSupplier.tags || [],
         newTag: "",
+        supplierImage: existingSupplier.supplierImage || "",
       });
+      setSupplierImage(existingSupplier.supplierImage || null);
     }
   }, [existingSupplier, form]);
 
@@ -157,9 +163,10 @@ export default function AddSupplierForm({ onSuccess, existingSupplier }: AddSupp
     // Remove the newTag field before submitting
     const { newTag, ...submitData } = data;
 
-    // No need to convert creditLimit anymore
+    // Include the supplier image
     const formattedData = {
-      ...submitData
+      ...submitData,
+      supplierImage: supplierImage,
     };
 
     if (existingSupplier) {
@@ -280,6 +287,15 @@ export default function AddSupplierForm({ onSuccess, existingSupplier }: AddSupp
           <p className="text-sm text-muted-foreground">
             Add products that this supplier sells to help with filtering and organization.
           </p>
+        </div>
+
+        {/* Supplier Image Upload */}
+        <div className="space-y-2 md:col-span-2">
+          <SupplierImageUpload
+            currentImage={supplierImage}
+            onImageChange={setSupplierImage}
+            disabled={isSubmitting}
+          />
         </div>
       </div>
 

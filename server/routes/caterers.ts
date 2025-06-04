@@ -143,13 +143,38 @@ router.get('/:id/balance', async (req, res) => {
       return res.status(404).json({ error: 'Caterer not found' });
     }
 
-    // Get the latest balance data
+    // Calculate real-time balance from distributions and payments
+    const distributions = await storage.getDistributionsByCaterer(id);
+    const payments = await storage.getCatererPaymentsByCaterer(id);
+
+    console.log(`Balance calculation for caterer ${id}:`);
+    console.log(`Distributions:`, distributions.map(d => ({ id: d.id, billNo: d.billNo, grandTotal: d.grandTotal, balanceDue: d.balanceDue, status: d.status })));
+    console.log(`Payments:`, payments.map(p => ({ id: p.id, amount: p.amount, distributionId: p.distributionId })));
+
+    const totalBilled = distributions.reduce((sum, dist) => {
+      const amount = parseFloat(dist.grandTotal || '0');
+      console.log(`Distribution ${dist.id}: grandTotal="${dist.grandTotal}" -> parsed=${amount}`);
+      return sum + (isNaN(amount) ? 0 : amount);
+    }, 0);
+
+    const totalPaid = payments.reduce((sum, payment) => {
+      const amount = parseFloat(payment.amount || '0');
+      console.log(`Payment ${payment.id}: amount="${payment.amount}" -> parsed=${amount}`);
+      return sum + (isNaN(amount) ? 0 : amount);
+    }, 0);
+
+    const balanceDue = Math.max(0, totalBilled - totalPaid);
+    const totalOrders = distributions.length;
+
+    console.log(`Calculated values: totalBilled=${totalBilled}, totalPaid=${totalPaid}, balanceDue=${balanceDue}`);
+
+    // Get the latest balance data with real-time calculations
     const balanceData = {
-      balanceDue: caterer.balanceDue || 0,
-      totalBilled: caterer.totalBilled || 0,
-      totalOrders: caterer.totalOrders || 0,
-      totalPaid: caterer.totalPaid || 0,
-      lastPaymentDate: undefined // We can add this later if needed
+      balanceDue: balanceDue,
+      totalBilled: totalBilled,
+      totalOrders: totalOrders,
+      totalPaid: totalPaid,
+      lastPaymentDate: payments.length > 0 ? payments[0].paymentDate : undefined
     };
 
     res.json(balanceData);

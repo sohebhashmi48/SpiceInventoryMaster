@@ -5,11 +5,12 @@ import {
   purchaseWithItemsSchema,
   insertCatererSchema,
   distributionWithItemsSchema,
-  insertCatererPaymentSchema
+  insertCatererPaymentSchema,
+  customerBillWithItemsSchema
 } from "@shared/schema";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./auth";
-import upload from "./upload";
+import upload, { getCatererImageUrl, getSupplierImageUrl } from "./upload";
 import path from "path";
 import { fileURLToPath } from "url";
 import vendorPaymentsRouter from "./routes/vendor-payments";
@@ -279,6 +280,30 @@ export async function registerRoutes(app: Express) {
     } catch (error) {
       console.error("Delete supplier error:", error);
       res.status(500).json({ message: "Failed to delete supplier", error: String(error) });
+    }
+  });
+
+  // Supplier image upload endpoint
+  app.post("/api/suppliers/upload-image", isAuthenticated, upload.single('supplierImage'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file provided" });
+      }
+
+      // Get the relative path for storage in the database
+      const imagePath = `/api/uploads/suppliers/${path.basename(req.file.path)}`;
+      console.log("Supplier image uploaded to:", imagePath);
+
+      // Return the image URL
+      res.json({
+        url: imagePath,
+        filename: path.basename(req.file.path),
+        originalName: req.file.originalname,
+        size: req.file.size
+      });
+    } catch (error) {
+      console.error("Supplier image upload error:", error);
+      res.status(500).json({ message: "Failed to upload image" });
     }
   });
 
@@ -806,6 +831,21 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Inventory history API - must come before /api/inventory/:id route
+  app.get("/api/inventory/history", isAuthenticated, async (req, res) => {
+    try {
+      const inventoryId = req.query.inventoryId ? parseInt(req.query.inventoryId as string) : undefined;
+      const productId = req.query.productId ? parseInt(req.query.productId as string) : undefined;
+
+      console.log("Fetching inventory history with filters:", { inventoryId, productId });
+      const history = await storage.getInventoryHistory(inventoryId, productId);
+      res.json(history);
+    } catch (error) {
+      console.error("Get inventory history error:", error);
+      res.status(500).json({ message: "Failed to fetch inventory history" });
+    }
+  });
+
   app.get("/api/inventory/:id", isAuthenticated, async (req, res) => {
     try {
       const item = await storage.getInventoryItem(parseInt(req.params.id));
@@ -1293,6 +1333,25 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Inventory history API - specific item history must come before general history
+  app.get("/api/inventory/:id/history", isAuthenticated, async (req, res) => {
+    try {
+      const inventoryId = parseInt(req.params.id);
+      if (isNaN(inventoryId)) {
+        return res.status(400).json({ message: "Invalid inventory ID" });
+      }
+
+      console.log(`Fetching history for inventory item ${inventoryId}`);
+      const history = await storage.getInventoryHistory(inventoryId);
+      res.json(history);
+    } catch (error) {
+      console.error("Get inventory item history error:", error);
+      res.status(500).json({ message: "Failed to fetch inventory item history" });
+    }
+  });
+
+
+
   // Purchases API
   app.get("/api/purchases", isAuthenticated, async (_req, res) => {
     try {
@@ -1489,6 +1548,30 @@ export async function registerRoutes(app: Express) {
     } catch (error) {
       console.error("Update caterer error:", error);
       res.status(500).json({ message: "Failed to update caterer" });
+    }
+  });
+
+  // Caterer image upload endpoint
+  app.post("/api/caterers/upload-image", isAuthenticated, upload.single('shopCard'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file provided" });
+      }
+
+      // Get the relative path for storage in the database
+      const imagePath = `/api/uploads/caterers/${path.basename(req.file.path)}`;
+      console.log("Caterer image uploaded to:", imagePath);
+
+      // Return the image URL
+      res.json({
+        url: imagePath,
+        filename: path.basename(req.file.path),
+        originalName: req.file.originalname,
+        size: req.file.size
+      });
+    } catch (error) {
+      console.error("Caterer image upload error:", error);
+      res.status(500).json({ message: "Failed to upload image" });
     }
   });
 
@@ -1967,9 +2050,40 @@ export async function registerRoutes(app: Express) {
 
   app.post("/api/payment-reminders", isAuthenticated, async (req, res) => {
     try {
-      const reminder = await storage.createPaymentReminder(req.body);
+      // Create a schema for payment reminder validation
+      const paymentReminderSchema = z.object({
+        catererId: z.number(),
+        distributionId: z.number().optional(),
+        amount: z.number(),
+        originalDueDate: z.union([
+          z.string().refine(val => !isNaN(Date.parse(val)), {
+            message: "Invalid date format"
+          }).transform(val => new Date(val)),
+          z.date()
+        ]),
+        reminderDate: z.union([
+          z.string().refine(val => !isNaN(Date.parse(val)), {
+            message: "Invalid date format"
+          }).transform(val => new Date(val)),
+          z.date()
+        ]),
+        nextReminderDate: z.union([
+          z.string().refine(val => !isNaN(Date.parse(val)), {
+            message: "Invalid date format"
+          }).transform(val => new Date(val)),
+          z.date()
+        ]).optional(),
+        status: z.string().optional(),
+        notes: z.string().optional(),
+      });
+
+      const validatedData = paymentReminderSchema.parse(req.body);
+      const reminder = await storage.createPaymentReminder(validatedData);
       res.status(201).json(reminder);
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
       console.error("Create payment reminder error:", error);
       res.status(500).json({ message: "Failed to create payment reminder" });
     }
@@ -1977,12 +2091,44 @@ export async function registerRoutes(app: Express) {
 
   app.patch("/api/payment-reminders/:id", isAuthenticated, async (req, res) => {
     try {
-      const reminder = await storage.updatePaymentReminder(req.params.id, req.body);
+      // Create a schema for payment reminder update validation
+      const updatePaymentReminderSchema = z.object({
+        catererId: z.number().optional(),
+        distributionId: z.number().optional(),
+        amount: z.number().optional(),
+        originalDueDate: z.union([
+          z.string().refine(val => !isNaN(Date.parse(val)), {
+            message: "Invalid date format"
+          }).transform(val => new Date(val)),
+          z.date()
+        ]).optional(),
+        reminderDate: z.union([
+          z.string().refine(val => !isNaN(Date.parse(val)), {
+            message: "Invalid date format"
+          }).transform(val => new Date(val)),
+          z.date()
+        ]).optional(),
+        nextReminderDate: z.union([
+          z.string().refine(val => !isNaN(Date.parse(val)), {
+            message: "Invalid date format"
+          }).transform(val => new Date(val)),
+          z.date()
+        ]).optional(),
+        status: z.string().optional(),
+        isRead: z.boolean().optional(),
+        notes: z.string().optional(),
+      });
+
+      const validatedData = updatePaymentReminderSchema.parse(req.body);
+      const reminder = await storage.updatePaymentReminder(req.params.id, validatedData);
       if (!reminder) {
         return res.status(404).json({ message: "Payment reminder not found" });
       }
       res.json(reminder);
     } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
       console.error("Update payment reminder error:", error);
       res.status(500).json({ message: "Failed to update payment reminder" });
     }
@@ -2024,6 +2170,168 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Acknowledge payment reminder (permanent)
+  app.post("/api/payment-reminders/:id/acknowledge", isAuthenticated, async (req, res) => {
+    try {
+      const reminder = await storage.updatePaymentReminder(req.params.id, {
+        isAcknowledged: true,
+        acknowledgedAt: new Date()
+      });
+
+      if (!reminder) {
+        return res.status(404).json({ message: "Payment reminder not found" });
+      }
+
+      res.json({ success: true, reminder });
+    } catch (error) {
+      console.error("Acknowledge payment reminder error:", error);
+      res.status(500).json({ message: "Failed to acknowledge payment reminder" });
+    }
+  });
+
+  // Dismiss payment reminder (temporary - session based)
+  app.post("/api/payment-reminders/:id/dismiss", isAuthenticated, async (req, res) => {
+    try {
+      // For dismissals, we don't update the database - this is handled client-side
+      // We just return success to indicate the dismissal was processed
+      res.json({ success: true, message: "Reminder dismissed temporarily" });
+    } catch (error) {
+      console.error("Dismiss payment reminder error:", error);
+      res.status(500).json({ message: "Failed to dismiss payment reminder" });
+    }
+  });
+
+  // Customer Bills API
+  app.get("/api/customer-bills", isAuthenticated, async (req, res) => {
+    try {
+      const { page = '1', limit = '10', search, status, startDate, endDate } = req.query;
+      const pageNum = parseInt(page as string);
+      const limitNum = parseInt(limit as string);
+      const offset = (pageNum - 1) * limitNum;
+
+      const bills = await storage.getCustomerBills({
+        page: pageNum,
+        limit: limitNum,
+        offset,
+        search: search as string,
+        status: status as string,
+        startDate: startDate as string,
+        endDate: endDate as string,
+      });
+
+      res.json(bills);
+    } catch (error) {
+      console.error("Get customer bills error:", error);
+      res.status(500).json({ message: "Failed to fetch customer bills" });
+    }
+  });
+
+  app.get("/api/customer-bills/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid customer bill ID' });
+      }
+
+      const bill = await storage.getCustomerBill(id);
+      if (!bill) {
+        return res.status(404).json({ message: "Customer bill not found" });
+      }
+
+      res.json(bill);
+    } catch (error) {
+      console.error("Get customer bill error:", error);
+      res.status(500).json({ message: "Failed to fetch customer bill" });
+    }
+  });
+
+  app.post("/api/customer-bills", isAuthenticated, async (req, res) => {
+    try {
+      console.log("Creating customer bill with data:", req.body);
+
+      // Validate the request body
+      const validatedData = customerBillWithItemsSchema.parse(req.body);
+
+      // Ensure billDate is a Date object
+      const formattedData = {
+        ...validatedData,
+        billDate: validatedData.billDate instanceof Date
+          ? validatedData.billDate
+          : new Date(validatedData.billDate)
+      };
+
+      // Create the customer bill
+      const bill = await storage.createCustomerBill(formattedData);
+      res.status(201).json(bill);
+    } catch (error) {
+      console.error("Create customer bill error:", error);
+
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: "Invalid customer bill data",
+          error: error.errors
+        });
+      }
+
+      // Provide more detailed error message to the client
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      res.status(500).json({
+        message: "Failed to create customer bill",
+        error: errorMessage
+      });
+    }
+  });
+
+  app.put("/api/customer-bills/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid customer bill ID' });
+      }
+
+      // Validate the request body
+      const validatedData = customerBillWithItemsSchema.partial().parse(req.body);
+
+      // Update the customer bill
+      const bill = await storage.updateCustomerBill(id, validatedData);
+      if (!bill) {
+        return res.status(404).json({ message: "Customer bill not found" });
+      }
+
+      res.json(bill);
+    } catch (error) {
+      console.error("Update customer bill error:", error);
+
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({
+          message: "Invalid customer bill data",
+          error: error.errors
+        });
+      }
+
+      res.status(500).json({ message: "Failed to update customer bill" });
+    }
+  });
+
+  app.delete("/api/customer-bills/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid customer bill ID' });
+      }
+
+      const success = await storage.deleteCustomerBill(id);
+      if (!success) {
+        return res.status(404).json({ message: "Customer bill not found" });
+      }
+
+      res.status(204).end();
+    } catch (error) {
+      console.error("Delete customer bill error:", error);
+      res.status(500).json({ message: "Failed to delete customer bill" });
+    }
+  });
+
   // Get caterer balance
   app.get("/api/caterers/:id/balance", isAuthenticated, async (req, res) => {
     try {
@@ -2037,13 +2345,30 @@ export async function registerRoutes(app: Express) {
         return res.status(404).json({ error: 'Caterer not found' });
       }
 
-      // Get the latest balance data
+      // Calculate real-time balance from distributions and payments
+      const distributions = await storage.getDistributionsByCaterer(id);
+      const payments = await storage.getCatererPaymentsByCaterer(id);
+
+      const totalBilled = distributions.reduce((sum, dist) => {
+        const amount = parseFloat(dist.grandTotal || '0');
+        return sum + (isNaN(amount) ? 0 : amount);
+      }, 0);
+
+      const totalPaid = payments.reduce((sum, payment) => {
+        const amount = parseFloat(payment.amount || '0');
+        return sum + (isNaN(amount) ? 0 : amount);
+      }, 0);
+
+      const balanceDue = Math.max(0, totalBilled - totalPaid);
+      const totalOrders = distributions.length;
+
+      // Get the latest balance data with real-time calculations
       const balanceData = {
-        balanceDue: caterer.balanceDue || 0,
-        totalBilled: caterer.totalBilled || 0,
-        totalOrders: caterer.totalOrders || 0,
-        totalPaid: caterer.totalPaid || 0,
-        lastPaymentDate: undefined // We can add this later if needed
+        balanceDue: balanceDue,
+        totalBilled: totalBilled,
+        totalOrders: totalOrders,
+        totalPaid: totalPaid,
+        lastPaymentDate: payments.length > 0 ? payments[0].paymentDate : undefined
       };
 
       res.json(balanceData);

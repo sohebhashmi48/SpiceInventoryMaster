@@ -112,7 +112,9 @@ export function useCreateDistribution() {
       queryClient.invalidateQueries({ queryKey: ['distributions', 'caterer', data.catererId] });
       queryClient.invalidateQueries({ queryKey: ['caterers'] });
       queryClient.invalidateQueries({ queryKey: ['caterers', data.catererId] });
+      queryClient.invalidateQueries({ queryKey: ['caterers', data.catererId, 'balance'] });
       queryClient.invalidateQueries({ queryKey: ['spices'] });
+      queryClient.invalidateQueries({ queryKey: ['payment-reminders'] });
 
       toast({
         title: 'Distribution created',
@@ -186,10 +188,12 @@ export function useDeleteDistribution() {
       if (data && data.catererId) {
         queryClient.invalidateQueries({ queryKey: ['distributions', 'caterer', data.catererId] });
         queryClient.invalidateQueries({ queryKey: ['caterers', data.catererId] });
+        queryClient.invalidateQueries({ queryKey: ['caterers', data.catererId, 'balance'] });
       }
       queryClient.invalidateQueries({ queryKey: ['caterers'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['caterer-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['payment-reminders'] });
 
       toast({
         title: 'Distribution deleted',

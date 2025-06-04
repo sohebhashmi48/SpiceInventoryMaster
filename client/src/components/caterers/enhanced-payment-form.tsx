@@ -51,6 +51,7 @@ interface EnhancedPaymentFormProps {
   preselectedAmount?: string;
   onSuccess?: () => void;
   onCancel?: () => void;
+  isModal?: boolean; // New prop to indicate if used in modal
 }
 
 export default function EnhancedPaymentForm({
@@ -58,7 +59,8 @@ export default function EnhancedPaymentForm({
   preselectedDistributionId,
   preselectedAmount,
   onSuccess,
-  onCancel
+  onCancel,
+  isModal = false
 }: EnhancedPaymentFormProps) {
   const [, setLocation] = useLocation();
   const createPayment = useCreateCatererPayment();
@@ -97,12 +99,40 @@ export default function EnhancedPaymentForm({
   const watchedPaymentType = form.watch('paymentType');
 
   // Fetch distributions for selected caterer
-  const { data: distributions, isLoading: distributionsLoading } = useDistributionsByCaterer(
+  const { data: allDistributions, isLoading: distributionsLoading } = useDistributionsByCaterer(
     watchedCatererId ? parseInt(watchedCatererId) : 0
   );
 
+  // Filter distributions to only show those with pending balance (balanceDue > 0)
+  const distributions = allDistributions?.filter(distribution => {
+    const balanceDue = parseFloat(distribution.balanceDue);
+    const grandTotal = parseFloat(distribution.grandTotal);
+    const amountPaid = parseFloat(distribution.amountPaid);
+
+    // Only include bills where:
+    // 1. Balance due is greater than 0, AND
+    // 2. Amount paid is less than grand total (double check for data consistency)
+    return balanceDue > 0 && amountPaid < grandTotal;
+  }) || [];
+
   // Get selected distribution details
   const selectedDistribution = distributions?.find(d => d.id === parseInt(watchedDistributionId || '0'));
+
+  // If a distribution was selected but is no longer in the filtered list (e.g., became fully paid),
+  // clear the selection and show a warning
+  useEffect(() => {
+    if (watchedDistributionId && watchedDistributionId !== 'none' && !selectedDistribution && distributions.length > 0) {
+      const originalDistribution = allDistributions?.find(d => d.id === parseInt(watchedDistributionId));
+      if (originalDistribution && parseFloat(originalDistribution.balanceDue) <= 0) {
+        form.setValue('distributionId', 'none');
+        toast({
+          title: "Bill selection cleared",
+          description: "The selected bill is now fully paid. Please select a different bill or record a general payment.",
+          variant: "default",
+        });
+      }
+    }
+  }, [watchedDistributionId, selectedDistribution, distributions, allDistributions, form, toast]);
 
   // Auto-fill form values when data loads
   useEffect(() => {
@@ -243,6 +273,37 @@ export default function EnhancedPaymentForm({
   // Handle form submission
   const onSubmit = async (data: PaymentFormValues) => {
     console.log("Form submission started", data);
+
+    // Additional validation: Check if trying to pay against a fully paid bill
+    if (data.distributionId && data.distributionId !== 'none') {
+      const selectedBill = allDistributions?.find(d => d.id === parseInt(data.distributionId!));
+      if (selectedBill) {
+        const balanceDue = parseFloat(selectedBill.balanceDue);
+        const grandTotal = parseFloat(selectedBill.grandTotal);
+        const amountPaid = parseFloat(selectedBill.amountPaid);
+
+        if (balanceDue <= 0 || amountPaid >= grandTotal) {
+          toast({
+            title: "Cannot record payment",
+            description: "This bill is already fully paid. Please select a different bill or record a general payment.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Check if payment amount exceeds balance due
+        const paymentAmount = parseFloat(data.amount);
+        if (paymentAmount > balanceDue) {
+          toast({
+            title: "Payment amount too high",
+            description: `Payment amount (₹${paymentAmount.toLocaleString()}) cannot exceed the balance due (₹${balanceDue.toLocaleString()}).`,
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+    }
+
     setIsUploading(true);
     try {
       // Upload receipt image if one is selected
@@ -362,7 +423,10 @@ export default function EnhancedPaymentForm({
   return (
     <>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className={cn(
+          "grid gap-6",
+          isModal ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2"
+        )}>
           <Card>
             <CardHeader>
               <CardTitle>Payment Details</CardTitle>
@@ -410,19 +474,53 @@ export default function EnhancedPaymentForm({
                       onValueChange={field.onChange}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select a bill (optional)" />
+                        <SelectValue placeholder={
+                          !watchedCatererId
+                            ? "Select a caterer first"
+                            : distributionsLoading
+                              ? "Loading bills..."
+                              : distributions.length === 0
+                                ? "No bills with pending balance"
+                                : "Select a bill (optional)"
+                        } />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="none">No specific bill</SelectItem>
-                        {distributions?.map((distribution) => (
-                          <SelectItem key={distribution.id} value={distribution.id.toString()}>
-                            {distribution.billNo} - ₹{distribution.balanceDue.toLocaleString()} due
+                        {distributions.length === 0 && watchedCatererId && !distributionsLoading ? (
+                          <SelectItem value="no-bills" disabled>
+                            No bills with pending balance found
                           </SelectItem>
-                        ))}
+                        ) : (
+                          distributions.map((distribution) => {
+                            const balanceDue = parseFloat(distribution.balanceDue);
+                            const grandTotal = parseFloat(distribution.grandTotal);
+                            const amountPaid = parseFloat(distribution.amountPaid);
+
+                            return (
+                              <SelectItem key={distribution.id} value={distribution.id.toString()}>
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{distribution.billNo}</span>
+                                  <span className="text-sm text-muted-foreground">
+                                    Total: ₹{grandTotal.toLocaleString()} |
+                                    Paid: ₹{amountPaid.toLocaleString()} |
+                                    <span className="text-red-600 font-medium">
+                                      Due: ₹{balanceDue.toLocaleString()}
+                                    </span>
+                                  </span>
+                                </div>
+                              </SelectItem>
+                            );
+                          })
+                        )}
                       </SelectContent>
                     </Select>
                   )}
                 />
+                {distributions.length === 0 && watchedCatererId && !distributionsLoading && (
+                  <p className="text-sm text-muted-foreground">
+                    All bills for this caterer are fully paid. You can still record a general payment by selecting "No specific bill".
+                  </p>
+                )}
               </div>
 
               {selectedDistribution && (
@@ -458,11 +556,20 @@ export default function EnhancedPaymentForm({
                   type="number"
                   step="0.01"
                   min="0"
-                  max={selectedDistribution ? selectedDistribution.balanceDue : undefined}
+                  max={selectedDistribution ? parseFloat(selectedDistribution.balanceDue) : undefined}
                   disabled={watchedPaymentType === 'full' && !!selectedDistribution}
                   {...form.register("amount")}
-                  placeholder="Enter payment amount"
+                  placeholder={
+                    selectedDistribution
+                      ? `Enter amount (max: ₹${parseFloat(selectedDistribution.balanceDue).toLocaleString()})`
+                      : "Enter payment amount"
+                  }
                 />
+                {selectedDistribution && (
+                  <p className="text-sm text-muted-foreground">
+                    Maximum payment amount: ₹{parseFloat(selectedDistribution.balanceDue).toLocaleString()}
+                  </p>
+                )}
                 {form.formState.errors.amount && (
                   <p className="text-sm text-red-500">{form.formState.errors.amount.message}</p>
                 )}
@@ -558,7 +665,10 @@ export default function EnhancedPaymentForm({
               <CardDescription>Upload a receipt image if available</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="border-2 border-dashed border-blue-200 dark:border-blue-900 rounded-lg p-6 text-center">
+              <div className={cn(
+                "border-2 border-dashed border-blue-200 dark:border-blue-900 rounded-lg text-center",
+                isModal ? "p-4" : "p-6"
+              )}>
                 {receiptPreview ? (
                   <div className="space-y-4">
                     <img
@@ -611,33 +721,64 @@ export default function EnhancedPaymentForm({
           </Card>
         </div>
 
-        <div className="flex justify-end space-x-4">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onCancel || (() => setLocation('/caterer-payments'))}
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            disabled={isUploading || createPayment.isPending}
-            className="min-w-[150px]"
-          >
-            {(isUploading || createPayment.isPending) ? (
-              <div className="flex items-center">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                Saving...
-              </div>
-            ) : (
-              <>
-                <Save className="h-4 w-4 mr-2" />
-                Record Payment
-              </>
-            )}
-          </Button>
-        </div>
+        {!isModal && (
+          <div className="flex justify-end space-x-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onCancel || (() => setLocation('/caterer-payments'))}
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={isUploading || createPayment.isPending}
+              className="min-w-[150px]"
+            >
+              {(isUploading || createPayment.isPending) ? (
+                <div className="flex items-center">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Saving...
+                </div>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Record Payment
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+
+        {isModal && (
+          <div className="flex justify-end space-x-4 pt-4 border-t bg-background sticky bottom-0 -mx-6 px-6 pb-6">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onCancel}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={isUploading || createPayment.isPending}
+              className="min-w-[150px]"
+            >
+              {(isUploading || createPayment.isPending) ? (
+                <div className="flex items-center">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Saving...
+                </div>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  Record Payment
+                </>
+              )}
+            </Button>
+          </div>
+        )}
       </form>
 
       {/* Reminder Dialog */}

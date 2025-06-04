@@ -15,6 +15,10 @@ const storage = multer.diskStorage({
 
     if (req.path.includes('/receipts')) {
       uploadDir = path.join(__dirname, 'public', 'uploads', 'receipts');
+    } else if (req.path.includes('/caterers')) {
+      uploadDir = path.join(__dirname, 'public', 'uploads', 'caterers');
+    } else if (req.path.includes('/suppliers')) {
+      uploadDir = path.join(__dirname, 'public', 'uploads', 'suppliers');
     } else {
       // Default to spices directory
       uploadDir = path.join(__dirname, 'public', 'uploads', 'spices');
@@ -36,6 +40,10 @@ const storage = multer.diskStorage({
     let prefix = 'file';
     if (req.path.includes('/receipts')) {
       prefix = 'receipt';
+    } else if (req.path.includes('/caterers')) {
+      prefix = 'caterer';
+    } else if (req.path.includes('/suppliers')) {
+      prefix = 'supplier';
     } else if (req.path.includes('/spices') || req.path.includes('/products')) {
       prefix = 'spice';
     }
@@ -64,16 +72,34 @@ const upload = multer({
 });
 
 // Helper function to get the URL for a file
-export const getFileUrl = (filename: string | null, type: 'receipt' | 'spice' = 'spice'): string | null => {
+export const getFileUrl = (filename: string | null, type: 'receipt' | 'spice' | 'caterer' | 'supplier' = 'spice'): string | null => {
   if (!filename) return null;
 
-  const folder = type === 'receipt' ? 'receipts' : 'spices';
+  let folder = 'spices';
+  if (type === 'receipt') {
+    folder = 'receipts';
+  } else if (type === 'caterer') {
+    folder = 'caterers';
+  } else if (type === 'supplier') {
+    folder = 'suppliers';
+  }
+
   return `/api/uploads/${folder}/${filename}`;
 };
 
 // Helper function specifically for receipt images
 export const getReceiptUrl = (filename: string | null): string | null => {
   return getFileUrl(filename, 'receipt');
+};
+
+// Helper function specifically for caterer images
+export const getCatererImageUrl = (filename: string | null): string | null => {
+  return getFileUrl(filename, 'caterer');
+};
+
+// Helper function specifically for supplier images
+export const getSupplierImageUrl = (filename: string | null): string | null => {
+  return getFileUrl(filename, 'supplier');
 };
 
 export default upload;

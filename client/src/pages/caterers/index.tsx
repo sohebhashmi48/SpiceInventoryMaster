@@ -12,6 +12,7 @@ import {
   ChefHat, Plus, Search, Filter, Grid, List, AlertCircle
 } from 'lucide-react';
 import CatererDeleteDialog from '@/components/caterers/caterer-delete-dialog';
+import CatererCardModal from '@/components/caterers/caterer-card-modal';
 import CatererLayout from '@/components/caterers/caterer-layout';
 import CatererCard from '@/components/caterers/caterer-card';
 import { formatCurrency } from '@/lib/utils';
@@ -28,6 +29,7 @@ export default function CaterersPage() {
   const [isFilterVisible, setIsFilterVisible] = useState(false);
   const [view, setView] = useState<"grid" | "list">("grid");
   const [catererToDelete, setCatererToDelete] = useState<Caterer | null>(null);
+  const [catererCardToView, setCatererCardToView] = useState<Caterer | null>(null);
   const [relatedRecords, setRelatedRecords] = useState<RelatedRecordsError['relatedRecords'] | undefined>(undefined);
 
   // Helper function to navigate
@@ -56,7 +58,7 @@ export default function CaterersPage() {
     if (!caterers) return [];
 
     return caterers.filter(caterer => {
-      const matchesSearch = !debouncedSearchTerm || 
+      const matchesSearch = !debouncedSearchTerm ||
         caterer.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
         (caterer.contactName && caterer.contactName.toLowerCase().includes(debouncedSearchTerm.toLowerCase()));
 
@@ -115,6 +117,10 @@ export default function CaterersPage() {
   const handleEdit = useCallback((caterer: Caterer) => {
     navigate(`/caterers/${caterer.id}`);
   }, [navigate]);
+
+  const handleView = useCallback((caterer: Caterer) => {
+    setCatererCardToView(caterer);
+  }, []);
 
   return (
     <CatererLayout title="Caterer Management" description="View and manage your caterers">
@@ -231,6 +237,7 @@ export default function CaterersPage() {
                   caterer={caterer}
                   onEdit={handleEdit}
                   onDelete={handleDeleteClick}
+                  onView={handleView}
                 />
               ))}
             </div>
@@ -262,6 +269,14 @@ export default function CaterersPage() {
         relatedRecords={relatedRecords}
         onOpenChange={(open) => !open && setCatererToDelete(null)}
         onDelete={handleDelete}
+      />
+
+      {/* Caterer Card Modal */}
+      <CatererCardModal
+        caterer={catererCardToView}
+        isOpen={!!catererCardToView}
+        onClose={() => setCatererCardToView(null)}
+        onEdit={handleEdit}
       />
     </CatererLayout>
   );

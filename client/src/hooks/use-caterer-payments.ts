@@ -97,6 +97,12 @@ export function useCreateCatererPayment() {
       queryClient.invalidateQueries({ queryKey: ['caterers'] });
       queryClient.invalidateQueries({ queryKey: ['caterers', variables.catererId] });
 
+      // Invalidate the caterer balance query specifically
+      queryClient.invalidateQueries({ queryKey: ['caterers', variables.catererId, 'balance'] });
+
+      // Invalidate payment reminders since they might be affected by payment status changes
+      queryClient.invalidateQueries({ queryKey: ['payment-reminders'] });
+
       if (variables.distributionId) {
         queryClient.invalidateQueries({ queryKey: ['distributions'] });
         queryClient.invalidateQueries({ queryKey: ['distributions', variables.distributionId] });

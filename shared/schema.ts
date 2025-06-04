@@ -23,6 +23,7 @@ export const suppliers = pgTable("suppliers", {
   creditLimit: numeric("credit_limit").default("0"),
   balanceDue: numeric("balance_due").default("0"),
   totalPaid: numeric("total_paid").default("0"),
+  supplierImage: text("supplier_image"),
   notes: text("notes"),
   rating: integer("rating"),
   tags: json("tags").$type<string[]>(),
@@ -65,6 +66,24 @@ export const inventory = pgTable("inventory", {
   barcode: text("barcode"),
   notes: text("notes"),
   status: text("status").notNull().default("active"),
+});
+
+// Inventory history table for tracking changes
+export const inventoryHistory = pgTable("inventory_history", {
+  id: serial("id").primaryKey(),
+  inventoryId: integer("inventory_id").notNull(),
+  productId: integer("product_id").notNull(),
+  supplierId: integer("supplier_id").notNull(),
+  changeType: text("change_type").notNull(), // 'created', 'updated', 'deleted', 'quantity_adjusted'
+  fieldChanged: text("field_changed"), // which field was changed (for updates)
+  oldValue: text("old_value"), // previous value (for updates)
+  newValue: text("new_value"), // new value (for updates)
+  quantityBefore: numeric("quantity_before"),
+  quantityAfter: numeric("quantity_after"),
+  reason: text("reason"), // reason for change
+  userId: integer("user_id"), // who made the change
+  userName: text("user_name"), // name of user who made the change
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const invoices = pgTable("invoices", {
@@ -167,6 +186,7 @@ export const insertProductSchema = createInsertSchema(products).omit({ id: true 
 export const insertSpiceSchema = insertProductSchema;
 
 export const insertInventorySchema = createInsertSchema(inventory).omit({ id: true });
+export const insertInventoryHistorySchema = createInsertSchema(inventoryHistory).omit({ id: true, createdAt: true });
 export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true });
 export const insertInvoiceItemSchema = createInsertSchema(invoiceItems).omit({ id: true });
 export const insertTransactionSchema = createInsertSchema(transactions).omit({ id: true });
@@ -181,6 +201,7 @@ export type InsertCategory = z.infer<typeof insertCategorySchema>;
 export type InsertProduct = z.infer<typeof insertProductSchema>;
 export type InsertSpice = InsertProduct; // For backward compatibility
 export type InsertInventory = z.infer<typeof insertInventorySchema>;
+export type InsertInventoryHistory = z.infer<typeof insertInventoryHistorySchema>;
 export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
 export type InsertInvoiceItem = z.infer<typeof insertInvoiceItemSchema>;
 export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
@@ -195,6 +216,7 @@ export type Category = typeof categories.$inferSelect;
 export type Product = typeof products.$inferSelect;
 export type Spice = Product; // For backward compatibility
 export type Inventory = typeof inventory.$inferSelect;
+export type InventoryHistory = typeof inventoryHistory.$inferSelect;
 export type Invoice = typeof invoices.$inferSelect;
 export type InvoiceItem = typeof invoiceItems.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
@@ -221,6 +243,7 @@ export const caterers = pgTable("caterers", {
   totalPaid: numeric("total_paid").default("0"),
   totalBilled: numeric("total_billed").default("0"),
   totalOrders: integer("total_orders").default(0),
+  shopCardImage: text("shop_card_image"),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at"),
@@ -273,6 +296,38 @@ export const catererPayments = pgTable("caterer_payments", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Customer bills table schema
+export const customerBills = pgTable("customer_bills", {
+  id: serial("id").primaryKey(),
+  billNo: text("bill_no").notNull().unique(),
+  billDate: timestamp("bill_date").notNull().defaultNow(),
+  clientName: text("client_name").notNull(),
+  clientMobile: text("client_mobile").notNull(),
+  clientEmail: text("client_email"),
+  clientAddress: text("client_address"),
+  totalAmount: numeric("total_amount").notNull().default("0"),
+  marketTotal: numeric("market_total").notNull().default("0"),
+  savings: numeric("savings").notNull().default("0"),
+  itemCount: integer("item_count").notNull().default(0),
+  status: text("status").notNull().default("completed"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Customer bill items table schema
+export const customerBillItems = pgTable("customer_bill_items", {
+  id: serial("id").primaryKey(),
+  billId: integer("bill_id").notNull(),
+  productId: integer("product_id").notNull(),
+  productName: text("product_name").notNull(),
+  quantity: numeric("quantity").notNull(),
+  unit: text("unit").notNull(),
+  pricePerKg: numeric("price_per_kg").notNull(),
+  marketPricePerKg: numeric("market_price_per_kg").notNull(),
+  total: numeric("total").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const purchaseWithItemsSchema = insertPurchaseSchema.extend({
   // Allow both string and Date for purchaseDate to support form submissions
   purchaseDate: z.union([
@@ -283,7 +338,37 @@ export const purchaseWithItemsSchema = insertPurchaseSchema.extend({
   ]),
   // Add supplierId field
   supplierId: z.number().optional(),
-  items: z.array(insertPurchaseItemSchema.omit({ purchaseId: true })),
+  items: z.array(insertPurchaseItemSchema.omit({ purchaseId: true }).extend({
+    // Allow rate to be string or number for form handling, but require valid number for submission
+    rate: z.union([
+      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
+      z.number()
+    ]).refine(val => !isNaN(val) && val >= 0, {
+      message: "Rate must be a valid number"
+    }),
+    // Allow quantity to be string or number for form handling
+    quantity: z.union([
+      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
+      z.number()
+    ]).refine(val => !isNaN(val) && val > 0, {
+      message: "Quantity must be greater than 0"
+    }),
+    // Allow amount to be string or number for form handling
+    amount: z.union([
+      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
+      z.number()
+    ]),
+    // Allow gstAmount to be string or number for form handling
+    gstAmount: z.union([
+      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
+      z.number()
+    ]),
+    // Allow gstPercentage to be string or number for form handling
+    gstPercentage: z.union([
+      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
+      z.number()
+    ])
+  })),
   // Receipt image
   receiptImage: z.string().nullable().optional(),
   // Payment related fields
@@ -305,6 +390,60 @@ export const purchaseWithItemsSchema = insertPurchaseSchema.extend({
 });
 
 export type PurchaseWithItems = z.infer<typeof purchaseWithItemsSchema>;
+
+// Form-friendly schema for purchase items that allows empty fields during data entry
+export const purchaseItemFormSchema = z.object({
+  itemName: z.string().min(1, "Item name is required"),
+  quantity: z.union([
+    z.string(),
+    z.number()
+  ]).optional(),
+  unit: z.string().default("kg"),
+  rate: z.union([
+    z.string(),
+    z.number()
+  ]).optional(),
+  gstPercentage: z.union([
+    z.string(),
+    z.number()
+  ]).optional(),
+  gstAmount: z.union([
+    z.string(),
+    z.number()
+  ]).optional(),
+  amount: z.union([
+    z.string(),
+    z.number()
+  ]).optional(),
+});
+
+// Form-friendly schema for purchase with items that allows empty fields during data entry
+export const purchaseWithItemsFormSchema = insertPurchaseSchema.extend({
+  purchaseDate: z.union([
+    z.string().refine(val => !isNaN(Date.parse(val)), {
+      message: "Invalid date format"
+    }),
+    z.date()
+  ]),
+  supplierId: z.number().optional(),
+  items: z.array(purchaseItemFormSchema),
+  receiptImage: z.string().nullable().optional(),
+  isPaid: z.boolean().optional(),
+  paymentAmount: z.union([
+    z.string(),
+    z.number(),
+    z.undefined()
+  ]).optional(),
+  paymentMethod: z.string().optional(),
+  paymentDate: z.union([
+    z.string(),
+    z.date(),
+    z.undefined()
+  ]).optional(),
+  paymentNotes: z.string().optional()
+});
+
+export type PurchaseWithItemsForm = z.infer<typeof purchaseWithItemsFormSchema>;
 
 // Insert Schemas for new tables
 export const insertCatererSchema = createInsertSchema(caterers)
@@ -340,15 +479,66 @@ export const insertCatererPaymentSchema = createInsertSchema(catererPayments)
     receiptImage: z.string().nullable().optional(),
   });
 
+export const insertCustomerBillSchema = createInsertSchema(customerBills)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    // Allow both string and number for numeric fields to support form submissions
+    totalAmount: z.union([
+      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
+      z.number()
+    ]),
+    marketTotal: z.union([
+      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
+      z.number()
+    ]),
+    savings: z.union([
+      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
+      z.number()
+    ]),
+    // Allow both string and Date for billDate to support form submissions
+    billDate: z.union([
+      z.string().refine(val => !isNaN(Date.parse(val)), {
+        message: "Invalid date format"
+      }).transform(val => new Date(val)),
+      z.date()
+    ]),
+  });
+
+export const insertCustomerBillItemSchema = createInsertSchema(customerBillItems)
+  .omit({ id: true, createdAt: true })
+  .extend({
+    // Allow both string and number for numeric fields to support form submissions
+    quantity: z.union([
+      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
+      z.number()
+    ]),
+    pricePerKg: z.union([
+      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
+      z.number()
+    ]),
+    marketPricePerKg: z.union([
+      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
+      z.number()
+    ]),
+    total: z.union([
+      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
+      z.number()
+    ]),
+  });
+
 export type InsertCaterer = z.infer<typeof insertCatererSchema>;
 export type InsertDistribution = z.infer<typeof insertDistributionSchema>;
 export type InsertDistributionItem = z.infer<typeof insertDistributionItemSchema>;
 export type InsertCatererPayment = z.infer<typeof insertCatererPaymentSchema>;
+export type InsertCustomerBill = z.infer<typeof insertCustomerBillSchema>;
+export type InsertCustomerBillItem = z.infer<typeof insertCustomerBillItemSchema>;
 
 export type Caterer = typeof caterers.$inferSelect;
 export type Distribution = typeof distributions.$inferSelect;
 export type DistributionItem = typeof distributionItems.$inferSelect;
 export type CatererPayment = typeof catererPayments.$inferSelect;
+export type CustomerBill = typeof customerBills.$inferSelect;
+export type CustomerBillItem = typeof customerBillItems.$inferSelect;
 
 // Combined schema for distribution with items
 export const distributionWithItemsSchema = insertDistributionSchema.extend({
@@ -365,6 +555,13 @@ export const distributionWithItemsSchema = insertDistributionSchema.extend({
 });
 
 export type DistributionWithItems = z.infer<typeof distributionWithItemsSchema>;
+
+// Combined schema for customer bill with items
+export const customerBillWithItemsSchema = insertCustomerBillSchema.extend({
+  items: z.array(insertCustomerBillItemSchema.omit({ billId: true }))
+});
+
+export type CustomerBillWithItems = z.infer<typeof customerBillWithItemsSchema>;
 
 // Extended schemas for frontend validation
 export const loginSchema = insertUserSchema.pick({

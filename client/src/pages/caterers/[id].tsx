@@ -43,6 +43,7 @@ import {
 } from '../../components/ui/alert-dialog';
 import { toast } from '../../components/ui/use-toast';
 import { formatCurrency, formatDate } from '../../lib/utils';
+import CatererImageUpload from '../../components/caterers/caterer-image-upload';
 
 // Define the schema for the form
 const catererFormSchema = z.object({
@@ -56,6 +57,7 @@ const catererFormSchema = z.object({
   pincode: z.string().optional(),
   gstNumber: z.string().optional(),
   notes: z.string().optional(),
+  shopCardImage: z.string().optional(),
 });
 
 type CatererFormValues = z.infer<typeof catererFormSchema>;
@@ -77,6 +79,7 @@ export default function CatererDetailsPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [relatedRecords, setRelatedRecords] = useState<RelatedRecordsError['relatedRecords'] | undefined>(undefined);
+  const [shopCardImage, setShopCardImage] = useState<string | null>(null);
 
   // Helper function to navigate
   const navigate = (path: string) => setLocation(path);
@@ -95,6 +98,7 @@ export default function CatererDetailsPage() {
       pincode: '',
       gstNumber: '',
       notes: '',
+      shopCardImage: '',
     },
   });
 
@@ -112,7 +116,9 @@ export default function CatererDetailsPage() {
         pincode: caterer.pincode || '',
         gstNumber: caterer.gstNumber || '',
         notes: caterer.notes || '',
+        shopCardImage: caterer.shopCardImage || '',
       });
+      setShopCardImage(caterer.shopCardImage || null);
     }
   }, [caterer, form]);
 
@@ -120,10 +126,11 @@ export default function CatererDetailsPage() {
   const onSubmit = (data: CatererFormValues) => {
     if (!caterer) return;
 
-    // Send the data as is - the server will handle the conversion
+    // Include the shop card image in the submission data
     const formattedData = {
       ...data,
       id: caterer.id,
+      shopCardImage: shopCardImage,
     };
 
     updateCaterer.mutate(formattedData, {
@@ -415,6 +422,19 @@ export default function CatererDetailsPage() {
                         rows={5}
                       />
                     </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Shop Card Image</CardTitle>
+                    <CardDescription>Upload an image of your shop card or business logo</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <CatererImageUpload
+                      currentImage={shopCardImage}
+                      onImageChange={setShopCardImage}
+                    />
                   </CardContent>
                 </Card>
               </div>

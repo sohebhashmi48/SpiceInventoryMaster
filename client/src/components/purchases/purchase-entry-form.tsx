@@ -5,7 +5,7 @@ import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { purchaseWithItemsSchema } from "@shared/schema";
+import { purchaseWithItemsSchema, purchaseWithItemsFormSchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -28,8 +28,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-// Create a form schema based on the purchaseWithItemsSchema but with string date handling
-const formSchema = purchaseWithItemsSchema.extend({
+// Create a form schema based on the purchaseWithItemsFormSchema for lenient validation during data entry
+const formSchema = purchaseWithItemsFormSchema.extend({
   // Transform the string date from the input to a Date object
   purchaseDate: z.string()
     .refine(val => !isNaN(Date.parse(val)), {
@@ -251,6 +251,30 @@ export default function PurchaseEntryForm() {
         variant: "destructive",
       });
       return;
+    }
+
+    // Validate that all items have valid rates and quantities
+    for (const item of filteredItems) {
+      const rate = typeof item.rate === 'string' ? parseFloat(item.rate) : item.rate;
+      const quantity = typeof item.quantity === 'string' ? parseFloat(item.quantity) : item.quantity;
+
+      if (!rate || rate <= 0) {
+        toast({
+          title: "Invalid rate",
+          description: `Please enter a valid rate for ${item.itemName}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!quantity || quantity <= 0) {
+        toast({
+          title: "Invalid quantity",
+          description: `Please enter a valid quantity for ${item.itemName}`,
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     // Upload receipt image if one is selected

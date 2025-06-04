@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -112,37 +112,58 @@ export default function NewDistributionPage() {
     name: "items",
   });
 
-  // Calculate totals whenever items change
-  useEffect(() => {
+  // Manual calculation function
+  const calculateTotals = useCallback(() => {
     const items = form.getValues().items;
+    if (!items || items.length === 0) {
+      form.setValue("totalAmount", "0.00", { shouldDirty: false });
+      form.setValue("totalGstAmount", "0.00", { shouldDirty: false });
+      form.setValue("grandTotal", "0.00", { shouldDirty: false });
+      form.setValue("balanceDue", "0.00", { shouldDirty: false });
+      return;
+    }
+
     let totalAmount = 0;
     let totalGstAmount = 0;
 
-    items.forEach((item) => {
+    items.forEach((item, index) => {
       const quantity = parseFloat(item.quantity) || 0;
       const rate = parseFloat(item.rate) || 0;
       const gstPercentage = parseFloat(item.gstPercentage) || 0;
 
-      const itemAmount = quantity * rate;
-      const gstAmount = (itemAmount * gstPercentage) / 100;
+      const itemAmount = Number((quantity * rate).toFixed(2));
+      const gstAmount = Number(((itemAmount * gstPercentage) / 100).toFixed(2));
 
-      totalAmount += itemAmount;
-      totalGstAmount += gstAmount;
+      totalAmount = Number((totalAmount + itemAmount).toFixed(2));
+      totalGstAmount = Number((totalGstAmount + gstAmount).toFixed(2));
 
       // Update the item's amount and gstAmount
-      form.setValue(`items.${items.indexOf(item)}.amount`, itemAmount.toFixed(2));
-      form.setValue(`items.${items.indexOf(item)}.gstAmount`, gstAmount.toFixed(2));
+      form.setValue(`items.${index}.amount`, itemAmount.toFixed(2), { shouldDirty: false });
+      form.setValue(`items.${index}.gstAmount`, gstAmount.toFixed(2), { shouldDirty: false });
     });
 
-    const grandTotal = totalAmount + totalGstAmount;
+    const grandTotal = Number((totalAmount + totalGstAmount).toFixed(2));
     const amountPaid = parseFloat(form.getValues().amountPaid) || 0;
-    const balanceDue = grandTotal - amountPaid;
+    const balanceDue = Number((grandTotal - amountPaid).toFixed(2));
 
-    form.setValue("totalAmount", totalAmount.toFixed(2));
-    form.setValue("totalGstAmount", totalGstAmount.toFixed(2));
-    form.setValue("grandTotal", grandTotal.toFixed(2));
-    form.setValue("balanceDue", balanceDue.toFixed(2));
-  }, [form.watch("items"), form.watch("amountPaid")]);
+    form.setValue("totalAmount", totalAmount.toFixed(2), { shouldDirty: false });
+    form.setValue("totalGstAmount", totalGstAmount.toFixed(2), { shouldDirty: false });
+    form.setValue("grandTotal", grandTotal.toFixed(2), { shouldDirty: false });
+    form.setValue("balanceDue", balanceDue.toFixed(2), { shouldDirty: false });
+  }, [form]);
+
+  // Watch all form values to trigger calculations
+  const watchedValues = form.watch();
+
+  // Calculate totals whenever items change
+  useEffect(() => {
+    calculateTotals();
+  }, [watchedValues.items, watchedValues.amountPaid, calculateTotals]);
+
+  // Initial calculation on mount
+  useEffect(() => {
+    calculateTotals();
+  }, [calculateTotals]);
 
   // Handle product selection
   const handleProductChange = (index: number, productId: string) => {
@@ -151,6 +172,11 @@ export default function NewDistributionPage() {
       form.setValue(`items.${index}.itemName`, product.name);
       form.setValue(`items.${index}.rate`, product.price.toString());
       form.setValue(`items.${index}.unit`, product.unit);
+
+      // Trigger recalculation after product selection
+      setTimeout(() => {
+        calculateTotals();
+      }, 50);
     }
   };
 
@@ -307,7 +333,14 @@ export default function NewDistributionPage() {
                             type="number"
                             min="0.01"
                             step="0.01"
-                            {...form.register(`items.${index}.quantity`)}
+                            {...form.register(`items.${index}.quantity`, {
+                              onChange: () => {
+                                // Trigger recalculation after a short delay
+                                setTimeout(() => {
+                                  calculateTotals();
+                                }, 50);
+                              }
+                            })}
                             className="w-20"
                           />
                         </TableCell>
@@ -339,7 +372,14 @@ export default function NewDistributionPage() {
                             type="number"
                             min="0.01"
                             step="0.01"
-                            {...form.register(`items.${index}.rate`)}
+                            {...form.register(`items.${index}.rate`, {
+                              onChange: () => {
+                                // Trigger recalculation after a short delay
+                                setTimeout(() => {
+                                  calculateTotals();
+                                }, 50);
+                              }
+                            })}
                             className="w-24"
                           />
                         </TableCell>
@@ -348,7 +388,14 @@ export default function NewDistributionPage() {
                             type="number"
                             min="0"
                             max="100"
-                            {...form.register(`items.${index}.gstPercentage`)}
+                            {...form.register(`items.${index}.gstPercentage`, {
+                              onChange: () => {
+                                // Trigger recalculation after a short delay
+                                setTimeout(() => {
+                                  calculateTotals();
+                                }, 50);
+                              }
+                            })}
                             className="w-16"
                           />
                         </TableCell>
@@ -369,7 +416,13 @@ export default function NewDistributionPage() {
                             type="button"
                             variant="ghost"
                             size="icon"
-                            onClick={() => remove(index)}
+                            onClick={() => {
+                              remove(index);
+                              // Trigger recalculation after removing item
+                              setTimeout(() => {
+                                calculateTotals();
+                              }, 50);
+                            }}
                             disabled={fields.length === 1}
                             className="text-red-500 hover:text-red-700 hover:bg-red-50"
                           >
@@ -386,16 +439,22 @@ export default function NewDistributionPage() {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => append({
-                  spiceId: '',
-                  itemName: '',
-                  quantity: "1",
-                  unit: "kg",
-                  rate: "0",
-                  gstPercentage: "0",
-                  gstAmount: "0",
-                  amount: "0",
-                })}
+                onClick={() => {
+                  append({
+                    spiceId: '',
+                    itemName: '',
+                    quantity: "1",
+                    unit: "kg",
+                    rate: "0",
+                    gstPercentage: "0",
+                    gstAmount: "0",
+                    amount: "0",
+                  });
+                  // Trigger recalculation after adding item
+                  setTimeout(() => {
+                    calculateTotals();
+                  }, 50);
+                }}
                 className="mt-2"
               >
                 <Plus className="h-4 w-4 mr-2" />
@@ -445,7 +504,14 @@ export default function NewDistributionPage() {
                   type="number"
                   min="0"
                   step="0.01"
-                  {...form.register("amountPaid")}
+                  {...form.register("amountPaid", {
+                    onChange: () => {
+                      // Trigger recalculation after a short delay
+                      setTimeout(() => {
+                        calculateTotals();
+                      }, 50);
+                    }
+                  })}
                 />
               </div>
             </CardContent>

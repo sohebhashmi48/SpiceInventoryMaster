@@ -15,29 +15,47 @@ import {
   DollarSign
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
+import { getCatererImageUrl } from '@/lib/image-utils';
 import { memo } from 'react';
 
 interface CatererCardProps {
   caterer: Caterer;
   onEdit: (caterer: Caterer) => void;
   onDelete: (caterer: Caterer) => Promise<void>;
+  onView?: (caterer: Caterer) => void;
 }
 
-const CatererCard = memo(({ caterer, onEdit, onDelete }: CatererCardProps) => {
+const CatererCard = memo(({ caterer, onEdit, onDelete, onView }: CatererCardProps) => {
   const [, navigate] = useLocation();
-  
+
   // Fetch real-time balance data
-  const { data: balanceData } = useCatererBalance(caterer.id, {
-    refetchInterval: 30000, // Refetch every 30 seconds
+  const { data: balanceData, isLoading, error } = useCatererBalance(caterer.id, {
+    refetchInterval: 5000, // Refetch every 5 seconds for more responsive updates
   });
 
-  // Use the latest balance data or fall back to the caterer prop
-  const currentBalance = balanceData?.balanceDue ?? caterer.balanceDue ?? 0;
-  const currentTotalBilled = balanceData?.totalBilled ?? caterer.totalBilled ?? 0;
-  const currentTotalOrders = balanceData?.totalOrders ?? caterer.totalOrders ?? 0;
+  // Use the latest balance data or fall back to the caterer prop (with proper type conversion)
+  const currentBalance = balanceData?.balanceDue ?? (Number(caterer.balanceDue) || 0);
+  const currentTotalBilled = balanceData?.totalBilled ?? (Number(caterer.totalBilled) || 0);
+  const currentTotalOrders = balanceData?.totalOrders ?? (Number(caterer.totalOrders) || 0);
 
   return (
     <Card className="overflow-hidden h-full flex flex-col">
+      {/* Shop Card Image */}
+      {caterer.shopCardImage && (
+        <div className="h-32 overflow-hidden">
+          <img
+            src={getCatererImageUrl(caterer.shopCardImage) || ''}
+            alt={`${caterer.name} shop card`}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              console.error('Failed to load caterer shop card:', caterer.shopCardImage);
+              console.error('Attempted URL:', getCatererImageUrl(caterer.shopCardImage));
+              e.currentTarget.style.display = 'none';
+            }}
+          />
+        </div>
+      )}
+
       <CardContent className="p-0 flex-grow">
         <div className="p-5">
           <div className="flex justify-between items-start mb-3">
@@ -99,14 +117,14 @@ const CatererCard = memo(({ caterer, onEdit, onDelete }: CatererCardProps) => {
         </div>
       </CardContent>
 
-      <CardFooter className="flex flex-wrap gap-2 p-3 pt-0 border-t">
+      <CardFooter className="flex flex-wrap gap-1 p-3 pt-0 border-t">
         <Button
           variant="ghost"
           size="sm"
           onClick={() => onEdit(caterer)}
-          className="flex-1 h-9 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2"
+          className="flex-1 h-9 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-1"
         >
-          <Edit className="h-4 w-4 mr-1" />
+          <Edit className="h-3 w-3 mr-1" />
           Edit
         </Button>
         <Button
@@ -124,27 +142,38 @@ const CatererCard = memo(({ caterer, onEdit, onDelete }: CatererCardProps) => {
               console.error('Cannot delete caterer: Invalid caterer object', caterer);
             }
           }}
-          className="flex-1 h-9 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 px-2"
+          className="flex-1 h-9 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 px-1"
         >
-          <Trash2 className="h-4 w-4 mr-1" />
+          <Trash2 className="h-3 w-3 mr-1" />
           Delete
         </Button>
+        {onView && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onView(caterer)}
+            className="flex-1 h-9 text-xs text-purple-600 hover:text-purple-800 hover:bg-purple-50 px-1"
+          >
+            <ChefHat className="h-3 w-3 mr-1" />
+            View Card
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"
           onClick={() => navigate(`/caterers/${caterer.id}`)}
-          className="flex-1 h-9 text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2"
+          className="flex-1 h-9 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-1"
         >
-          <Eye className="h-4 w-4 mr-1" />
+          <Eye className="h-3 w-3 mr-1" />
           Details
         </Button>
         <Button
           variant="ghost"
           size="sm"
           onClick={() => navigate(`/caterer-billing?catererId=${caterer.id}`)}
-          className="flex-1 h-9 text-sm text-green-600 hover:text-green-800 hover:bg-green-50 px-2"
+          className="flex-1 h-9 text-xs text-green-600 hover:text-green-800 hover:bg-green-50 px-1"
         >
-          <CreditCard className="h-4 w-4 mr-1" />
+          <CreditCard className="h-3 w-3 mr-1" />
           Bill
         </Button>
       </CardFooter>

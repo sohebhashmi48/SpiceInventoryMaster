@@ -36,6 +36,8 @@ interface PaymentReminder {
   reminderDate: Date;
   status: 'pending' | 'overdue' | 'due_today' | 'upcoming';
   isRead: boolean;
+  isAcknowledged: boolean;
+  acknowledgedAt?: Date;
   notes?: string;
 }
 
@@ -72,7 +74,7 @@ export default function NotificationSystem({
 
     if (isBefore(reminder, today)) return 'overdue';
     if (isToday(reminder)) return 'due_today';
-    if (isBefore(reminder, addDays(today, 7))) return 'upcoming';
+    if (isBefore(reminder, addDays(today, 2))) return 'upcoming'; // Changed from 7 to 2 days
     return 'pending';
   };
 
@@ -112,7 +114,7 @@ export default function NotificationSystem({
   });
 
   // Get today's notifications
-  const todayNotifications = reminders.filter(reminder => 
+  const todayNotifications = reminders.filter(reminder =>
     isToday(new Date(reminder.reminderDate)) && !reminder.isRead
   );
 
@@ -145,6 +147,7 @@ export default function NotificationSystem({
       reminderDate: newReminder.reminderDate,
       status: calculateStatus(newReminder.reminderDate),
       isRead: false,
+      isAcknowledged: false,
       notes: newReminder.notes
     };
 
@@ -186,7 +189,7 @@ export default function NotificationSystem({
             </Badge>
           )}
         </div>
-        
+
         <Dialog open={newReminderOpen} onOpenChange={setNewReminderOpen}>
           <DialogTrigger asChild>
             <Button size="sm">
@@ -203,7 +206,7 @@ export default function NotificationSystem({
             </DialogHeader>
             <div className="space-y-4">
               <div>
-                <Label htmlFor="catererName">Caterer Name *</Label>
+                <Label htmlFor="catererName">Reminder Name</Label>
                 <Input
                   id="catererName"
                   value={newReminder.catererName}
@@ -315,7 +318,7 @@ export default function NotificationSystem({
                         <Badge variant="outline">New</Badge>
                       )}
                     </div>
-                    
+
                     <div className="space-y-1">
                       <div className="flex items-center space-x-2">
                         <User className="h-4 w-4 text-gray-500" />
@@ -338,7 +341,7 @@ export default function NotificationSystem({
                       )}
                     </div>
                   </div>
-                  
+
                   <div className="flex items-center space-x-2">
                     {!reminder.isRead && (
                       <Button

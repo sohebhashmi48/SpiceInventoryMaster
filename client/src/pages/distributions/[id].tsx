@@ -33,6 +33,7 @@ import {
 } from '../../components/ui/dialog';
 import { toast } from '../../components/ui/use-toast';
 import { formatCurrency, formatDate } from '../../lib/utils';
+import PaymentModal from '../../components/caterers/payment-modal';
 
 export default function DistributionDetailsPage({ params }: { params?: { id?: string } }) {
   const [location, setLocation] = useLocation();
@@ -305,14 +306,25 @@ export default function DistributionDetailsPage({ params }: { params?: { id?: st
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-2 border-t pt-4">
-            <Button
-              className="w-full"
-              disabled={distribution.status === 'paid' || distribution.status === 'cancelled'}
-              onClick={() => navigate(`/caterer-payments/new?catererId=${distribution.catererId}&distributionId=${distribution.id}&amount=${distribution.balanceDue}`)}
+            <PaymentModal
+              triggerText="Record Payment"
+              triggerClassName="w-full"
+              preselectedCatererId={distribution.catererId.toString()}
+              preselectedDistributionId={distribution.id.toString()}
+              preselectedAmount={distribution.balanceDue.toString()}
+              onSuccess={() => {
+                // Refresh the page data
+                window.location.reload();
+              }}
             >
-              <DollarSign className="h-4 w-4 mr-2" />
-              Record Payment
-            </Button>
+              <Button
+                className="w-full"
+                disabled={distribution.status === 'paid' || distribution.status === 'cancelled'}
+              >
+                <DollarSign className="h-4 w-4 mr-2" />
+                Record Payment
+              </Button>
+            </PaymentModal>
 
             <div className="w-full flex space-x-2">
               <Button
@@ -344,15 +356,27 @@ export default function DistributionDetailsPage({ params }: { params?: { id?: st
               <CardTitle>Payment Records</CardTitle>
               <CardDescription>Payment history for this distribution</CardDescription>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => navigate(`/caterer-payments/new?catererId=${distribution.catererId}&distributionId=${distribution.id}&amount=${distribution.balanceDue}`)}
-              disabled={distribution.status === 'paid' || distribution.status === 'cancelled'}
+            <PaymentModal
+              triggerText="Add Payment"
+              triggerVariant="outline"
+              triggerSize="sm"
+              preselectedCatererId={distribution.catererId.toString()}
+              preselectedDistributionId={distribution.id.toString()}
+              preselectedAmount={distribution.balanceDue.toString()}
+              onSuccess={() => {
+                // Refresh the page data
+                window.location.reload();
+              }}
             >
-              <DollarSign className="h-4 w-4 mr-2" />
-              Add Payment
-            </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={distribution.status === 'paid' || distribution.status === 'cancelled'}
+              >
+                <DollarSign className="h-4 w-4 mr-2" />
+                Add Payment
+              </Button>
+            </PaymentModal>
           </CardHeader>
           <CardContent>
             {paymentsLoading ? (

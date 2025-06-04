@@ -8,6 +8,7 @@ import RecentAlerts from "@/components/dashboard/recent-alerts";
 import RecentActivity from "@/components/dashboard/recent-activity";
 import PaymentReminders from "@/components/dashboard/payment-reminders";
 import SupplierPaymentReminders from "@/components/dashboard/supplier-payment-reminders";
+import NotificationWidget from "@/components/notifications/notification-widget";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { File, Plus, DollarSign, ArrowRight, Package, ShoppingCart, AlertTriangle } from "lucide-react";
@@ -40,6 +41,11 @@ export default function DashboardPage() {
           New Entry
         </Button>
       </PageHeader>
+
+      {/* Urgent Notifications Widget */}
+      <div className="mb-6">
+        <NotificationWidget maxItems={2} compact={false} />
+      </div>
 
       {/* Key Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

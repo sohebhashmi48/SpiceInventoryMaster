@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { File, Plus, DollarSign, ArrowRight, Package, ShoppingCart, AlertTriangle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { formatCurrencyAmount } from "@/lib/utils";
 
 interface DashboardStats {
   totalValue: number;
@@ -60,7 +61,7 @@ export default function DashboardPage() {
           <>
             <StatCard
               title="Total Inventory Value"
-              value={`₹${stats?.totalValue.toFixed(2) || "0.00"}`}
+              value={formatCurrencyAmount(stats?.totalValue)}
               icon={<DollarSign className="h-5 w-5" />}
               changeValue={8.2}
               changeLabel="vs last month"

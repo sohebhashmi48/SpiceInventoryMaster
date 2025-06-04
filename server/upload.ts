@@ -19,6 +19,8 @@ const storage = multer.diskStorage({
       uploadDir = path.join(__dirname, 'public', 'uploads', 'caterers');
     } else if (req.path.includes('/suppliers')) {
       uploadDir = path.join(__dirname, 'public', 'uploads', 'suppliers');
+    } else if (req.path.includes('/categories')) {
+      uploadDir = path.join(__dirname, 'public', 'uploads', 'categories');
     } else {
       // Default to spices directory
       uploadDir = path.join(__dirname, 'public', 'uploads', 'spices');
@@ -44,6 +46,8 @@ const storage = multer.diskStorage({
       prefix = 'caterer';
     } else if (req.path.includes('/suppliers')) {
       prefix = 'supplier';
+    } else if (req.path.includes('/categories')) {
+      prefix = 'category';
     } else if (req.path.includes('/spices') || req.path.includes('/products')) {
       prefix = 'spice';
     }
@@ -72,7 +76,7 @@ const upload = multer({
 });
 
 // Helper function to get the URL for a file
-export const getFileUrl = (filename: string | null, type: 'receipt' | 'spice' | 'caterer' | 'supplier' = 'spice'): string | null => {
+export const getFileUrl = (filename: string | null, type: 'receipt' | 'spice' | 'caterer' | 'supplier' | 'category' = 'spice'): string | null => {
   if (!filename) return null;
 
   let folder = 'spices';
@@ -82,6 +86,8 @@ export const getFileUrl = (filename: string | null, type: 'receipt' | 'spice' | 
     folder = 'caterers';
   } else if (type === 'supplier') {
     folder = 'suppliers';
+  } else if (type === 'category') {
+    folder = 'categories';
   }
 
   return `/api/uploads/${folder}/${filename}`;
@@ -100,6 +106,16 @@ export const getCatererImageUrl = (filename: string | null): string | null => {
 // Helper function specifically for supplier images
 export const getSupplierImageUrl = (filename: string | null): string | null => {
   return getFileUrl(filename, 'supplier');
+};
+
+// Helper function specifically for product/spice images
+export const getProductImageUrl = (filename: string | null): string | null => {
+  return getFileUrl(filename, 'spice');
+};
+
+// Helper function specifically for category images
+export const getCategoryImageUrl = (filename: string | null): string | null => {
+  return getFileUrl(filename, 'category');
 };
 
 export default upload;

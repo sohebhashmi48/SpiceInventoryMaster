@@ -3910,7 +3910,8 @@ export class MemStorage implements IStorage {
             CREATE TABLE categories (
               id INT AUTO_INCREMENT PRIMARY KEY,
               name VARCHAR(255) NOT NULL UNIQUE,
-              description TEXT
+              description TEXT,
+              image_path VARCHAR(255) DEFAULT NULL
             )
           `);
           console.log("Categories table created successfully");
@@ -3925,7 +3926,8 @@ export class MemStorage implements IStorage {
           return {
             id: category.id,
             name: category.name,
-            description: category.description
+            description: category.description,
+            imagePath: category.image_path
           };
         });
 
@@ -5366,6 +5368,7 @@ export class MemStorage implements IStorage {
         marketTotal: bill.market_total,
         savings: bill.savings,
         itemCount: bill.item_count,
+        paymentMethod: bill.payment_method,
         status: bill.status,
         createdAt: bill.created_at,
         updatedAt: bill.updated_at,
@@ -5433,6 +5436,7 @@ export class MemStorage implements IStorage {
         marketTotal: bill.market_total,
         savings: bill.savings,
         itemCount: bill.item_count,
+        paymentMethod: bill.payment_method,
         status: bill.status,
         createdAt: bill.created_at,
         updatedAt: bill.updated_at,
@@ -5446,31 +5450,103 @@ export class MemStorage implements IStorage {
     }
   }
 
-  async createCustomerBill(bill: CustomerBillWithItems): Promise<CustomerBill> {
-    const conn = await this.getConnection();
-    try {
-      await conn.beginTransaction();
+  async createCustomerBill(bill: CustomerBillWithItems, existingConn?: any): Promise<CustomerBill> {
+    const conn = existingConn || await this.getConnection();
+    const shouldManageTransaction = !existingConn;
 
-      // Insert the bill
-      const [billResult] = await conn.execute(
-        `INSERT INTO customer_bills (
-          bill_no, bill_date, client_name, client_mobile, client_email,
-          client_address, total_amount, market_total, savings, item_count, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          bill.billNo,
-          bill.billDate,
-          bill.clientName,
-          bill.clientMobile,
-          bill.clientEmail || null,
-          bill.clientAddress || null,
-          bill.totalAmount,
-          bill.marketTotal,
-          bill.savings,
-          bill.itemCount,
-          bill.status
-        ]
-      );
+    try {
+      if (shouldManageTransaction) {
+        await conn.beginTransaction();
+      }
+
+      // Check if customer_bills table exists, create if not
+      const [tables] = await conn.execute(`SHOW TABLES LIKE 'customer_bills'`);
+      if ((tables as any[]).length === 0) {
+        console.log("Customer bills table doesn't exist, creating it...");
+        await conn.execute(`
+          CREATE TABLE customer_bills (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            bill_no VARCHAR(255) NOT NULL UNIQUE,
+            bill_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            client_name VARCHAR(255) NOT NULL,
+            client_mobile VARCHAR(20) NOT NULL,
+            client_email VARCHAR(255),
+            client_address TEXT,
+            total_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+            market_total DECIMAL(10,2) NOT NULL DEFAULT 0,
+            savings DECIMAL(10,2) NOT NULL DEFAULT 0,
+            item_count INT NOT NULL DEFAULT 0,
+            payment_method VARCHAR(50) NOT NULL DEFAULT 'Cash',
+            status VARCHAR(50) NOT NULL DEFAULT 'completed',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+          )
+        `);
+
+        await conn.execute(`
+          CREATE TABLE customer_bill_items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            bill_id INT NOT NULL,
+            product_id INT NOT NULL,
+            product_name VARCHAR(255) NOT NULL,
+            quantity DECIMAL(10,3) NOT NULL,
+            unit VARCHAR(10) NOT NULL,
+            price_per_kg DECIMAL(10,2) NOT NULL,
+            market_price_per_kg DECIMAL(10,2) NOT NULL,
+            total DECIMAL(10,2) NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (bill_id) REFERENCES customer_bills(id) ON DELETE CASCADE
+          )
+        `);
+
+        // Create indexes
+        await conn.execute(`CREATE INDEX idx_customer_bills_bill_no ON customer_bills(bill_no)`);
+        await conn.execute(`CREATE INDEX idx_customer_bills_client_mobile ON customer_bills(client_mobile)`);
+        await conn.execute(`CREATE INDEX idx_customer_bill_items_bill_id ON customer_bill_items(bill_id)`);
+      }
+
+      // Insert the bill with duplicate handling
+      let billResult;
+      let finalBillNo = bill.billNo;
+      let attempts = 0;
+      const maxAttempts = 5;
+
+      while (attempts < maxAttempts) {
+        try {
+          [billResult] = await conn.execute(
+            `INSERT INTO customer_bills (
+              bill_no, bill_date, client_name, client_mobile, client_email,
+              client_address, total_amount, market_total, savings, item_count, payment_method, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              finalBillNo,
+              bill.billDate,
+              bill.clientName,
+              bill.clientMobile,
+              bill.clientEmail || null,
+              bill.clientAddress || null,
+              bill.totalAmount,
+              bill.marketTotal,
+              bill.savings,
+              bill.itemCount,
+              bill.paymentMethod || 'Cash',
+              bill.status
+            ]
+          );
+          break; // Success, exit loop
+        } catch (error: any) {
+          if (error.code === 'ER_DUP_ENTRY' && attempts < maxAttempts - 1) {
+            // Generate new bill number
+            const timestamp = Date.now().toString().slice(-6);
+            const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+            finalBillNo = timestamp + random;
+            attempts++;
+            console.log(`Duplicate bill number detected, trying with new number: ${finalBillNo}`);
+          } else {
+            throw error; // Re-throw if not duplicate or max attempts reached
+          }
+        }
+      }
 
       const billId = (billResult as any).insertId;
 
@@ -5496,17 +5572,49 @@ export class MemStorage implements IStorage {
         }
       }
 
-      await conn.commit();
+      if (shouldManageTransaction) {
+        await conn.commit();
+      }
 
       // Return the created bill
-      const createdBill = await this.getCustomerBill(billId);
-      return createdBill as CustomerBill;
+      try {
+        const createdBill = await this.getCustomerBill(billId);
+        if (createdBill) {
+          return createdBill as CustomerBill;
+        }
+      } catch (error) {
+        console.warn("Failed to retrieve created bill, returning basic bill object:", error);
+      }
+
+      // Fallback: return a basic bill object with the ID
+      return {
+        id: billId,
+        billNo: finalBillNo,
+        billDate: bill.billDate,
+        clientName: bill.clientName,
+        clientMobile: bill.clientMobile,
+        clientEmail: bill.clientEmail,
+        clientAddress: bill.clientAddress,
+        totalAmount: bill.totalAmount,
+        marketTotal: bill.marketTotal,
+        savings: bill.savings,
+        itemCount: bill.itemCount,
+        paymentMethod: bill.paymentMethod || 'Cash',
+        status: bill.status,
+        items: bill.items || [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      } as CustomerBill;
     } catch (error) {
-      await conn.rollback();
+      if (shouldManageTransaction) {
+        await conn.rollback();
+      }
       console.error("Error creating customer bill:", error);
       throw error;
     } finally {
-      conn.release();
+      if (shouldManageTransaction) {
+        conn.release();
+      }
     }
   }
 
@@ -5558,6 +5666,10 @@ export class MemStorage implements IStorage {
       if (bill.itemCount !== undefined) {
         updateFields.push('item_count = ?');
         updateValues.push(bill.itemCount);
+      }
+      if (bill.paymentMethod !== undefined) {
+        updateFields.push('payment_method = ?');
+        updateValues.push(bill.paymentMethod);
       }
       if (bill.status !== undefined) {
         updateFields.push('status = ?');

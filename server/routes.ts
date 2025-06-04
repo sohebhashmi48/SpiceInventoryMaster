@@ -14,6 +14,7 @@ import upload, { getCatererImageUrl, getSupplierImageUrl } from "./upload";
 import path from "path";
 import { fileURLToPath } from "url";
 import vendorPaymentsRouter from "./routes/vendor-payments";
+import customerBillsRouter from "./routes/customer-bills";
 
 // Get the directory name in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -22,11 +23,187 @@ const __dirname = path.dirname(__filename);
 export async function registerRoutes(app: Express) {
   // Serve static files from the public directory
   app.use('/api/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
+
+  // Public API endpoints for customer showcase (no authentication required)
+  // IMPORTANT: These must be defined BEFORE authentication setup
+
+  // Get all categories for public showcase
+  app.get("/api/public/categories", async (_req, res) => {
+    try {
+      console.log("Fetching categories for public showcase");
+      const categories = await storage.getCategories();
+      res.json(categories);
+    } catch (error) {
+      console.error("Get public categories error:", error);
+      res.status(500).json({ message: "Failed to fetch categories" });
+    }
+  });
+
+  // Get all products for public showcase with stock info
+  app.get("/api/public/products", async (req, res) => {
+    try {
+      console.log("Fetching products for public showcase");
+      const { category, search, sortBy = 'name', sortOrder = 'asc' } = req.query;
+
+      let products = await storage.getSpices();
+
+      // Calculate actual stock quantities from inventory
+      const conn = await storage.getConnection();
+      try {
+        for (const product of products) {
+          const [rows] = await conn.execute(`
+            SELECT SUM(quantity) as totalQuantity
+            FROM inventory
+            WHERE product_id = ? AND status = 'active'
+          `, [product.id]);
+
+          const result = (rows as any[])[0];
+          product.stocksQty = result.totalQuantity ? Number(result.totalQuantity) : 0;
+        }
+      } finally {
+        conn.release();
+      }
+
+      // Filter by category if specified
+      if (category) {
+        const categoryId = parseInt(category as string);
+        if (!isNaN(categoryId)) {
+          products = products.filter(p => p.categoryId === categoryId);
+        }
+      }
+
+      // Filter by search term if specified
+      if (search) {
+        const searchTerm = (search as string).toLowerCase();
+        products = products.filter(p =>
+          p.name.toLowerCase().includes(searchTerm) ||
+          (p.description && p.description.toLowerCase().includes(searchTerm))
+        );
+      }
+
+      // Sort products
+      products.sort((a, b) => {
+        let aValue, bValue;
+
+        switch (sortBy) {
+          case 'price':
+            aValue = Number(a.retailPrice || 0);
+            bValue = Number(b.retailPrice || 0);
+            break;
+          case 'stock':
+            aValue = a.stocksQty || 0;
+            bValue = b.stocksQty || 0;
+            break;
+          default: // name
+            aValue = a.name.toLowerCase();
+            bValue = b.name.toLowerCase();
+        }
+
+        if (sortOrder === 'desc') {
+          return aValue < bValue ? 1 : -1;
+        }
+        return aValue > bValue ? 1 : -1;
+      });
+
+      // Return all active products regardless of stock for public showcase
+      const availableProducts = products.filter(p => p.isActive);
+
+      res.json(availableProducts);
+    } catch (error) {
+      console.error("Get public products error:", error);
+      res.status(500).json({ message: "Failed to fetch products" });
+    }
+  });
+
+  // Get products by category for public showcase
+  app.get("/api/public/categories/:categoryId/products", async (req, res) => {
+    try {
+      const categoryId = parseInt(req.params.categoryId);
+      if (isNaN(categoryId)) {
+        return res.status(400).json({ error: 'Invalid category ID' });
+      }
+
+      console.log(`Fetching products for category ${categoryId} for public showcase`);
+      const products = await storage.getProductsByCategory(categoryId);
+
+      // Calculate actual stock quantities from inventory
+      const conn = await storage.getConnection();
+      try {
+        for (const product of products) {
+          const [rows] = await conn.execute(`
+            SELECT SUM(quantity) as totalQuantity
+            FROM inventory
+            WHERE product_id = ? AND status = 'active'
+          `, [product.id]);
+
+          const result = (rows as any[])[0];
+          product.stocksQty = result.totalQuantity ? Number(result.totalQuantity) : 0;
+        }
+      } finally {
+        conn.release();
+      }
+
+      // Return all active products regardless of stock for public showcase
+      const availableProducts = products.filter(p => p.isActive);
+
+      res.json(availableProducts);
+    } catch (error) {
+      console.error("Get public category products error:", error);
+      res.status(500).json({ message: "Failed to fetch category products" });
+    }
+  });
+
+  // Search products for public showcase with suggestions
+  app.get("/api/public/products/search", async (req, res) => {
+    try {
+      const { q, limit = '10' } = req.query;
+
+      if (!q || (q as string).length < 2) {
+        return res.json([]);
+      }
+
+      const searchTerm = (q as string).toLowerCase();
+      const limitNum = parseInt(limit as string);
+
+      let products = await storage.getSpices();
+
+      // Filter and search
+      const searchResults = products
+        .filter(p => p.isActive && (
+          p.name.toLowerCase().includes(searchTerm) ||
+          (p.description && p.description.toLowerCase().includes(searchTerm))
+        ))
+        .slice(0, limitNum)
+        .map(p => ({
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          retailPrice: p.retailPrice,
+          unit: p.unit
+        }));
+
+      res.json(searchResults);
+    } catch (error) {
+      console.error("Search public products error:", error);
+      res.status(500).json({ message: "Failed to search products" });
+    }
+  });
+
   // Setup authentication routes and middleware
   await setupAuth(app);
 
-  // Register vendor payments router
-  app.use("/api", isAuthenticated, vendorPaymentsRouter);
+  // Register vendor payments router with conditional authentication
+  app.use("/api", (req, res, next) => {
+    // Skip authentication for public routes
+    if (req.path.startsWith('/public/')) {
+      return next();
+    }
+    // Apply authentication for all other routes
+    return isAuthenticated(req, res, next);
+  }, vendorPaymentsRouter);
+
+  // Register customer bills router
+  app.use("/api/customer-bills", isAuthenticated, customerBillsRouter);
 
   // Debug endpoint to check if server is running
   app.get("/api/health", (req, res) => {
@@ -323,7 +500,8 @@ export async function registerRoutes(app: Express) {
             CREATE TABLE categories (
               id INT AUTO_INCREMENT PRIMARY KEY,
               name VARCHAR(255) NOT NULL UNIQUE,
-              description TEXT
+              description TEXT,
+              image_path VARCHAR(255) DEFAULT NULL
             )
           `);
           console.log("Categories table created successfully");
@@ -353,7 +531,8 @@ export async function registerRoutes(app: Express) {
           return {
             id: category.id,
             name: category.name,
-            description: category.description
+            description: category.description,
+            imagePath: category.image_path
           };
         });
 
@@ -403,7 +582,8 @@ export async function registerRoutes(app: Express) {
       // Create the category
       const categoryData = {
         name: req.body.name,
-        description: req.body.description || null
+        description: req.body.description || null,
+        imagePath: req.body.imagePath || null
       };
 
       // Try direct database insertion
@@ -418,18 +598,20 @@ export async function registerRoutes(app: Express) {
             CREATE TABLE categories (
               id INT AUTO_INCREMENT PRIMARY KEY,
               name VARCHAR(255) NOT NULL UNIQUE,
-              description TEXT
+              description TEXT,
+              image_path VARCHAR(255) DEFAULT NULL
             )
           `);
           console.log("Categories table created successfully");
         }
 
         const [result] = await conn.execute(`
-          INSERT INTO categories (name, description)
-          VALUES (?, ?)
+          INSERT INTO categories (name, description, image_path)
+          VALUES (?, ?, ?)
         `, [
           categoryData.name,
-          categoryData.description
+          categoryData.description,
+          categoryData.imagePath
         ]);
 
         const insertId = (result as any).insertId;
@@ -440,7 +622,8 @@ export async function registerRoutes(app: Express) {
         const newCategory = {
           id: dbCategory.id,
           name: dbCategory.name,
-          description: dbCategory.description
+          description: dbCategory.description,
+          imagePath: dbCategory.image_path
         };
 
         console.log("Category created successfully via direct DB insertion:", newCategory);
@@ -618,6 +801,54 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Product image upload endpoint
+  app.post("/api/products/upload-image", isAuthenticated, upload.single('productImage'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file provided" });
+      }
+
+      // Get the relative path for storage in the database
+      const imagePath = `/api/uploads/spices/${path.basename(req.file.path)}`;
+      console.log("Product image uploaded to:", imagePath);
+
+      // Return the image URL
+      res.json({
+        url: imagePath,
+        filename: path.basename(req.file.path),
+        originalName: req.file.originalname,
+        size: req.file.size
+      });
+    } catch (error) {
+      console.error("Product image upload error:", error);
+      res.status(500).json({ message: "Failed to upload image" });
+    }
+  });
+
+  // Category image upload endpoint
+  app.post("/api/categories/upload-image", isAuthenticated, upload.single('categoryImage'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file provided" });
+      }
+
+      // Get the relative path for storage in the database
+      const imagePath = `/api/uploads/categories/${path.basename(req.file.path)}`;
+      console.log("Category image uploaded to:", imagePath);
+
+      // Return the image URL
+      res.json({
+        url: imagePath,
+        filename: path.basename(req.file.path),
+        originalName: req.file.originalname,
+        size: req.file.size
+      });
+    } catch (error) {
+      console.error("Category image upload error:", error);
+      res.status(500).json({ message: "Failed to upload image" });
+    }
+  });
+
   app.post("/api/products", isAuthenticated, upload.single('image'), async (req, res) => {
     try {
       console.log("Creating product with data:", req.body);
@@ -780,6 +1011,108 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Deduct stock from product inventory (for customer sales)
+  app.post("/api/products/:id/deduct-stock", isAuthenticated, async (req, res) => {
+    try {
+      const productId = parseInt(req.params.id);
+      const { quantity, reason } = req.body;
+
+      if (!quantity || quantity <= 0) {
+        return res.status(400).json({ message: "Valid quantity is required" });
+      }
+
+      const conn = await storage.getConnection();
+      try {
+        await conn.beginTransaction();
+
+        // Get current product stock
+        const [productRows] = await conn.execute(
+          `SELECT stocks_qty FROM products WHERE id = ?`,
+          [productId]
+        );
+
+        if ((productRows as any[]).length === 0) {
+          await conn.rollback();
+          return res.status(404).json({ message: "Product not found" });
+        }
+
+        const currentStock = Number((productRows as any[])[0].stocks_qty);
+
+        if (currentStock < quantity) {
+          await conn.rollback();
+          return res.status(400).json({
+            message: "Insufficient stock",
+            currentStock,
+            requestedQuantity: quantity
+          });
+        }
+
+        // Update product stock
+        const newStock = currentStock - quantity;
+        await conn.execute(
+          `UPDATE products SET stocks_qty = ? WHERE id = ?`,
+          [newStock, productId]
+        );
+
+        // Create inventory history entry (check if table exists first)
+        const [historyTables] = await conn.execute(`SHOW TABLES LIKE 'inventory_history'`);
+        if ((historyTables as any[]).length === 0) {
+          console.log("Inventory history table doesn't exist, creating it...");
+          await conn.execute(`
+            CREATE TABLE inventory_history (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              product_id INT NOT NULL,
+              change_type VARCHAR(50) NOT NULL,
+              quantity_change DECIMAL(10,3) NOT NULL,
+              reason TEXT,
+              created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (product_id) REFERENCES products(id)
+            )
+          `);
+        } else {
+          // Check if the table has the correct column name
+          const [columns] = await conn.execute(`SHOW COLUMNS FROM inventory_history LIKE 'quantity_change%'`);
+          if ((columns as any[]).length === 0) {
+            // Table exists but might have wrong column name, let's check and fix
+            const [oldColumns] = await conn.execute(`SHOW COLUMNS FROM inventory_history LIKE 'quantity_changed'`);
+            if ((oldColumns as any[]).length > 0) {
+              console.log("Renaming quantity_changed to quantity_change in inventory_history table...");
+              await conn.execute(`ALTER TABLE inventory_history CHANGE quantity_changed quantity_change DECIMAL(10,3) NOT NULL`);
+            } else {
+              // Add the column if it doesn't exist
+              console.log("Adding quantity_change column to inventory_history table...");
+              await conn.execute(`ALTER TABLE inventory_history ADD COLUMN quantity_change DECIMAL(10,3) NOT NULL`);
+            }
+          }
+        }
+
+        await conn.execute(
+          `INSERT INTO inventory_history (product_id, change_type, quantity_change, reason, created_at)
+           VALUES (?, 'deduction', ?, ?, NOW())`,
+          [productId, quantity, reason || 'Customer sale']
+        );
+
+        await conn.commit();
+
+        res.json({
+          message: "Stock deducted successfully",
+          previousStock: currentStock,
+          newStock: newStock,
+          quantityDeducted: quantity
+        });
+
+      } catch (error) {
+        await conn.rollback();
+        throw error;
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Deduct stock error:", error);
+      res.status(500).json({ message: "Failed to deduct stock" });
+    }
+  });
+
   // Update product market price
   app.patch("/api/products/:id/market-price", isAuthenticated, async (req, res) => {
     try {
@@ -819,6 +1152,78 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Inventory validation endpoint
+  app.post("/api/inventory/validate", isAuthenticated, async (req, res) => {
+    try {
+      const { items } = req.body;
+
+      if (!items || !Array.isArray(items)) {
+        return res.status(400).json({ message: "Items array is required" });
+      }
+
+      const conn = await storage.getConnection();
+      try {
+        const validationResults = [];
+
+        for (const item of items) {
+          const { productId, batchIds, quantities } = item;
+          const batchValidations = [];
+
+          for (let i = 0; i < batchIds.length; i++) {
+            const batchId = batchIds[i];
+            const requiredQuantity = quantities[i];
+
+            // Check batch availability
+            const [batchRows] = await conn.execute(
+              `SELECT quantity FROM inventory WHERE id = ? AND status = 'active'`,
+              [batchId]
+            );
+
+            if ((batchRows as any[]).length === 0) {
+              batchValidations.push({
+                batchId,
+                isValid: false,
+                availableQuantity: 0,
+                requiredQuantity,
+                error: `Batch ${batchId} not found or inactive`
+              });
+            } else {
+              const availableQuantity = (batchRows as any[])[0].quantity;
+              const isValid = availableQuantity >= requiredQuantity;
+
+              batchValidations.push({
+                batchId,
+                isValid,
+                availableQuantity,
+                requiredQuantity,
+                error: isValid ? undefined : `Insufficient quantity. Available: ${availableQuantity}, Required: ${requiredQuantity}`
+              });
+            }
+          }
+
+          const isProductValid = batchValidations.every(batch => batch.isValid);
+          validationResults.push({
+            productId,
+            isValid: isProductValid,
+            batchValidations
+          });
+        }
+
+        const isOverallValid = validationResults.every(result => result.isValid);
+
+        res.json({
+          isValid: isOverallValid,
+          validationResults
+        });
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Inventory validation error:", error);
+      res.status(500).json({ message: "Failed to validate inventory" });
+    }
+  });
+
   // Inventory analytics API
   app.get("/api/inventory/analytics", isAuthenticated, async (_req, res) => {
     try {
@@ -828,6 +1233,260 @@ export async function registerRoutes(app: Express) {
     } catch (error) {
       console.error("Get inventory analytics error:", error);
       res.status(500).json({ message: "Failed to fetch inventory analytics" });
+    }
+  });
+
+  // Dashboard stats API
+  app.get("/api/dashboard/stats", isAuthenticated, async (_req, res) => {
+    try {
+      console.log("Fetching dashboard stats");
+      const conn = await storage.getConnection();
+
+      try {
+        // Get total inventory value
+        const [totalValueResult] = await conn.execute(`
+          SELECT SUM(i.quantity * i.unit_price) as totalValue
+          FROM inventory i
+          WHERE i.status = 'active'
+        `);
+
+        // Get active spice types count
+        const [activeSpicesResult] = await conn.execute(`
+          SELECT COUNT(DISTINCT p.id) as activeSpices
+          FROM products p
+          WHERE p.stocks_qty > 0
+        `);
+
+        // Get pending invoices/orders count (using distributions with pending status)
+        const [pendingInvoicesResult] = await conn.execute(`
+          SELECT COUNT(*) as pendingInvoices
+          FROM distributions d
+          WHERE d.status = 'pending' OR d.balance_due > 0
+        `);
+
+        // Get low stock alerts count
+        const [lowStockAlertsResult] = await conn.execute(`
+          SELECT COUNT(*) as lowStockAlerts
+          FROM products p
+          WHERE p.stocks_qty <= 10
+        `);
+
+        const stats = {
+          totalValue: Number((totalValueResult as any[])[0]?.totalValue || 0),
+          activeSpices: Number((activeSpicesResult as any[])[0]?.activeSpices || 0),
+          pendingInvoices: Number((pendingInvoicesResult as any[])[0]?.pendingInvoices || 0),
+          lowStockAlerts: Number((lowStockAlertsResult as any[])[0]?.lowStockAlerts || 0)
+        };
+
+        console.log("Dashboard stats:", stats);
+        res.json(stats);
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Get dashboard stats error:", error);
+      res.status(500).json({ message: "Failed to fetch dashboard stats" });
+    }
+  });
+
+  // Reports API endpoints
+  app.get("/api/reports/inventory-trends", isAuthenticated, async (req, res) => {
+    try {
+      const { timeRange = 'year' } = req.query;
+      const conn = await storage.getConnection();
+
+      try {
+        let dateFilter = '';
+        let groupBy = '';
+
+        switch (timeRange) {
+          case 'month':
+            dateFilter = 'WHERE purchase_date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)';
+            groupBy = 'DATE_FORMAT(purchase_date, "%Y-%m-%d")';
+            break;
+          case 'quarter':
+            dateFilter = 'WHERE purchase_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)';
+            groupBy = 'DATE_FORMAT(purchase_date, "%Y-%m")';
+            break;
+          case 'year':
+          default:
+            dateFilter = 'WHERE purchase_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)';
+            groupBy = 'DATE_FORMAT(purchase_date, "%Y-%m")';
+            break;
+        }
+
+        const [trends] = await conn.execute(`
+          SELECT
+            ${groupBy} as period,
+            SUM(quantity * unit_price) as value,
+            SUM(quantity) as quantity,
+            COUNT(*) as transactions
+          FROM inventory
+          ${dateFilter}
+          GROUP BY ${groupBy}
+          ORDER BY period ASC
+        `);
+
+        res.json(trends);
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Get inventory trends error:", error);
+      res.status(500).json({ message: "Failed to fetch inventory trends" });
+    }
+  });
+
+  app.get("/api/reports/category-performance", isAuthenticated, async (_req, res) => {
+    try {
+      const conn = await storage.getConnection();
+
+      try {
+        const [performance] = await conn.execute(`
+          SELECT
+            c.name as category,
+            COUNT(p.id) as productCount,
+            SUM(p.stocks_qty) as totalStock,
+            AVG(p.market_price) as avgPrice,
+            SUM(CASE WHEN p.stocks_qty <= 10 THEN 1 ELSE 0 END) as lowStockCount
+          FROM categories c
+          LEFT JOIN products p ON c.id = p.category_id
+          GROUP BY c.id, c.name
+          ORDER BY totalStock DESC
+        `);
+
+        res.json(performance);
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Get category performance error:", error);
+      res.status(500).json({ message: "Failed to fetch category performance" });
+    }
+  });
+
+  app.get("/api/reports/supplier-performance", isAuthenticated, async (_req, res) => {
+    try {
+      const conn = await storage.getConnection();
+
+      try {
+        const [performance] = await conn.execute(`
+          SELECT
+            s.name as supplierName,
+            COUNT(i.id) as totalPurchases,
+            SUM(i.quantity) as totalQuantity,
+            SUM(i.quantity * i.unit_price) as totalValue,
+            AVG(i.unit_price) as avgUnitPrice,
+            MAX(i.purchase_date) as lastPurchaseDate
+          FROM suppliers s
+          LEFT JOIN inventory i ON s.id = i.supplier_id
+          WHERE i.purchase_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+          GROUP BY s.id, s.name
+          HAVING totalPurchases > 0
+          ORDER BY totalValue DESC
+        `);
+
+        res.json(performance);
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Get supplier performance error:", error);
+      res.status(500).json({ message: "Failed to fetch supplier performance" });
+    }
+  });
+
+  // Recent activities API for dashboard
+  app.get("/api/dashboard/recent-activities", isAuthenticated, async (_req, res) => {
+    try {
+      const conn = await storage.getConnection();
+
+      try {
+        // Get recent inventory additions
+        const [inventoryActivities] = await conn.execute(`
+          SELECT
+            CONCAT('inventory_', i.id) as id,
+            'inventory' as type,
+            'Inventory Added' as title,
+            CONCAT('Added ', i.quantity, ' ', p.unit, ' of ', p.name, ' to stock') as description,
+            i.purchase_date as timestamp,
+            i.id as entityId,
+            (i.quantity * i.unit_price) as amount
+          FROM inventory i
+          JOIN products p ON i.product_id = p.id
+          WHERE i.purchase_date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+          ORDER BY i.purchase_date DESC
+          LIMIT 3
+        `);
+
+        // Get recent distributions (sales)
+        const [distributionActivities] = await conn.execute(`
+          SELECT
+            CONCAT('distribution_', d.id) as id,
+            'distribution' as type,
+            'Order Completed' as title,
+            CONCAT('Bill #', d.bill_no, ' for caterer - ₹', d.grand_total) as description,
+            d.distribution_date as timestamp,
+            d.id as entityId,
+            d.grand_total as amount
+          FROM distributions d
+          WHERE d.distribution_date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+          ORDER BY d.distribution_date DESC
+          LIMIT 3
+        `);
+
+        // Get recent payments
+        const [paymentActivities] = await conn.execute(`
+          SELECT
+            CONCAT('payment_', cp.id) as id,
+            'payment' as type,
+            'Payment Received' as title,
+            CONCAT('₹', cp.amount, ' received from caterer') as description,
+            cp.payment_date as timestamp,
+            cp.id as entityId,
+            cp.amount as amount
+          FROM caterer_payments cp
+          WHERE cp.payment_date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+          ORDER BY cp.payment_date DESC
+          LIMIT 2
+        `);
+
+        // Get recent supplier additions
+        const [supplierActivities] = await conn.execute(`
+          SELECT
+            CONCAT('supplier_', s.id) as id,
+            'supplier' as type,
+            'Supplier Added' as title,
+            CONCAT('New supplier "', s.name, '" added to system') as description,
+            s.created_at as timestamp,
+            s.id as entityId,
+            0 as amount
+          FROM suppliers s
+          WHERE s.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+          ORDER BY s.created_at DESC
+          LIMIT 2
+        `);
+
+        // Combine all activities
+        const allActivities = [
+          ...(inventoryActivities as any[]),
+          ...(distributionActivities as any[]),
+          ...(paymentActivities as any[]),
+          ...(supplierActivities as any[])
+        ];
+
+        // Sort by timestamp and take top 5
+        const sortedActivities = allActivities
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+          .slice(0, 5);
+
+        res.json(sortedActivities);
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Get recent activities error:", error);
+      res.status(500).json({ message: "Failed to fetch recent activities" });
     }
   });
 
@@ -2249,8 +2908,11 @@ export async function registerRoutes(app: Express) {
     try {
       console.log("Creating customer bill with data:", req.body);
 
+      // Extract selectedBatches from request body for inventory validation
+      const { selectedBatches, ...billData } = req.body;
+
       // Validate the request body
-      const validatedData = customerBillWithItemsSchema.parse(req.body);
+      const validatedData = customerBillWithItemsSchema.parse(billData);
 
       // Ensure billDate is a Date object
       const formattedData = {
@@ -2260,9 +2922,143 @@ export async function registerRoutes(app: Express) {
           : new Date(validatedData.billDate)
       };
 
-      // Create the customer bill
-      const bill = await storage.createCustomerBill(formattedData);
-      res.status(201).json(bill);
+      const conn = await storage.getConnection();
+      try {
+        await conn.beginTransaction();
+
+        // Validate inventory if batches are selected
+        if (selectedBatches && Object.keys(selectedBatches).length > 0) {
+          console.log("Validating inventory for customer bill...");
+
+          for (const [productIdStr, batchData] of Object.entries(selectedBatches)) {
+            const productId = parseInt(productIdStr);
+            const { batchIds, quantities } = batchData as { batchIds: number[]; quantities: number[] };
+
+            for (let i = 0; i < batchIds.length; i++) {
+              const batchId = batchIds[i];
+              const requiredQuantity = quantities[i];
+
+              // Check batch availability
+              const [batchRows] = await conn.execute(
+                `SELECT quantity FROM inventory WHERE id = ? AND status = 'active'`,
+                [batchId]
+              );
+
+              if ((batchRows as any[]).length === 0) {
+                throw new Error(`Inventory batch ${batchId} not found or inactive`);
+              }
+
+              const availableQuantity = (batchRows as any[])[0].quantity;
+              if (availableQuantity < requiredQuantity) {
+                throw new Error(`Insufficient quantity in batch ${batchId}. Available: ${availableQuantity}, Required: ${requiredQuantity}`);
+              }
+            }
+          }
+        }
+
+        // Create the customer bill
+        const bill = await storage.createCustomerBill(formattedData, conn);
+
+        // Ensure we have the bill ID
+        if (!bill || !bill.id) {
+          throw new Error("Failed to create customer bill - no ID returned");
+        }
+
+        // Store the bill ID for inventory transactions
+        const billId = bill.id;
+        const billNo = bill.billNo;
+        const paymentMethod = bill.paymentMethod || 'Cash';
+
+        console.log("Created customer bill with ID:", billId, "Bill No:", billNo);
+
+        // Deduct inventory from selected batches
+        if (selectedBatches && Object.keys(selectedBatches).length > 0) {
+          console.log("Performing batch-specific inventory deduction for customer bill...");
+
+          for (const [productIdStr, batchData] of Object.entries(selectedBatches)) {
+            const productId = parseInt(productIdStr);
+            const { batchIds, quantities } = batchData as { batchIds: number[]; quantities: number[] };
+
+            for (let i = 0; i < batchIds.length; i++) {
+              const batchId = batchIds[i];
+              const deductQuantity = quantities[i];
+
+              // Update inventory quantity
+              const [currentBatch] = await conn.execute(
+                `SELECT quantity, total_value FROM inventory WHERE id = ?`,
+                [batchId]
+              );
+
+              if ((currentBatch as any[]).length > 0) {
+                const currentQuantity = (currentBatch as any[])[0].quantity;
+                const currentValue = (currentBatch as any[])[0].total_value;
+                const newQuantity = Math.max(0, currentQuantity - deductQuantity);
+
+                // Calculate new value proportionally
+                const newValue = currentQuantity > 0 ? (currentValue * newQuantity) / currentQuantity : 0;
+
+                if (newQuantity === 0) {
+                  // Mark as inactive and move to history
+                  await conn.execute(
+                    `UPDATE inventory SET quantity = 0, total_value = 0, status = 'inactive' WHERE id = ?`,
+                    [batchId]
+                  );
+
+                  console.log(`Batch ${batchId} depleted and marked as inactive`);
+                } else {
+                  // Update quantity and value
+                  await conn.execute(
+                    `UPDATE inventory SET quantity = ?, total_value = ? WHERE id = ?`,
+                    [newQuantity, newValue, batchId]
+                  );
+                }
+
+                // Record transaction in inventory_transactions table
+                try {
+                  // Check if inventory_transactions table exists, create if not
+                  const [tables] = await conn.execute(`SHOW TABLES LIKE 'inventory_transactions'`);
+                  if ((tables as any[]).length === 0) {
+                    console.log("Creating inventory_transactions table...");
+                    await conn.execute(`
+                      CREATE TABLE inventory_transactions (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        inventory_id INT NOT NULL,
+                        transaction_type VARCHAR(50) NOT NULL,
+                        quantity DECIMAL(10,3) NOT NULL,
+                        reference_type VARCHAR(50),
+                        reference_id INT,
+                        notes TEXT,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (inventory_id) REFERENCES inventory(id)
+                      )
+                    `);
+                  }
+
+                  await conn.execute(
+                    `INSERT INTO inventory_transactions (
+                      inventory_id, transaction_type, quantity, reference_type, reference_id, notes, created_at
+                    ) VALUES (?, 'deduction', ?, 'customer_bill', ?, ?, NOW())`,
+                    [batchId, deductQuantity, billId, `Customer sale - Bill #${billNo || 'Unknown'} - Payment: ${paymentMethod}`]
+                  );
+                } catch (transactionError) {
+                  console.warn("Failed to record inventory transaction:", transactionError);
+                  // Continue without failing the entire operation
+                }
+
+                console.log(`Deducted ${deductQuantity} from batch ${batchId}, new quantity: ${newQuantity}`);
+              }
+            }
+          }
+        }
+
+        await conn.commit();
+        res.status(201).json(bill);
+      } catch (error) {
+        await conn.rollback();
+        throw error;
+      } finally {
+        conn.release();
+      }
     } catch (error) {
       console.error("Create customer bill error:", error);
 

@@ -26,6 +26,7 @@ export interface CustomerBill {
   marketTotal: number;
   savings: number;
   itemCount: number;
+  paymentMethod: 'Cash' | 'Card' | 'Bank Transfer' | 'Credit' | 'UPI';
   status: 'completed' | 'draft';
   items: CustomerBillItem[];
   createdAt?: string;
@@ -85,7 +86,7 @@ export function useCreateCustomerBill() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['customer-bills'] });
-      
+
       toast({
         title: 'Bill created successfully',
         description: `Bill ${data.billNo} has been created for ${data.clientName}.`,
@@ -116,7 +117,7 @@ export function useUpdateCustomerBill() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['customer-bills'] });
       queryClient.invalidateQueries({ queryKey: ['customer-bills', data.id] });
-      
+
       toast({
         title: 'Bill updated successfully',
         description: `Bill ${data.billNo} has been updated.`,
@@ -145,7 +146,7 @@ export function useDeleteCustomerBill() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customer-bills'] });
-      
+
       toast({
         title: 'Bill deleted successfully',
         description: 'The customer bill has been deleted.',

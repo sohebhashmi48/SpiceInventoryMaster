@@ -53,38 +53,30 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Inventory, Spice, Vendor } from "@shared/schema";
 
-// Sample data (this would be fetched from the API in a real implementation)
-const inventoryTrendData = [
-  { month: "Jan", value: 15000 },
-  { month: "Feb", value: 16200 },
-  { month: "Mar", value: 17800 },
-  { month: "Apr", value: 19500 },
-  { month: "May", value: 21000 },
-  { month: "Jun", value: 22600 },
-  { month: "Jul", value: 24000 },
-  { month: "Aug", value: 23200 },
-  { month: "Sep", value: 24800 },
-  { month: "Oct", value: 26500 },
-  { month: "Nov", value: 28000 },
-  { month: "Dec", value: 29500 },
-];
+// Types for API responses
+interface InventoryTrend {
+  period: string;
+  value: number;
+  quantity: number;
+  transactions: number;
+}
 
-const spiceCategoryData = [
-  { name: "Seeds", value: 35 },
-  { name: "Ground Spices", value: 25 },
-  { name: "Leaves & Herbs", value: 20 },
-  { name: "Spice Blends", value: 15 },
-  { name: "Other", value: 5 },
-];
+interface CategoryPerformance {
+  category: string;
+  productCount: number;
+  totalStock: number;
+  avgPrice: number;
+  lowStockCount: number;
+}
 
-const topSellingSpicesData = [
-  { name: "Turmeric", value: 25 },
-  { name: "Cinnamon", value: 18 },
-  { name: "Paprika", value: 15 },
-  { name: "Cumin", value: 12 },
-  { name: "Black Pepper", value: 10 },
-  { name: "Others", value: 20 },
-];
+interface SupplierPerformance {
+  supplierName: string;
+  totalPurchases: number;
+  totalQuantity: number;
+  totalValue: number;
+  avgUnitPrice: number;
+  lastPurchaseDate: string;
+}
 
 const COLORS = [
   "hsl(var(--primary))",
@@ -99,6 +91,7 @@ export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState("overview");
   const [timeRange, setTimeRange] = useState("year");
 
+  // Existing queries
   const { data: inventory } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory"],
   });
@@ -109,6 +102,20 @@ export default function ReportsPage() {
 
   const { data: vendors } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
+  });
+
+  // New API queries for reports
+  const { data: inventoryTrends, isLoading: trendsLoading } = useQuery<InventoryTrend[]>({
+    queryKey: ["/api/reports/inventory-trends", timeRange],
+    queryFn: () => fetch(`/api/reports/inventory-trends?timeRange=${timeRange}`).then(res => res.json()),
+  });
+
+  const { data: categoryPerformance, isLoading: categoryLoading } = useQuery<CategoryPerformance[]>({
+    queryKey: ["/api/reports/category-performance"],
+  });
+
+  const { data: supplierPerformance, isLoading: supplierLoading } = useQuery<SupplierPerformance[]>({
+    queryKey: ["/api/reports/supplier-performance"],
   });
 
   const getSpiceName = (spiceId: number) => {
@@ -134,6 +141,37 @@ export default function ReportsPage() {
       return expiryDate <= thirtyDaysFromNow && expiryDate >= now;
     });
   };
+
+  // Process data for charts
+  const processedInventoryTrends = inventoryTrends?.map(trend => ({
+    month: trend.period,
+    value: trend.value,
+    quantity: trend.quantity,
+    transactions: trend.transactions
+  })) || [];
+
+  const processedCategoryData = categoryPerformance?.map((cat, index) => ({
+    name: cat.category,
+    value: cat.totalStock,
+    productCount: cat.productCount,
+    avgPrice: cat.avgPrice,
+    lowStockCount: cat.lowStockCount,
+    fill: COLORS[index % COLORS.length]
+  })) || [];
+
+  const processedSupplierData = supplierPerformance?.map(supplier => ({
+    name: supplier.supplierName,
+    value: supplier.totalValue,
+    purchases: supplier.totalPurchases,
+    quantity: supplier.totalQuantity,
+    avgPrice: supplier.avgUnitPrice,
+    lastPurchase: supplier.lastPurchaseDate
+  })) || [];
+
+  // Calculate key metrics from real data
+  const totalInventoryValue = processedInventoryTrends.reduce((sum, item) => sum + item.value, 0);
+  const totalProducts = spices?.length || 0;
+  const lowStockProducts = spices?.filter(spice => spice.stocksQty <= 10).length || 0;
 
   return (
     <Layout>
@@ -196,25 +234,31 @@ export default function ReportsPage() {
                 <CardDescription>Total inventory value over time</CardDescription>
               </CardHeader>
               <CardContent className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={inventoryTrendData}>
-                    <XAxis dataKey="month" />
-                    <YAxis
-                      tickFormatter={(value) => `$${value / 1000}k`}
-                    />
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <Tooltip
-                      formatter={(value) => [`$${value}`, 'Value']}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="value"
-                      stroke="hsl(var(--primary))"
-                      strokeWidth={2}
-                      dot={{ fill: "hsl(var(--primary))" }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+                {trendsLoading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-muted-foreground">Loading trends...</div>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={processedInventoryTrends}>
+                      <XAxis dataKey="month" />
+                      <YAxis
+                        tickFormatter={(value) => `₹${value / 1000}k`}
+                      />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <Tooltip
+                        formatter={(value) => [`₹${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Value']}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        stroke="hsl(var(--primary))"
+                        strokeWidth={2}
+                        dot={{ fill: "hsl(var(--primary))" }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 
@@ -224,47 +268,62 @@ export default function ReportsPage() {
                 <CardDescription>Distribution by category</CardDescription>
               </CardHeader>
               <CardContent className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <RePieChart>
-                    <Pie
-                      data={spiceCategoryData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {spiceCategoryData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value) => [`${value}%`, 'Percentage']} />
-                  </RePieChart>
-                </ResponsiveContainer>
+                {categoryLoading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-muted-foreground">Loading categories...</div>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RePieChart>
+                      <Pie
+                        data={processedCategoryData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                        outerRadius={100}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {processedCategoryData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => [`${value} items`, 'Stock']} />
+                    </RePieChart>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle>Top Selling Spices</CardTitle>
-                <CardDescription>Best performing products</CardDescription>
+                <CardTitle>Top Products by Stock</CardTitle>
+                <CardDescription>Products with highest stock levels</CardDescription>
               </CardHeader>
               <CardContent className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={topSellingSpicesData} layout="vertical">
-                    <XAxis type="number" />
-                    <YAxis dataKey="name" type="category" width={100} />
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <Tooltip formatter={(value) => [`${value}%`, 'Percentage']} />
-                    <Bar
-                      dataKey="value"
-                      fill="hsl(var(--secondary))"
-                      radius={[0, 4, 4, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+                {categoryLoading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-muted-foreground">Loading products...</div>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={spices?.slice(0, 6).map(spice => ({
+                      name: spice.name.length > 15 ? spice.name.substring(0, 15) + '...' : spice.name,
+                      value: spice.stocksQty
+                    })) || []} layout="vertical">
+                      <XAxis type="number" />
+                      <YAxis dataKey="name" type="category" width={100} />
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                      <Tooltip formatter={(value) => [`${value} ${spices?.find(s => s.name.startsWith(String(value)))?.unit || 'units'}`, 'Stock']} />
+                      <Bar
+                        dataKey="value"
+                        fill="hsl(var(--secondary))"
+                        radius={[0, 4, 4, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 
@@ -278,45 +337,45 @@ export default function ReportsPage() {
                   <div>
                     <div className="flex justify-between items-center mb-2">
                       <h4 className="text-sm font-medium">Total Inventory Value</h4>
-                      <span className="text-xl font-bold">$29,500</span>
+                      <span className="text-xl font-bold">₹{Number(totalInventoryValue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                     </div>
                     <div className="bg-secondary/10 h-2 rounded-full overflow-hidden">
                       <div className="bg-secondary h-full rounded-full" style={{ width: "85%" }}></div>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">85% of target</p>
+                    <p className="text-xs text-muted-foreground mt-1">Based on current inventory</p>
                   </div>
 
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <h4 className="text-sm font-medium">Inventory Turnover</h4>
-                      <span className="text-xl font-bold">4.2x</span>
+                      <h4 className="text-sm font-medium">Total Products</h4>
+                      <span className="text-xl font-bold">{totalProducts}</span>
                     </div>
                     <div className="bg-primary/10 h-2 rounded-full overflow-hidden">
                       <div className="bg-primary h-full rounded-full" style={{ width: "70%" }}></div>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">70% of target</p>
+                    <p className="text-xs text-muted-foreground mt-1">Active product types</p>
                   </div>
 
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <h4 className="text-sm font-medium">Active Vendors</h4>
+                      <h4 className="text-sm font-medium">Active Suppliers</h4>
                       <span className="text-xl font-bold">{vendors?.length || 0}</span>
                     </div>
                     <div className="bg-accent/20 h-2 rounded-full overflow-hidden">
                       <div className="bg-accent-dark h-full rounded-full" style={{ width: "90%" }}></div>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">90% of target</p>
+                    <p className="text-xs text-muted-foreground mt-1">Registered suppliers</p>
                   </div>
 
                   <div>
                     <div className="flex justify-between items-center mb-2">
-                      <h4 className="text-sm font-medium">Profit Margin</h4>
-                      <span className="text-xl font-bold">32%</span>
+                      <h4 className="text-sm font-medium">Low Stock Items</h4>
+                      <span className="text-xl font-bold text-red-600">{lowStockProducts}</span>
                     </div>
-                    <div className="bg-green-100 h-2 rounded-full overflow-hidden">
-                      <div className="bg-green-600 h-full rounded-full" style={{ width: "75%" }}></div>
+                    <div className="bg-red-100 h-2 rounded-full overflow-hidden">
+                      <div className="bg-red-600 h-full rounded-full" style={{ width: `${Math.min((lowStockProducts / totalProducts) * 100, 100)}%` }}></div>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">75% of target</p>
+                    <p className="text-xs text-muted-foreground mt-1">Items with stock ≤ 10</p>
                   </div>
                 </div>
               </CardContent>
@@ -375,26 +434,32 @@ export default function ReportsPage() {
                 <CardDescription>Distribution of value across categories</CardDescription>
               </CardHeader>
               <CardContent className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <RePieChart>
-                    <Pie
-                      data={spiceCategoryData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      paddingAngle={2}
-                      dataKey="value"
-                    >
-                      {spiceCategoryData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value) => [`${value}%`, 'Percentage']} />
-                    <Legend />
-                  </RePieChart>
-                </ResponsiveContainer>
+                {categoryLoading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-muted-foreground">Loading categories...</div>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RePieChart>
+                      <Pie
+                        data={processedCategoryData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        fill="#8884d8"
+                        paddingAngle={2}
+                        dataKey="value"
+                      >
+                        {processedCategoryData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => [`${value} items`, 'Stock']} />
+                      <Legend />
+                    </RePieChart>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -405,20 +470,26 @@ export default function ReportsPage() {
               <CardDescription>Stock additions and depletions over time</CardDescription>
             </CardHeader>
             <CardContent className="h-96">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={inventoryTrendData}
-                  margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar name="Additions" dataKey="value" fill="hsl(var(--chart-4))" />
-                  <Bar name="Depletions" dataKey="value" fill="hsl(var(--chart-5))" />
-                </BarChart>
-              </ResponsiveContainer>
+              {trendsLoading ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-muted-foreground">Loading inventory movement...</div>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={processedInventoryTrends}
+                    margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="month" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar name="Inventory Value" dataKey="value" fill="hsl(var(--chart-4))" />
+                    <Bar name="Quantity" dataKey="quantity" fill="hsl(var(--chart-5))" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -528,36 +599,42 @@ export default function ReportsPage() {
                 <CardDescription>Financial performance over time</CardDescription>
               </CardHeader>
               <CardContent className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={inventoryTrendData}>
-                    <XAxis dataKey="month" />
-                    <YAxis
-                      tickFormatter={(value) => `$${value / 1000}k`}
-                    />
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <Tooltip
-                      formatter={(value) => [`$${value}`, 'Value']}
-                    />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      name="Revenue"
-                      dataKey="value"
-                      stroke="hsl(var(--chart-4))"
-                      strokeWidth={2}
-                      dot={{ fill: "hsl(var(--chart-4))" }}
-                    />
-                    <Line
-                      type="monotone"
-                      name="Expenses"
-                      dataKey="value"
-                      stroke="hsl(var(--chart-5))"
-                      strokeWidth={2}
-                      dot={{ fill: "hsl(var(--chart-5))" }}
-                      activeDot={{ r: 8 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+                {trendsLoading ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-muted-foreground">Loading financial data...</div>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={processedInventoryTrends}>
+                      <XAxis dataKey="month" />
+                      <YAxis
+                        tickFormatter={(value) => `₹${value / 1000}k`}
+                      />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <Tooltip
+                        formatter={(value) => [`₹${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Value']}
+                      />
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        name="Inventory Value"
+                        dataKey="value"
+                        stroke="hsl(var(--chart-4))"
+                        strokeWidth={2}
+                        dot={{ fill: "hsl(var(--chart-4))" }}
+                      />
+                      <Line
+                        type="monotone"
+                        name="Transactions"
+                        dataKey="transactions"
+                        stroke="hsl(var(--chart-5))"
+                        strokeWidth={2}
+                        dot={{ fill: "hsl(var(--chart-5))" }}
+                        activeDot={{ r: 8 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
               </CardContent>
             </Card>
 
@@ -601,23 +678,29 @@ export default function ReportsPage() {
               <CardDescription>Margin by product category</CardDescription>
             </CardHeader>
             <CardContent className="h-96">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={spiceCategoryData}
-                  margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip formatter={(value) => [`${value}%`, 'Profit Margin']} />
-                  <Bar
-                    dataKey="value"
-                    fill="hsl(var(--secondary))"
-                    name="Profit Margin"
-                    radius={[4, 4, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              {categoryLoading ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-muted-foreground">Loading profit analysis...</div>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={processedCategoryData}
+                    margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip formatter={(value) => [`₹${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Average Price']} />
+                    <Bar
+                      dataKey="avgPrice"
+                      fill="hsl(var(--secondary))"
+                      name="Average Price"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

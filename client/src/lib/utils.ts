@@ -29,6 +29,48 @@ export function formatCurrency(amount: number | string | null | undefined): stri
   }
 }
 
+// Utility function to format numbers with consistent decimal places
+export function formatNumber(value: number | string | null | undefined, decimals: number = 2): string {
+  if (value === null || value === undefined) return '0';
+
+  try {
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+
+    if (isNaN(numValue)) {
+      return '0';
+    }
+
+    return numValue.toLocaleString('en-IN', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    });
+  } catch (error) {
+    console.error('Error formatting number:', error);
+    return '0';
+  }
+}
+
+// Utility function to format currency amounts with Indian locale
+export function formatCurrencyAmount(amount: number | string | null | undefined): string {
+  if (amount === null || amount === undefined) return '₹0.00';
+
+  try {
+    const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+
+    if (isNaN(numAmount)) {
+      return '₹0.00';
+    }
+
+    return `₹${numAmount.toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })}`;
+  } catch (error) {
+    console.error('Error formatting currency amount:', error);
+    return '₹0.00';
+  }
+}
+
 // Unit conversion constants and types
 export type UnitType = 'kg' | 'g' | 'lb' | 'oz' | 'pcs' | 'box' | 'pack' | 'bag' | 'l' | 'ml';
 
@@ -151,7 +193,7 @@ export function convertUnit(
 
   // Check if both units are convertible (weight/volume units)
   const nonConvertibleUnits = ['pcs', 'box', 'pack', 'bag'];
-  
+
   // If either unit is non-convertible, return the original quantity
   if (nonConvertibleUnits.includes(fromUnit) || nonConvertibleUnits.includes(toUnit)) {
     return quantity;
@@ -159,7 +201,7 @@ export function convertUnit(
 
   // Get the conversion factor
   const conversionFactor = UNIT_CONVERSIONS[fromUnit]?.to?.[toUnit];
-  
+
   if (!conversionFactor) {
     console.warn(`No conversion factor found for ${fromUnit} to ${toUnit}`);
     return quantity;
@@ -198,10 +240,10 @@ export function checkStockSufficiency(
 ): { isSufficient: boolean; availableInRequestedUnit: number; shortfall: number } {
   // Convert available stock to the requested unit
   const availableInRequestedUnit = convertUnit(availableStock, stockUnit, requestedUnit);
-  
+
   const isSufficient = availableInRequestedUnit >= requestedQuantity;
   const shortfall = isSufficient ? 0 : requestedQuantity - availableInRequestedUnit;
-  
+
   return {
     isSufficient,
     availableInRequestedUnit,
@@ -218,7 +260,7 @@ export function getStockDisplay(
   const targetUnit = displayUnit || stockUnit;
   const convertedQuantity = convertUnit(stockQuantity, stockUnit, targetUnit);
   const displayText = formatQuantityWithUnit(convertedQuantity, targetUnit, true);
-  
+
   return {
     quantity: convertedQuantity,
     unit: targetUnit,
@@ -234,24 +276,21 @@ export function formatQuantityWithUnit(
 ): string {
   // Convert quantity to number and handle invalid inputs
   const numQuantity = typeof quantity === 'string' ? parseFloat(quantity) : Number(quantity || 0);
-  
+
   // Handle NaN case
   if (isNaN(numQuantity)) {
     return `0 ${unit}`;
   }
 
-  // Format the primary unit based on its magnitude
+  // Format the primary unit with consistent 2 decimal places max
   let formattedQuantity: string;
   if (Math.abs(numQuantity) >= 1000) {
     // For large values, don't show decimal places
     formattedQuantity = Math.round(numQuantity).toString();
-  } else if (Math.abs(numQuantity) >= 100) {
-    // For medium values, show 1 decimal place
-    formattedQuantity = numQuantity.toFixed(1);
   } else {
-    // For smaller values, show appropriate decimal places
+    // For all other values, show max 2 decimal places and remove trailing zeros
     formattedQuantity = numQuantity.toFixed(2);
-    // Remove trailing zeros
+    // Remove trailing zeros after decimal point
     formattedQuantity = parseFloat(formattedQuantity).toString();
   }
 

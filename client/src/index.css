@@ -225,6 +225,39 @@ body.no-scroll {
   }
 }
 
+/* Print Styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  body {
+    font-size: 12px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+    background: white !important;
+  }
+}
+
+.print-only {
+  display: none;
+}
+
 @media (max-width: 1023px) {
   .sidebar-collapsed {
     transform: translateX(-100%);

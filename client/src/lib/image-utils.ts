@@ -9,26 +9,26 @@
  * @returns The properly formatted URL for the image or null if no image
  */
 export const getImageUrl = (
-  imagePath: string | null | undefined, 
-  entityType: 'suppliers' | 'caterers' | 'spices' | 'receipts' = 'suppliers'
+  imagePath: string | null | undefined,
+  entityType: 'suppliers' | 'caterers' | 'spices' | 'receipts' | 'categories' = 'suppliers'
 ): string | null => {
   if (!imagePath) return null;
-  
+
   // If the path already starts with /api, return as is
   if (imagePath.startsWith('/api/')) {
     return imagePath;
   }
-  
+
   // If the path starts with /uploads, add /api prefix
   if (imagePath.startsWith('/uploads/')) {
     return `/api${imagePath}`;
   }
-  
+
   // If it's just a filename, construct the full path
   if (!imagePath.includes('/')) {
     return `/api/uploads/${entityType}/${imagePath}`;
   }
-  
+
   return imagePath;
 };
 
@@ -58,4 +58,11 @@ export const getSpiceImageUrl = (imagePath: string | null | undefined): string |
  */
 export const getReceiptImageUrl = (imagePath: string | null | undefined): string | null => {
   return getImageUrl(imagePath, 'receipts');
+};
+
+/**
+ * Helper function specifically for category images
+ */
+export const getCategoryImageUrl = (imagePath: string | null | undefined): string | null => {
+  return getImageUrl(imagePath, 'categories');
 };

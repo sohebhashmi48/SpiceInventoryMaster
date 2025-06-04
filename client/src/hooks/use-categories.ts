@@ -6,11 +6,13 @@ export interface Category {
   id: number;
   name: string;
   description?: string;
+  imagePath?: string;
 }
 
 export interface CreateCategoryData {
   name: string;
   description?: string;
+  imagePath?: string;
 }
 
 export interface UpdateCategoryData extends Partial<CreateCategoryData> {

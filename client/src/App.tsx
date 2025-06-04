@@ -36,6 +36,8 @@ import CatererReportsPage from "./pages/caterer-reports-page";
 import PaymentRemindersPage from "./pages/caterers/payment-reminders";
 import NotificationsPage from "./pages/notifications";
 import CustomerBillingPage from "./pages/customer-billing";
+import CustomerTransactionHistoryPage from "./pages/customer-transaction-history";
+import ProductShowcasePage from "./pages/showcase";
 import { ProtectedRoute } from "./lib/protected-route";
 import { AuthProvider } from "./hooks/use-auth";
 import { store } from "./store";
@@ -45,6 +47,8 @@ function Router() {
   return (
     <Switch>
       <Route path="/auth" component={AuthPage} />
+      {/* Public showcase routes - no authentication required */}
+      <Route path="/showcase" component={ProductShowcasePage} />
       <ProtectedRoute path="/" component={DashboardPage} />
       <ProtectedRoute path="/inventory" component={InventoryPage} />
       <ProtectedRoute path="/inventory-history" component={InventoryHistoryPage} />
@@ -76,6 +80,7 @@ function Router() {
       <ProtectedRoute path="/caterer-payment-form" component={CatererPaymentFormRedirect} />
       <ProtectedRoute path="/caterer-reports" component={CatererReportsPage} />
       <ProtectedRoute path="/customer-billing" component={CustomerBillingPage} />
+      <ProtectedRoute path="/customer-transaction-history" component={CustomerTransactionHistoryPage} />
       <ProtectedRoute path="/billing" component={BillingPage} />
       <ProtectedRoute path="/purchases" component={PurchaseEntryPage} />
       <ProtectedRoute path="/reports" component={ReportsPage} />

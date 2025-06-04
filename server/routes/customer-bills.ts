@@ -1,279 +1,231 @@
-import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
+import express from 'express';
 import { z } from 'zod';
-import { db } from '../db';
-import { 
-  customerBills, 
-  customerBillItems,
-  insertCustomerBillSchema,
-  customerBillWithItemsSchema,
-  type CustomerBill,
-  type CustomerBillItem,
-  type CustomerBillWithItems
-} from '../../shared/schema';
-import { eq, desc, and, gte, lte, ilike, sql } from 'drizzle-orm';
+import { storage } from '../storage';
 
-const app = new Hono();
+const router = express.Router();
 
-// Get all customer bills with pagination and filtering
-app.get('/', zValidator('query', z.object({
-  page: z.string().optional().default('1'),
-  limit: z.string().optional().default('10'),
-  search: z.string().optional(),
-  status: z.string().optional(),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-})), async (c) => {
+// Get today's customer bills
+router.get('/today', async (req, res) => {
   try {
-    const { page, limit, search, status, startDate, endDate } = c.req.valid('query');
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const offset = (pageNum - 1) * limitNum;
+    console.log('Fetching today\'s customer bills...');
 
-    // Build where conditions
-    const conditions = [];
-    
-    if (search) {
-      conditions.push(
-        sql`(${customerBills.clientName} ILIKE ${`%${search}%`} OR 
-            ${customerBills.clientMobile} ILIKE ${`%${search}%`} OR 
-            ${customerBills.billNo} ILIKE ${`%${search}%`})`
-      );
-    }
-    
-    if (status) {
-      conditions.push(eq(customerBills.status, status));
-    }
-    
-    if (startDate) {
-      conditions.push(gte(customerBills.billDate, new Date(startDate)));
-    }
-    
-    if (endDate) {
-      conditions.push(lte(customerBills.billDate, new Date(endDate)));
-    }
+    // Get today's date range
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
 
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    console.log('Date range:', { startOfDay, endOfDay });
 
-    // Get total count
-    const totalResult = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(customerBills)
-      .where(whereClause);
-    
-    const total = totalResult[0]?.count || 0;
-
-    // Get bills with pagination
-    const bills = await db
-      .select()
-      .from(customerBills)
-      .where(whereClause)
-      .orderBy(desc(customerBills.createdAt))
-      .limit(limitNum)
-      .offset(offset);
-
-    return c.json({
-      data: bills,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        totalPages: Math.ceil(total / limitNum),
-      },
-    });
-  } catch (error) {
-    console.error('Error fetching customer bills:', error);
-    return c.json({ error: 'Failed to fetch customer bills' }, 500);
-  }
-});
-
-// Get a specific customer bill by ID with items
-app.get('/:id', zValidator('param', z.object({
-  id: z.string().transform(val => parseInt(val)),
-})), async (c) => {
-  try {
-    const { id } = c.req.valid('param');
-
-    // Get the bill
-    const bill = await db
-      .select()
-      .from(customerBills)
-      .where(eq(customerBills.id, id))
-      .limit(1);
-
-    if (bill.length === 0) {
-      return c.json({ error: 'Customer bill not found' }, 404);
-    }
-
-    // Get the bill items
-    const items = await db
-      .select()
-      .from(customerBillItems)
-      .where(eq(customerBillItems.billId, id))
-      .orderBy(customerBillItems.id);
-
-    const billWithItems = {
-      ...bill[0],
-      items,
-    };
-
-    return c.json(billWithItems);
-  } catch (error) {
-    console.error('Error fetching customer bill:', error);
-    return c.json({ error: 'Failed to fetch customer bill' }, 500);
-  }
-});
-
-// Create a new customer bill
-app.post('/', zValidator('json', customerBillWithItemsSchema), async (c) => {
-  try {
-    const data = c.req.valid('json');
-
-    // Start a transaction
-    const result = await db.transaction(async (tx) => {
-      // Insert the bill
-      const [newBill] = await tx
-        .insert(customerBills)
-        .values({
-          billNo: data.billNo,
-          billDate: data.billDate,
-          clientName: data.clientName,
-          clientMobile: data.clientMobile,
-          clientEmail: data.clientEmail,
-          clientAddress: data.clientAddress,
-          totalAmount: data.totalAmount.toString(),
-          marketTotal: data.marketTotal.toString(),
-          savings: data.savings.toString(),
-          itemCount: data.itemCount,
-          status: data.status,
-        })
-        .returning();
-
-      // Insert the bill items
-      if (data.items && data.items.length > 0) {
-        const itemsToInsert = data.items.map(item => ({
-          billId: newBill.id,
-          productId: item.productId,
-          productName: item.productName,
-          quantity: item.quantity.toString(),
-          unit: item.unit,
-          pricePerKg: item.pricePerKg.toString(),
-          marketPricePerKg: item.marketPricePerKg.toString(),
-          total: item.total.toString(),
-        }));
-
-        await tx.insert(customerBillItems).values(itemsToInsert);
+    const conn = await storage.getConnection();
+    try {
+      // Check if customer_bills table exists
+      const [tables] = await conn.execute(`SHOW TABLES LIKE 'customer_bills'`);
+      if ((tables as any[]).length === 0) {
+        console.log("Customer bills table doesn't exist yet");
+        return res.json([]);
       }
 
-      return newBill;
-    });
+      // Get bills for today
+      const [billRows] = await conn.execute(`
+        SELECT * FROM customer_bills cb
+        WHERE DATE(cb.created_at) = DATE(?)
+        ORDER BY cb.created_at DESC
+      `, [today]);
 
-    return c.json(result, 201);
-  } catch (error) {
-    console.error('Error creating customer bill:', error);
-    return c.json({ error: 'Failed to create customer bill' }, 500);
-  }
-});
+      const bills = billRows as any[];
+      console.log(`Found ${bills.length} bills for today`);
 
-// Update a customer bill
-app.put('/:id', zValidator('param', z.object({
-  id: z.string().transform(val => parseInt(val)),
-})), zValidator('json', customerBillWithItemsSchema.partial()), async (c) => {
-  try {
-    const { id } = c.req.valid('param');
-    const data = c.req.valid('json');
+      // Get items for each bill
+      const billsWithItems = await Promise.all(
+        bills.map(async (bill) => {
+          const [itemRows] = await conn.execute(`
+            SELECT * FROM customer_bill_items
+            WHERE bill_id = ?
+            ORDER BY id
+          `, [bill.id]);
 
-    // Check if bill exists
-    const existingBill = await db
-      .select()
-      .from(customerBills)
-      .where(eq(customerBills.id, id))
-      .limit(1);
-
-    if (existingBill.length === 0) {
-      return c.json({ error: 'Customer bill not found' }, 404);
-    }
-
-    // Start a transaction
-    const result = await db.transaction(async (tx) => {
-      // Update the bill
-      const updateData: any = {};
-      if (data.billNo !== undefined) updateData.billNo = data.billNo;
-      if (data.billDate !== undefined) updateData.billDate = data.billDate;
-      if (data.clientName !== undefined) updateData.clientName = data.clientName;
-      if (data.clientMobile !== undefined) updateData.clientMobile = data.clientMobile;
-      if (data.clientEmail !== undefined) updateData.clientEmail = data.clientEmail;
-      if (data.clientAddress !== undefined) updateData.clientAddress = data.clientAddress;
-      if (data.totalAmount !== undefined) updateData.totalAmount = data.totalAmount.toString();
-      if (data.marketTotal !== undefined) updateData.marketTotal = data.marketTotal.toString();
-      if (data.savings !== undefined) updateData.savings = data.savings.toString();
-      if (data.itemCount !== undefined) updateData.itemCount = data.itemCount;
-      if (data.status !== undefined) updateData.status = data.status;
-
-      const [updatedBill] = await tx
-        .update(customerBills)
-        .set(updateData)
-        .where(eq(customerBills.id, id))
-        .returning();
-
-      // If items are provided, replace all items
-      if (data.items !== undefined) {
-        // Delete existing items
-        await tx.delete(customerBillItems).where(eq(customerBillItems.billId, id));
-
-        // Insert new items
-        if (data.items.length > 0) {
-          const itemsToInsert = data.items.map(item => ({
-            billId: id,
-            productId: item.productId,
-            productName: item.productName,
-            quantity: item.quantity.toString(),
+          // Map database column names to expected property names
+          const mappedItems = (itemRows as any[]).map(item => ({
+            id: item.id,
+            productName: item.product_name,
+            quantity: item.quantity,
             unit: item.unit,
-            pricePerKg: item.pricePerKg.toString(),
-            marketPricePerKg: item.marketPricePerKg.toString(),
-            total: item.total.toString(),
+            pricePerKg: item.price_per_kg,
+            marketPricePerKg: item.market_price_per_kg,
+            total: item.total,
           }));
 
-          await tx.insert(customerBillItems).values(itemsToInsert);
-        }
-      }
+          // Map database column names to expected property names
+          return {
+            id: bill.id,
+            billNo: bill.bill_no,
+            billDate: bill.bill_date,
+            clientName: bill.client_name,
+            clientMobile: bill.client_mobile,
+            clientEmail: bill.client_email,
+            clientAddress: bill.client_address,
+            totalAmount: bill.total_amount,
+            marketTotal: bill.market_total,
+            savings: bill.savings,
+            itemCount: bill.item_count,
+            paymentMethod: bill.payment_method,
+            status: bill.status,
+            createdAt: bill.created_at,
+            items: mappedItems,
+          };
+        })
+      );
 
-      return updatedBill;
+      return res.json(billsWithItems);
+    } finally {
+      conn.release();
+    }
+  } catch (error) {
+    console.error('Error fetching today\'s customer bills:', error);
+    return res.status(500).json({
+      message: 'Failed to fetch today\'s customer bills',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Get customer transaction history by mobile or name
+router.get('/history', async (req, res) => {
+  try {
+    const querySchema = z.object({
+      mobile: z.string().optional(),
+      name: z.string().optional(),
     });
 
-    return c.json(result);
-  } catch (error) {
-    console.error('Error updating customer bill:', error);
-    return c.json({ error: 'Failed to update customer bill' }, 500);
-  }
-});
+    const { mobile, name } = querySchema.parse(req.query);
 
-// Delete a customer bill
-app.delete('/:id', zValidator('param', z.object({
-  id: z.string().transform(val => parseInt(val)),
-})), async (c) => {
-  try {
-    const { id } = c.req.valid('param');
-
-    // Check if bill exists
-    const existingBill = await db
-      .select()
-      .from(customerBills)
-      .where(eq(customerBills.id, id))
-      .limit(1);
-
-    if (existingBill.length === 0) {
-      return c.json({ error: 'Customer bill not found' }, 404);
+    if (!mobile && !name) {
+      return res.status(400).json({ error: 'Either mobile or name parameter is required' });
     }
 
-    // Delete the bill (items will be deleted automatically due to CASCADE)
-    await db.delete(customerBills).where(eq(customerBills.id, id));
+    const conn = await storage.getConnection();
+    try {
+      // Check if customer_bills table exists, create if not
+      const [tables] = await conn.execute(`SHOW TABLES LIKE 'customer_bills'`);
+      if ((tables as any[]).length === 0) {
+        console.log("Customer bills table doesn't exist, creating it...");
+        await conn.execute(`
+          CREATE TABLE customer_bills (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            bill_no VARCHAR(255) NOT NULL UNIQUE,
+            bill_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            client_name VARCHAR(255) NOT NULL,
+            client_mobile VARCHAR(20) NOT NULL,
+            client_email VARCHAR(255),
+            client_address TEXT,
+            total_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+            market_total DECIMAL(10,2) NOT NULL DEFAULT 0,
+            savings DECIMAL(10,2) NOT NULL DEFAULT 0,
+            item_count INT NOT NULL DEFAULT 0,
+            status VARCHAR(50) NOT NULL DEFAULT 'completed',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+          )
+        `);
 
-    return c.json({ message: 'Customer bill deleted successfully' });
+        await conn.execute(`
+          CREATE TABLE customer_bill_items (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            bill_id INT NOT NULL,
+            product_id INT NOT NULL,
+            product_name VARCHAR(255) NOT NULL,
+            quantity DECIMAL(10,3) NOT NULL,
+            unit VARCHAR(10) NOT NULL,
+            price_per_kg DECIMAL(10,2) NOT NULL,
+            market_price_per_kg DECIMAL(10,2) NOT NULL,
+            total DECIMAL(10,2) NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (bill_id) REFERENCES customer_bills(id) ON DELETE CASCADE
+          )
+        `);
+
+        // Create indexes
+        await conn.execute(`CREATE INDEX idx_customer_bills_bill_no ON customer_bills(bill_no)`);
+        await conn.execute(`CREATE INDEX idx_customer_bills_client_mobile ON customer_bills(client_mobile)`);
+        await conn.execute(`CREATE INDEX idx_customer_bill_items_bill_id ON customer_bill_items(bill_id)`);
+
+        // Return empty result since no data exists yet
+        return res.json([]);
+      }
+
+      // Build where conditions
+      let whereClause = '';
+      const params: any[] = [];
+
+      if (mobile && name) {
+        whereClause = 'WHERE cb.client_mobile LIKE ? AND cb.client_name LIKE ?';
+        params.push(`%${mobile}%`, `%${name}%`);
+      } else if (mobile) {
+        whereClause = 'WHERE cb.client_mobile LIKE ?';
+        params.push(`%${mobile}%`);
+      } else if (name) {
+        whereClause = 'WHERE cb.client_name LIKE ?';
+        params.push(`%${name}%`);
+      }
+
+      // Get bills
+      const [billRows] = await conn.execute(`
+        SELECT * FROM customer_bills cb
+        ${whereClause}
+        ORDER BY cb.bill_date DESC
+      `, params);
+
+      const bills = billRows as any[];
+
+      // Get items for each bill
+      const billsWithItems = await Promise.all(
+        bills.map(async (bill) => {
+          const [itemRows] = await conn.execute(`
+            SELECT * FROM customer_bill_items
+            WHERE bill_id = ?
+            ORDER BY id
+          `, [bill.id]);
+
+          // Map database column names to expected property names
+          const mappedItems = (itemRows as any[]).map(item => ({
+            id: item.id,
+            productName: item.product_name,
+            quantity: item.quantity,
+            unit: item.unit,
+            pricePerKg: item.price_per_kg,
+            marketPricePerKg: item.market_price_per_kg,
+            total: item.total,
+          }));
+
+          // Map database column names to expected property names
+          return {
+            id: bill.id,
+            billNo: bill.bill_no,
+            billDate: bill.bill_date,
+            clientName: bill.client_name,
+            clientMobile: bill.client_mobile,
+            clientEmail: bill.client_email,
+            clientAddress: bill.client_address,
+            totalAmount: bill.total_amount,
+            marketTotal: bill.market_total,
+            savings: bill.savings,
+            itemCount: bill.item_count,
+            paymentMethod: bill.payment_method,
+            status: bill.status,
+            createdAt: bill.created_at,
+            items: mappedItems,
+          };
+        })
+      );
+
+      return res.json(billsWithItems);
+    } finally {
+      conn.release();
+    }
   } catch (error) {
-    console.error('Error deleting customer bill:', error);
-    return c.json({ error: 'Failed to delete customer bill' }, 500);
+    console.error('Error fetching customer transaction history:', error);
+    return res.status(500).json({ error: 'Failed to fetch transaction history' });
   }
 });
 
-export default app;
+export default router;

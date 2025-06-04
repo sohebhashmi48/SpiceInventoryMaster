@@ -1,23 +1,25 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { MoreVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { 
-  PieChart as ReChartsPieChart, 
-  Pie, 
-  Cell, 
+import {
+  PieChart as ReChartsPieChart,
+  Pie,
+  Cell,
   ResponsiveContainer,
   Tooltip,
   TooltipProps
 } from "recharts";
 import { Button } from "@/components/ui/button";
+import { useQuery } from "@tanstack/react-query";
+import { Skeleton } from "@/components/ui/skeleton";
 
-const data = [
-  { name: "Turmeric", value: 24 },
-  { name: "Cinnamon", value: 18 },
-  { name: "Paprika", value: 16 },
-  { name: "Cumin", value: 14 },
-  { name: "Other", value: 28 },
-];
+interface CategoryPerformance {
+  category: string;
+  productCount: number;
+  totalStock: number;
+  avgPrice: number;
+  lowStockCount: number;
+}
 
 const COLORS = [
   "hsl(var(--secondary))",
@@ -32,16 +34,28 @@ interface PieChartProps {
 }
 
 export default function PieChart({ className }: PieChartProps) {
+  // Fetch real category performance data
+  const { data: categoryPerformance, isLoading } = useQuery<CategoryPerformance[]>({
+    queryKey: ["/api/reports/category-performance"],
+  });
+
+  // Process data for pie chart
+  const data = categoryPerformance?.map((cat, index) => ({
+    name: cat.category,
+    value: cat.totalStock,
+    fill: COLORS[index % COLORS.length]
+  })) || [];
+
   const CustomTooltip = ({ active, payload }: TooltipProps<number, string>) => {
     if (active && payload && payload.length) {
       return (
         <div className="bg-white p-2 border rounded shadow-sm">
           <p className="text-sm font-semibold">{`${payload[0].name}`}</p>
-          <p className="text-sm text-primary">{`${payload[0].value}%`}</p>
+          <p className="text-sm text-primary">{`${payload[0].value} items`}</p>
         </div>
       );
     }
-  
+
     return null;
   };
 
@@ -54,28 +68,34 @@ export default function PieChart({ className }: PieChartProps) {
             <MoreVertical className="h-4 w-4 text-neutral-500" />
           </Button>
         </div>
-        
+
         <div className="h-48 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <ReChartsPieChart>
-              <Pie
-                data={data}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={80}
-                paddingAngle={2}
-                dataKey="value"
-              >
-                {data.map((_, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip content={<CustomTooltip />} />
-            </ReChartsPieChart>
-          </ResponsiveContainer>
+          {isLoading ? (
+            <div className="flex items-center justify-center h-full">
+              <Skeleton className="h-32 w-32 rounded-full" />
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <ReChartsPieChart>
+                <Pie
+                  data={data}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={2}
+                  dataKey="value"
+                >
+                  {data.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.fill || COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+              </ReChartsPieChart>
+            </ResponsiveContainer>
+          )}
         </div>
-        
+
         <div className="mt-4">
           {data.slice(0, 3).map((entry, index) => (
             <div key={`legend-${index}`} className="flex items-center justify-between mb-2">

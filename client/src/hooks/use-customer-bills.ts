@@ -27,6 +27,7 @@ export interface CustomerBill {
   marketTotal: number;
   savings: number;
   itemCount: number;
+  paymentMethod: 'Cash' | 'Card' | 'Bank Transfer' | 'Credit' | 'UPI';
   status: 'pending' | 'completed' | 'cancelled';
   createdAt: string;
   updatedAt?: string;
@@ -44,6 +45,7 @@ export interface CreateCustomerBillData {
   marketTotal: number;
   savings: number;
   itemCount: number;
+  paymentMethod: 'Cash' | 'Card' | 'Bank Transfer' | 'Credit' | 'UPI';
   status: 'pending' | 'completed' | 'cancelled';
   items: CustomerBillItem[];
 }
@@ -68,7 +70,7 @@ export function useCustomerBills(options?: {
   endDate?: string;
 }) {
   const queryParams = new URLSearchParams();
-  
+
   if (options?.page) queryParams.append('page', options.page.toString());
   if (options?.limit) queryParams.append('limit', options.limit.toString());
   if (options?.search) queryParams.append('search', options.search);

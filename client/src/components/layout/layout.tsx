@@ -21,13 +21,17 @@ export default function Layout({ children }: LayoutProps) {
 
   return (
     <div className="flex flex-col h-screen">
-      <Header toggleSidebar={toggleSidebar} />
+      <div className="no-print">
+        <Header toggleSidebar={toggleSidebar} />
+      </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          isMobileOpen={sidebarOpen}
-          closeMobileSidebar={closeSidebar}
-        />
+        <div className="no-print">
+          <Sidebar
+            isMobileOpen={sidebarOpen}
+            closeMobileSidebar={closeSidebar}
+          />
+        </div>
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto bg-neutral-100 p-4">

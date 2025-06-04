@@ -1,46 +1,18 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { Package, Receipt, DollarSign, UserPlus } from "lucide-react";
+import { Package, Receipt, DollarSign, UserPlus, ShoppingCart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useQuery } from "@tanstack/react-query";
 
-interface ActivityItem {
-  id: number;
-  type: 'inventory' | 'invoice' | 'payment' | 'vendor';
+interface RecentActivity {
+  id: string;
+  type: 'inventory' | 'distribution' | 'payment' | 'supplier';
   title: string;
   description: string;
-  timestamp: Date;
+  timestamp: string;
+  entityId?: number;
+  amount?: number;
 }
-
-const activities: ActivityItem[] = [
-  {
-    id: 1,
-    type: 'inventory',
-    title: 'Inventory Updated',
-    description: 'Sarah added 15kg of Cinnamon to stock',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-  },
-  {
-    id: 2,
-    type: 'invoice',
-    title: 'Invoice Generated',
-    description: 'Invoice #INV-7842 created for Global Foods Inc.',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-  },
-  {
-    id: 3,
-    type: 'payment',
-    title: 'Payment Received',
-    description: '$2,450.00 received from Eastern Spice Market',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3), // 3 days ago
-  },
-  {
-    id: 4,
-    type: 'vendor',
-    title: 'Vendor Added',
-    description: 'New vendor "Premium Organics" added to the system',
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24 * 4), // 4 days ago
-  },
-];
 
 interface RecentActivityProps {
   className?: string;
@@ -48,6 +20,12 @@ interface RecentActivityProps {
 }
 
 export default function RecentActivity({ className, isLoading = false }: RecentActivityProps) {
+  // Fetch real recent activities data
+  const { data: activities, isLoading: activitiesLoading } = useQuery<RecentActivity[]>({
+    queryKey: ["/api/dashboard/recent-activities"],
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
   const getActivityIcon = (type: string) => {
     switch (type) {
       case 'inventory':
@@ -56,55 +34,62 @@ export default function RecentActivity({ className, isLoading = false }: RecentA
             <Package className="text-white h-4 w-4" />
           </div>
         );
-      case 'invoice':
+      case 'distribution':
         return (
           <div className="h-8 w-8 bg-secondary rounded-full flex items-center justify-center -ml-4">
-            <Receipt className="text-white h-4 w-4" />
+            <ShoppingCart className="text-white h-4 w-4" />
           </div>
         );
       case 'payment':
         return (
-          <div className="h-8 w-8 bg-accent-dark rounded-full flex items-center justify-center -ml-4">
+          <div className="h-8 w-8 bg-green-600 rounded-full flex items-center justify-center -ml-4">
             <DollarSign className="text-white h-4 w-4" />
           </div>
         );
-      case 'vendor':
+      case 'supplier':
         return (
-          <div className="h-8 w-8 bg-green-500 rounded-full flex items-center justify-center -ml-4">
+          <div className="h-8 w-8 bg-blue-500 rounded-full flex items-center justify-center -ml-4">
             <UserPlus className="text-white h-4 w-4" />
           </div>
         );
       default:
-        return null;
+        return (
+          <div className="h-8 w-8 bg-gray-500 rounded-full flex items-center justify-center -ml-4">
+            <Receipt className="text-white h-4 w-4" />
+          </div>
+        );
     }
   };
 
-  const formatDate = (date: Date) => {
+  const formatDate = (timestamp: string) => {
+    const date = new Date(timestamp);
     const now = new Date();
     const diffTime = Math.abs(now.getTime() - date.getTime());
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-    
+
     if (diffDays === 0) {
       const diffHours = Math.floor(diffTime / (1000 * 60 * 60));
       if (diffHours === 0) {
         const diffMinutes = Math.floor(diffTime / (1000 * 60));
-        return `Today, ${diffMinutes} minute${diffMinutes !== 1 ? 's' : ''} ago`;
+        return `${diffMinutes} minute${diffMinutes !== 1 ? 's' : ''} ago`;
       }
-      return `Today, ${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+      return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
     } else if (diffDays === 1) {
-      return `Yesterday, ${date.toLocaleTimeString('en-US', { 
-        hour: 'numeric', 
+      return `Yesterday, ${date.toLocaleTimeString('en-US', {
+        hour: 'numeric',
         minute: '2-digit',
-        hour12: true 
+        hour12: true
       })}`;
     } else {
-      return date.toLocaleDateString('en-US', { 
+      return date.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
         year: 'numeric'
       });
     }
   };
+
+  const isDataLoading = isLoading || activitiesLoading;
 
   return (
     <Card className={cn("", className)}>
@@ -113,13 +98,13 @@ export default function RecentActivity({ className, isLoading = false }: RecentA
           <h2 className="font-heading font-semibold text-neutral-800">Recent Activity</h2>
           <a href="#" className="text-secondary text-sm font-medium">View All</a>
         </div>
-        
+
         <div className="relative">
           <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-neutral-200"></div>
-          
+
           <div className="space-y-4">
-            {isLoading ? (
-              Array(4).fill(0).map((_, i) => (
+            {isDataLoading ? (
+              Array(5).fill(0).map((_, i) => (
                 <div key={i} className="flex ml-4 pb-4">
                   <Skeleton className="h-8 w-8 rounded-full -ml-4" />
                   <div className="ml-4 w-full">
@@ -129,7 +114,7 @@ export default function RecentActivity({ className, isLoading = false }: RecentA
                   </div>
                 </div>
               ))
-            ) : (
+            ) : activities && activities.length > 0 ? (
               activities.map((activity) => (
                 <div key={activity.id} className="flex ml-4 pb-4">
                   <div className="flex-shrink-0 z-10">
@@ -142,6 +127,12 @@ export default function RecentActivity({ className, isLoading = false }: RecentA
                   </div>
                 </div>
               ))
+            ) : (
+              <div className="text-center py-8">
+                <Package className="h-8 w-8 mx-auto text-gray-300 mb-2" />
+                <p className="text-gray-500 text-sm">No recent activities</p>
+                <p className="text-gray-400 text-xs">Activities will appear here as you use the system</p>
+              </div>
             )}
           </div>
         </div>

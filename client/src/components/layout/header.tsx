@@ -49,7 +49,7 @@ export default function Header({ toggleSidebar }: HeaderProps) {
             </Button>
             <div className="flex items-center">
               <span className="text-accent mr-2">✦</span>
-              <h1 className="font-heading font-semibold text-xl">ProductManager</h1>
+              <h1 className="font-heading font-semibold text-xl">RoyalSpicyMasala</h1>
             </div>
           </div>
 

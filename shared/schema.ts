@@ -35,6 +35,7 @@ export const categories = pgTable("categories", {
   id: serial("id").primaryKey(),
   name: text("name").notNull().unique(),
   description: text("description"),
+  imagePath: text("image_path"),
 });
 
 export const products = pgTable("products", {
@@ -309,6 +310,7 @@ export const customerBills = pgTable("customer_bills", {
   marketTotal: numeric("market_total").notNull().default("0"),
   savings: numeric("savings").notNull().default("0"),
   itemCount: integer("item_count").notNull().default(0),
+  paymentMethod: text("payment_method").notNull().default("Cash"),
   status: text("status").notNull().default("completed"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

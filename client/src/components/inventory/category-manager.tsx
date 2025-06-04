@@ -7,6 +7,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Category, insertCategorySchema } from "@shared/schema";
 import { Button } from "@/components/ui/button";
+import CategoryImageUpload from "@/components/categories/category-image-upload";
+import { getCategoryImageUrl } from "@/lib/image-utils";
 import {
   Form,
   FormControl,
@@ -40,6 +42,7 @@ export default function CategoryManager() {
   const [categoryToDelete, setCategoryToDelete] = useState<number | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [categoryImage, setCategoryImage] = useState<string | null>(null);
 
   const { data: categories, isLoading, refetch } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
@@ -47,12 +50,17 @@ export default function CategoryManager() {
 
   const createCategoryMutation = useMutation({
     mutationFn: async (data: CategoryFormValues) => {
+      const categoryData = {
+        ...data,
+        imagePath: categoryImage
+      };
+
       const res = await fetch('/api/categories', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(data),
+        body: JSON.stringify(categoryData),
         credentials: 'include'
       });
       if (!res.ok) {
@@ -68,6 +76,7 @@ export default function CategoryManager() {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       setIsAddDialogOpen(false);
+      setCategoryImage(null);
       form.reset({
         name: "",
         description: ""
@@ -151,7 +160,7 @@ export default function CategoryManager() {
               <Plus className="h-4 w-4 mr-1" /> Add Category
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>Add New Category</DialogTitle>
               <DialogDescription>
@@ -194,6 +203,11 @@ export default function CategoryManager() {
                   )}
                 />
 
+                <CategoryImageUpload
+                  currentImage={categoryImage}
+                  onImageChange={setCategoryImage}
+                />
+
                 <div className="flex justify-end space-x-2">
                   <Button
                     variant="outline"
@@ -229,31 +243,47 @@ export default function CategoryManager() {
           ))
         ) : categories && categories.length > 0 ? (
           categories.map((category) => (
-            <div key={category.id} className="border rounded-md p-4 hover:border-secondary transition-colors">
-              <div className="flex justify-between items-start mb-1">
-                <span className="font-medium">{category.name}</span>
-                <div className="flex space-x-1">
-                  <Button variant="ghost" size="icon" className="h-6 w-6">
-                    <Edit className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50"
-                    onClick={() => handleDeleteCategory(category.id)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+            <div key={category.id} className="border rounded-md overflow-hidden hover:border-secondary transition-colors">
+              {/* Category Image */}
+              {category.imagePath && (
+                <div className="h-32 w-full">
+                  <img
+                    src={getCategoryImageUrl(category.imagePath) || ''}
+                    alt={category.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
                 </div>
-              </div>
-              <p className="text-sm text-muted-foreground line-clamp-1">
-                {category.description || "No description"}
-              </p>
-              <div className="mt-2">
-                <Badge variant="outline" className="bg-secondary/5 border-secondary/20 text-secondary text-xs">
-                  {/* This would show product count in a real implementation */}
-                  0 products
-                </Badge>
+              )}
+
+              <div className="p-4">
+                <div className="flex justify-between items-start mb-1">
+                  <span className="font-medium">{category.name}</span>
+                  <div className="flex space-x-1">
+                    <Button variant="ghost" size="icon" className="h-6 w-6">
+                      <Edit className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-red-500 hover:text-red-700 hover:bg-red-50"
+                      onClick={() => handleDeleteCategory(category.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground line-clamp-1">
+                  {category.description || "No description"}
+                </p>
+                <div className="mt-2">
+                  <Badge variant="outline" className="bg-secondary/5 border-secondary/20 text-secondary text-xs">
+                    {/* This would show product count in a real implementation */}
+                    0 products
+                  </Badge>
+                </div>
               </div>
             </div>
           ))

@@ -15,6 +15,10 @@ const storage = multer.diskStorage({
 
     if (req.path.includes('/receipts')) {
       uploadDir = path.join(__dirname, 'public', 'uploads', 'receipts');
+    } else if (req.path.includes('/expenses')) {
+      uploadDir = path.join(__dirname, 'public', 'uploads', 'expenseimg');
+    } else if (req.path.includes('/assets')) {
+      uploadDir = path.join(__dirname, 'public', 'uploads', 'assets');
     } else if (req.path.includes('/caterers')) {
       uploadDir = path.join(__dirname, 'public', 'uploads', 'caterers');
     } else if (req.path.includes('/suppliers')) {
@@ -42,6 +46,10 @@ const storage = multer.diskStorage({
     let prefix = 'file';
     if (req.path.includes('/receipts')) {
       prefix = 'receipt';
+    } else if (req.path.includes('/expenses')) {
+      prefix = 'expense';
+    } else if (req.path.includes('/assets')) {
+      prefix = 'asset';
     } else if (req.path.includes('/caterers')) {
       prefix = 'caterer';
     } else if (req.path.includes('/suppliers')) {
@@ -76,12 +84,16 @@ const upload = multer({
 });
 
 // Helper function to get the URL for a file
-export const getFileUrl = (filename: string | null, type: 'receipt' | 'spice' | 'caterer' | 'supplier' | 'category' = 'spice'): string | null => {
+export const getFileUrl = (filename: string | null, type: 'receipt' | 'expense' | 'asset' | 'spice' | 'caterer' | 'supplier' | 'category' = 'spice'): string | null => {
   if (!filename) return null;
 
   let folder = 'spices';
   if (type === 'receipt') {
     folder = 'receipts';
+  } else if (type === 'expense') {
+    folder = 'expenseimg';
+  } else if (type === 'asset') {
+    folder = 'assets';
   } else if (type === 'caterer') {
     folder = 'caterers';
   } else if (type === 'supplier') {
@@ -96,6 +108,16 @@ export const getFileUrl = (filename: string | null, type: 'receipt' | 'spice' | 
 // Helper function specifically for receipt images
 export const getReceiptUrl = (filename: string | null): string | null => {
   return getFileUrl(filename, 'receipt');
+};
+
+// Helper function specifically for expense images
+export const getExpenseImageUrl = (filename: string | null): string | null => {
+  return getFileUrl(filename, 'expense');
+};
+
+// Helper function specifically for asset images
+export const getAssetImageUrl = (filename: string | null): string | null => {
+  return getFileUrl(filename, 'asset');
 };
 
 // Helper function specifically for caterer images

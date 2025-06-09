@@ -39,10 +39,10 @@ const CatererCard = memo(({ caterer, onEdit, onDelete, onView }: CatererCardProp
   const currentTotalOrders = balanceData?.totalOrders ?? (Number(caterer.totalOrders) || 0);
 
   return (
-    <Card className="overflow-hidden h-full flex flex-col">
+    <Card className="overflow-hidden h-[480px] w-[320px] flex flex-col">
       {/* Shop Card Image */}
-      {caterer.shopCardImage && (
-        <div className="h-32 overflow-hidden">
+      <div className="h-32 overflow-hidden bg-gray-100 flex items-center justify-center rounded-t-lg">
+        {caterer.shopCardImage ? (
           <img
             src={getCatererImageUrl(caterer.shopCardImage) || ''}
             alt={`${caterer.name} shop card`}
@@ -53,11 +53,15 @@ const CatererCard = memo(({ caterer, onEdit, onDelete, onView }: CatererCardProp
               e.currentTarget.style.display = 'none';
             }}
           />
-        </div>
-      )}
+        ) : (
+          <div className="text-gray-400 text-6xl">
+            <ChefHat />
+          </div>
+        )}
+      </div>
 
-      <CardContent className="p-0 flex-grow">
-        <div className="p-5">
+      <CardContent className="p-0 flex-grow overflow-hidden">
+        <div className="p-5 flex flex-col h-full">
           <div className="flex justify-between items-start mb-3">
             <h3 className="font-semibold text-xl line-clamp-1">{caterer.name}</h3>
             <Badge
@@ -72,26 +76,39 @@ const CatererCard = memo(({ caterer, onEdit, onDelete, onView }: CatererCardProp
             <p className="text-sm text-muted-foreground mb-3">{caterer.contactName}</p>
           )}
 
-          <div className="mt-4 space-y-2">
-            {caterer.email && (
-              <div className="flex items-center text-sm">
-                <Mail className="h-4 w-4 mr-2 text-muted-foreground" />
-                <span className="truncate">{caterer.email}</span>
+          {/* Contact Information - Only show if at least one contact detail exists */}
+          {(caterer.email || caterer.phone || caterer.address) && (
+            <div className="mt-4 space-y-2 flex-grow overflow-hidden">
+              {caterer.email && (
+                <div className="flex items-center text-sm">
+                  <Mail className="h-4 w-4 mr-2 text-muted-foreground shrink-0" />
+                  <span className="truncate">{caterer.email}</span>
+                </div>
+              )}
+              {caterer.phone && (
+                <div className="flex items-center text-sm">
+                  <Phone className="h-4 w-4 mr-2 text-muted-foreground shrink-0" />
+                  <span>{caterer.phone}</span>
+                </div>
+              )}
+              {caterer.address && (
+                <div className="flex items-start text-sm">
+                  <MapPin className="h-4 w-4 mr-2 text-muted-foreground mt-0.5 shrink-0" />
+                  <span className="line-clamp-2">{caterer.address}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Show placeholder when no contact information is available */}
+          {!caterer.email && !caterer.phone && !caterer.address && (
+            <div className="mt-4 flex-grow flex items-center justify-center">
+              <div className="text-center text-muted-foreground">
+                <div className="text-2xl mb-2">📞</div>
+                <p className="text-xs">No contact details</p>
               </div>
-            )}
-            {caterer.phone && (
-              <div className="flex items-center text-sm">
-                <Phone className="h-4 w-4 mr-2 text-muted-foreground" />
-                <span>{caterer.phone}</span>
-              </div>
-            )}
-            {caterer.address && (
-              <div className="flex items-start text-sm">
-                <MapPin className="h-4 w-4 mr-2 text-muted-foreground mt-0.5" />
-                <span className="line-clamp-1">{caterer.address}</span>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
 
           <div className="mt-4 pt-4 border-t">
             <div className="grid grid-cols-2 gap-2">
@@ -117,65 +134,74 @@ const CatererCard = memo(({ caterer, onEdit, onDelete, onView }: CatererCardProp
         </div>
       </CardContent>
 
-      <CardFooter className="flex flex-wrap gap-1 p-3 pt-0 border-t">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onEdit(caterer)}
-          className="flex-1 h-9 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-1"
-        >
-          <Edit className="h-3 w-3 mr-1" />
-          Edit
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={async () => {
-            if (caterer) {
-              console.log(`Deleting caterer: ${caterer.name}`);
-              try {
-                await onDelete(caterer);
-              } catch (error) {
-                console.error('Error in delete handler:', error);
-              }
-            } else {
-              console.error('Cannot delete caterer: Invalid caterer object', caterer);
-            }
-          }}
-          className="flex-1 h-9 text-xs text-red-600 hover:text-red-800 hover:bg-red-50 px-1"
-        >
-          <Trash2 className="h-3 w-3 mr-1" />
-          Delete
-        </Button>
-        {onView && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onView(caterer)}
-            className="flex-1 h-9 text-xs text-purple-600 hover:text-purple-800 hover:bg-purple-50 px-1"
-          >
-            <ChefHat className="h-3 w-3 mr-1" />
-            View Card
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate(`/caterers/${caterer.id}`)}
-          className="flex-1 h-9 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-1"
-        >
-          <Eye className="h-3 w-3 mr-1" />
-          Details
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate(`/caterer-billing?catererId=${caterer.id}`)}
-          className="flex-1 h-9 text-xs text-green-600 hover:text-green-800 hover:bg-green-50 px-1"
-        >
-          <CreditCard className="h-3 w-3 mr-1" />
-          Bill
-        </Button>
+      <CardFooter className="p-3 pt-2 border-t bg-gray-50/50">
+        <div className="w-full space-y-2">
+          {/* First row of buttons */}
+          <div className="flex gap-1 w-full">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onEdit(caterer)}
+              className="flex-1 h-8 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+            >
+              <Edit className="h-3 w-3 mr-1" />
+              Edit
+            </Button>
+            {onView && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onView(caterer)}
+                className="flex-1 h-8 text-xs text-purple-600 hover:text-purple-800 hover:bg-purple-50"
+              >
+                <ChefHat className="h-3 w-3 mr-1" />
+                View Card
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate(`/caterers/${caterer.id}`)}
+              className="flex-1 h-8 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50"
+            >
+              <Eye className="h-3 w-3 mr-1" />
+              Details
+            </Button>
+          </div>
+
+          {/* Second row of buttons */}
+          <div className="flex gap-1 w-full">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={async () => {
+                if (caterer) {
+                  console.log(`Deleting caterer: ${caterer.name}`);
+                  try {
+                    await onDelete(caterer);
+                  } catch (error) {
+                    console.error('Error in delete handler:', error);
+                  }
+                } else {
+                  console.error('Cannot delete caterer: Invalid caterer object', caterer);
+                }
+              }}
+              className="flex-1 h-8 text-xs text-red-600 hover:text-red-800 hover:bg-red-50"
+            >
+              <Trash2 className="h-3 w-3 mr-1" />
+              Delete
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate(`/caterer-billing?catererId=${caterer.id}`)}
+              className="flex-1 h-8 text-xs text-green-600 hover:text-green-800 hover:bg-green-50"
+            >
+              <CreditCard className="h-3 w-3 mr-1" />
+              Buy
+            </Button>
+          </div>
+        </div>
       </CardFooter>
     </Card>
   );

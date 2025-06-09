@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-container { margin: 20px 0; padding: 20px; border: 1px solid #ccc; }
+        .image-test { display: flex; gap: 20px; align-items: center; margin: 10px 0; }
+        .image-test img { width: 100px; height: 100px; object-fit: cover; border: 1px solid #ddd; }
+        .status { padding: 5px 10px; border-radius: 4px; font-size: 12px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .loading { background: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+    <h1>Image Loading Test</h1>
+    
+    <div class="test-container">
+        <h2>Direct Image URLs Test</h2>
+        <div id="image-tests"></div>
+    </div>
+
+    <div class="test-container">
+        <h2>Responsive Test</h2>
+        <p>Resize your browser window to test responsive behavior</p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;">
+            <div id="responsive-images"></div>
+        </div>
+    </div>
+
+    <script>
+        // Test image URLs
+        const testImages = [
+            '/api/uploads/spices/spice-1749032646173-959281330.jpg',
+            '/api/uploads/spices/spice-1747832007679-860020499.jpg',
+            '/api/uploads/spices/spice-1747904442521-763523468.jpg',
+            '/api/uploads/spices/spice-1748084745003-238586718.jpg'
+        ];
+
+        function createImageTest(url, container) {
+            const testDiv = document.createElement('div');
+            testDiv.className = 'image-test';
+            
+            const img = document.createElement('img');
+            const statusDiv = document.createElement('div');
+            const urlDiv = document.createElement('div');
+            
+            statusDiv.className = 'status loading';
+            statusDiv.textContent = 'Loading...';
+            
+            urlDiv.textContent = url;
+            urlDiv.style.fontSize = '12px';
+            urlDiv.style.color = '#666';
+            
+            img.onload = () => {
+                statusDiv.className = 'status success';
+                statusDiv.textContent = '✅ Loaded';
+                console.log('✅ Image loaded:', url);
+            };
+            
+            img.onerror = () => {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = '❌ Failed';
+                console.error('❌ Image failed:', url);
+            };
+            
+            img.src = url;
+            
+            testDiv.appendChild(img);
+            testDiv.appendChild(document.createElement('div')).appendChild(statusDiv);
+            testDiv.lastChild.appendChild(urlDiv);
+            
+            container.appendChild(testDiv);
+        }
+
+        // Create tests
+        const testContainer = document.getElementById('image-tests');
+        const responsiveContainer = document.getElementById('responsive-images');
+        
+        testImages.forEach(url => {
+            createImageTest(url, testContainer);
+            
+            // Create responsive version
+            const responsiveDiv = document.createElement('div');
+            responsiveDiv.style.border = '1px solid #ddd';
+            responsiveDiv.style.padding = '10px';
+            responsiveDiv.style.textAlign = 'center';
+            
+            const responsiveImg = document.createElement('img');
+            responsiveImg.style.width = '100%';
+            responsiveImg.style.height = '100px';
+            responsiveImg.style.objectFit = 'cover';
+            responsiveImg.src = url;
+            
+            responsiveDiv.appendChild(responsiveImg);
+            responsiveContainer.appendChild(responsiveDiv);
+        });
+
+        // Test fetch API
+        console.log('Testing image URLs with fetch...');
+        testImages.forEach(url => {
+            fetch(url, { method: 'HEAD' })
+                .then(response => {
+                    console.log(`Fetch test ${url}: ${response.status} ${response.ok ? '✅' : '❌'}`);
+                })
+                .catch(error => {
+                    console.error(`Fetch test ${url}: ERROR ❌`, error);
+                });
+        });
+    </script>
+</body>
+</html>

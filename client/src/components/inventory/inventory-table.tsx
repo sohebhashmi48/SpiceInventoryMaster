@@ -21,7 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Inventory, Spice, Vendor } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { MoreHorizontal, Edit, Trash2, AlertTriangle } from "lucide-react";
+import { MoreHorizontal, Edit, Trash2, AlertTriangle, PackageX } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatQuantityWithUnit } from "@/lib/utils";
 import {
@@ -54,9 +54,19 @@ interface InventoryTableProps {
     expiryDateStart?: Date | null;
     expiryDateEnd?: Date | null;
   };
+  customData?: Inventory[];
+  emptyMessage?: string;
+  emptyDescription?: string;
+  emptyIcon?: string;
 }
 
-export default function InventoryTable({ filters = {} }: InventoryTableProps) {
+export default function InventoryTable({
+  filters = {},
+  customData,
+  emptyMessage = "No inventory items found",
+  emptyDescription,
+  emptyIcon
+}: InventoryTableProps) {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState(filters.searchQuery || "");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -108,7 +118,8 @@ export default function InventoryTable({ filters = {} }: InventoryTableProps) {
     return product ? product.name : "Unknown";
   };
 
-  const getVendorName = (supplierId: number) => {
+  const getVendorName = (supplierId: number | null) => {
+    if (!supplierId) return "No Supplier";
     const supplier = vendors?.find((v) => v.id === supplierId);
     return supplier ? supplier.name : "Unknown";
   };
@@ -132,7 +143,7 @@ export default function InventoryTable({ filters = {} }: InventoryTableProps) {
   };
 
   const isLowStock = (quantity: number | string) => {
-    return Number(quantity) < 5;
+    return Number(quantity) <= 10;
   };
 
   const handleDelete = (id: number) => {
@@ -150,14 +161,20 @@ export default function InventoryTable({ filters = {} }: InventoryTableProps) {
     setIsAddDialogOpen(true);
   };
 
-  const filteredInventory = inventory?.filter((item) => {
-    // First check if the item is active and has quantity > 0
-    // Only show inactive items if explicitly requested with status filter
+  // Use customData if provided, otherwise use regular inventory data
+  const dataToFilter = customData || inventory;
+
+  const filteredInventory = dataToFilter?.filter((item) => {
+    // First check if the item is active
     const isItemActive = item.status === 'active';
     const hasQuantity = Number(item.quantity) > 0;
+    const quantity = Number(item.quantity);
 
-    // Skip inactive or zero quantity items unless specifically requested
-    if (!isItemActive || !hasQuantity) {
+    // Check if we're specifically looking for out of stock items
+    const isOutOfStockFilter = filters.minQuantity === 0 && filters.maxQuantity === 0;
+
+    // Skip inactive items unless specifically requested
+    if (!isItemActive) {
       // Only show inactive items if explicitly looking for them
       const showingInactive = filters.status === 'expired' || filters.status === 'expiring';
       if (!showingInactive) {
@@ -165,12 +182,11 @@ export default function InventoryTable({ filters = {} }: InventoryTableProps) {
       }
     }
 
-    // Get product and supplier names
+    // Get product and supplier names for filtering
     const spiceName = getSpiceName(item.productId).toLowerCase();
     const vendorName = getVendorName(item.supplierId).toLowerCase();
-    const batchNumber = item.batchNumber.toLowerCase();
+    const batchNumber = (item.batchNumber || '').toLowerCase();
     const query = searchQuery.toLowerCase();
-    const quantity = Number(item.quantity);
 
     // Basic search filter
     const matchesSearch =
@@ -186,7 +202,14 @@ export default function InventoryTable({ filters = {} }: InventoryTableProps) {
     // Supplier filter
     const matchesSupplier =
       !filters.supplierId ||
-      item.supplierId === filters.supplierId;
+      (item.supplierId && item.supplierId === filters.supplierId);
+
+    // For out of stock filter, we only want active items with zero quantity
+    if (isOutOfStockFilter) {
+      return isItemActive && quantity === 0 && matchesSearch && matchesProduct && matchesSupplier;
+    }
+
+
 
     // Status filter
     let matchesStatus = true;
@@ -196,7 +219,7 @@ export default function InventoryTable({ filters = {} }: InventoryTableProps) {
       } else if (filters.status === 'expiring') {
         matchesStatus = isExpiringSoon(item.expiryDate);
       } else if (filters.status === 'active') {
-        matchesStatus = !isExpired(item.expiryDate) && !isExpiringSoon(item.expiryDate) && isItemActive && hasQuantity;
+        matchesStatus = !isExpired(item.expiryDate) && !isExpiringSoon(item.expiryDate) && isItemActive;
       }
     }
 
@@ -232,6 +255,8 @@ export default function InventoryTable({ filters = {} }: InventoryTableProps) {
       matchesExpiryEnd
     );
   });
+
+
 
   return (
     <div>
@@ -272,7 +297,7 @@ export default function InventoryTable({ filters = {} }: InventoryTableProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {inventoryLoading ? (
+            {(inventoryLoading && !customData) ? (
               Array(5).fill(0).map((_, i) => (
                 <TableRow key={i}>
                   <TableCell><Skeleton className="h-4 w-24" /></TableCell>
@@ -287,8 +312,14 @@ export default function InventoryTable({ filters = {} }: InventoryTableProps) {
               ))
             ) : filteredInventory?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                  No inventory items found
+                <TableCell colSpan={8} className="text-center py-16">
+                  {emptyIcon && (
+                    <div className="text-green-400 text-6xl mb-4">{emptyIcon}</div>
+                  )}
+                  <h3 className="text-xl font-semibold text-gray-600 mb-2">{emptyMessage}</h3>
+                  {emptyDescription && (
+                    <p className="text-gray-500">{emptyDescription}</p>
+                  )}
                 </TableCell>
               </TableRow>
             ) : (
@@ -302,17 +333,30 @@ export default function InventoryTable({ filters = {} }: InventoryTableProps) {
                     {getVendorName(item.supplierId)}
                   </TableCell>
                   <TableCell className="text-right">
-                    {isLowStock(item.quantity) && (
-                      <AlertTriangle className="h-4 w-4 text-red-500 inline mr-1" />
+                    {Number(item.quantity) === 0 ? (
+                      <div className="flex items-center justify-end gap-1">
+                        <PackageX className="h-4 w-4 text-red-600" />
+                        <span className="text-red-600 font-medium">Out of Stock</span>
+                      </div>
+                    ) : (
+                      <>
+                        {isLowStock(item.quantity) && (
+                          <AlertTriangle className="h-4 w-4 text-red-500 inline mr-1" />
+                        )}
+                        {formatQuantityWithUnit(item.quantity, 'kg', true)}
+                      </>
                     )}
-                    {formatQuantityWithUnit(item.quantity, 'kg', true)}
                   </TableCell>
-                  <TableCell className="text-right">${Number(item.totalValue).toFixed(2)}</TableCell>
+                  <TableCell className="text-right">₹{Number(item.totalValue).toFixed(2)}</TableCell>
                   <TableCell>
                     {formatDate(item.expiryDate)}
                   </TableCell>
                   <TableCell>
-                    {isExpired(item.expiryDate) ? (
+                    {Number(item.quantity) === 0 ? (
+                      <Badge variant="destructive" className="bg-red-100 text-red-800 border-red-300">
+                        Out of Stock
+                      </Badge>
+                    ) : isExpired(item.expiryDate) ? (
                       <Badge variant="destructive">Expired</Badge>
                     ) : isExpiringSoon(item.expiryDate) ? (
                       <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">

@@ -31,7 +31,7 @@ import { Barcode } from '@/components/common/barcode-scanner';
 const formSchema = insertInventorySchema.extend({
   productId: z.coerce.number().min(1, "Please select a product"),
   supplierId: z.coerce.number().min(1, "Please select a supplier"),
-  quantity: z.coerce.number().min(0.01, "Quantity must be greater than 0"),
+  quantity: z.coerce.number().min(0, "Quantity must be 0 or greater"),
   unitPrice: z.coerce.number().min(0.01, "Unit price must be greater than 0"),
   // Transform the string date from the input to a Date object
   expiryDate: z.string()

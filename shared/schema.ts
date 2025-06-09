@@ -572,3 +572,123 @@ export const loginSchema = insertUserSchema.pick({
 });
 
 export type LoginCredentials = z.infer<typeof loginSchema>;
+
+// Expenses table schema
+export const expenses = pgTable("expenses", {
+  id: serial("id").primaryKey(),
+  icon: text("icon").notNull(),
+  title: text("title").notNull(),
+  expenseDate: timestamp("expense_date").notNull(),
+  expiryDate: timestamp("expiry_date"),
+  receiptImage: text("receipt_image"),
+  amount: integer("amount").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertExpenseSchema = createInsertSchema(expenses)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    // Allow both string and Date for expenseDate to support form submissions
+    expenseDate: z.union([
+      z.string().refine(val => !isNaN(Date.parse(val)), {
+        message: "Invalid date format"
+      }).transform(val => new Date(val)),
+      z.date()
+    ]),
+    // Allow both string and Date for expiryDate to support form submissions
+    expiryDate: z.union([
+      z.string().refine(val => !isNaN(Date.parse(val)), {
+        message: "Invalid date format"
+      }).transform(val => new Date(val)),
+      z.date(),
+      z.null(),
+      z.undefined()
+    ]).optional(),
+    // Allow both string and number for amount to support form submissions
+    amount: z.union([
+      z.string().transform(val => val === '' ? 0 : parseInt(val)),
+      z.number()
+    ]),
+    // Allow receipt image to be optional
+    receiptImage: z.string().nullable().optional(),
+  });
+
+export type InsertExpense = z.infer<typeof insertExpenseSchema>;
+export type Expense = typeof expenses.$inferSelect;
+
+// Assets table schema
+export const assets = pgTable("assets", {
+  id: serial("id").primaryKey(),
+  assetImage: text("asset_image"), // Main asset image
+  title: text("title").notNull(),
+  description: text("description"),
+  purchaseDate: timestamp("purchase_date").notNull(),
+  expiryDate: timestamp("expiry_date"),
+  receiptImage: text("receipt_image"),
+  amount: integer("amount").notNull(),
+  currentValue: integer("current_value"),
+  depreciationRate: integer("depreciation_rate"), // percentage per year
+  category: text("category"), // e.g., "Equipment", "Furniture", "Technology"
+  location: text("location"),
+  serialNumber: text("serial_number"),
+  warrantyExpiry: timestamp("warranty_expiry"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAssetSchema = createInsertSchema(assets)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    // Allow both string and Date for purchaseDate to support form submissions
+    purchaseDate: z.union([
+      z.string().refine(val => !isNaN(Date.parse(val)), {
+        message: "Invalid purchase date format"
+      }),
+      z.date()
+    ]).transform(val => {
+      if (typeof val === 'string') {
+        return new Date(val);
+      }
+      return val;
+    }),
+    // Allow both string and Date for expiryDate to support form submissions
+    expiryDate: z.union([
+      z.string().refine(val => !isNaN(Date.parse(val)), {
+        message: "Invalid expiry date format"
+      }),
+      z.date(),
+      z.null(),
+      z.undefined()
+    ]).transform(val => {
+      if (typeof val === 'string') {
+        return new Date(val);
+      }
+      return val;
+    }).optional(),
+    // Allow both string and Date for warrantyExpiry to support form submissions
+    warrantyExpiry: z.union([
+      z.string().refine(val => !isNaN(Date.parse(val)), {
+        message: "Invalid warranty expiry date format"
+      }),
+      z.date(),
+      z.null(),
+      z.undefined()
+    ]).transform(val => {
+      if (typeof val === 'string') {
+        return new Date(val);
+      }
+      return val;
+    }).optional(),
+    // Allow asset image to be optional
+    assetImage: z.string().nullable().optional(),
+    // Allow receipt image to be optional
+    receiptImage: z.string().nullable().optional(),
+    // Allow current value to be optional
+    currentValue: z.number().nullable().optional(),
+    // Allow depreciation rate to be optional
+    depreciationRate: z.number().nullable().optional(),
+  });
+
+export type InsertAsset = z.infer<typeof insertAssetSchema>;
+export type Asset = typeof assets.$inferSelect;

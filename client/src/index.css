@@ -2,6 +2,40 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Responsive mode detection and fixes */
+@media (max-width: 768px) {
+  body {
+    /* Add a class to detect mobile mode */
+    --mobile-mode: true;
+  }
+
+  /* Ensure images load properly on mobile */
+  img {
+    image-rendering: auto;
+    image-rendering: crisp-edges;
+    image-rendering: -webkit-optimize-contrast;
+  }
+}
+
+/* Force image loading for development */
+.dev-mode img {
+  image-rendering: auto !important;
+}
+
+/* Responsive grid improvements */
+@media (max-width: 640px) {
+  .responsive-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 0.5rem !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .responsive-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 :root {
   --background: 0 0% 100%;
   --foreground: 20 14.3% 4.1%;

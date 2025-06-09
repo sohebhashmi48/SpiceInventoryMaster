@@ -210,13 +210,20 @@ export function useShoppingCart() {
     localStorage.removeItem('showcase-cart');
   };
 
+  // Clear cart after specified time (for shared devices)
+  const clearCartAfterTime = (minutes: number = 30) => {
+    setTimeout(() => {
+      clearCart();
+    }, minutes * 60 * 1000);
+  };
+
   const getCartTotal = () => {
     return cart.reduce((total, item) => total + item.total, 0);
   };
 
   const getCartItemCount = () => {
-    const total = cart.reduce((count, item) => count + item.quantity, 0);
-    return Math.round(total * 1000) / 1000; // Round to avoid floating point issues
+    // Return the number of distinct items in cart, not the total quantity
+    return cart.length;
   };
 
   const isInCart = (productId: number) => {
@@ -233,6 +240,7 @@ export function useShoppingCart() {
     removeFromCart,
     updateQuantity,
     clearCart,
+    clearCartAfterTime,
     getCartTotal,
     getCartItemCount,
     isInCart,

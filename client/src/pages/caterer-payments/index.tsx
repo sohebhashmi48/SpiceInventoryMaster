@@ -12,7 +12,7 @@ import {
   TableHeader, TableRow
 } from '@/components/ui/table';
 import {
-  FileText, Plus, Search, Filter, ArrowUpDown, ChevronDown, DollarSign, Image
+  FileText, Plus, Search, Filter, ArrowUpDown, ChevronDown, DollarSign, Image, Printer
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -24,11 +24,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useCatererPayments } from '@/hooks/use-caterer-payments';
 import { useCaterers } from '@/hooks/use-caterers';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 
 export default function CatererPaymentsPage() {
   const [, setLocation] = useLocation();
   const { data: payments, isLoading } = useCatererPayments();
   const { data: caterers } = useCaterers();
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [catererFilter, setCatererFilter] = useState<number | 'all'>('all');
   const [paymentModeFilter, setPaymentModeFilter] = useState<string>('all');
@@ -106,6 +108,409 @@ export default function CatererPaymentsPage() {
     }));
   };
 
+  // Print payment receipt
+  const printPaymentReceipt = async (payment: any) => {
+    const catererName = getCatererName(payment.catererId);
+
+    // Show loading toast if we need to fetch items
+    if (payment.distributionId) {
+      toast({
+        title: "🔄 Preparing Receipt",
+        description: "Fetching bill details for complete receipt...",
+        duration: 2000,
+      });
+    }
+
+    // Fetch distribution items if distributionId exists
+    let distributionItems: any[] = [];
+    let distributionDetails: any = null;
+
+    if (payment.distributionId) {
+      try {
+        const response = await fetch(`/api/distributions/${payment.distributionId}`, {
+          credentials: 'include',
+        });
+        if (response.ok) {
+          distributionDetails = await response.json();
+          distributionItems = distributionDetails.items || [];
+        }
+      } catch (error) {
+        console.error('Failed to fetch distribution items:', error);
+        toast({
+          title: "⚠️ Warning",
+          description: "Could not fetch bill items. Printing payment receipt only.",
+          variant: "destructive",
+          duration: 3000,
+        });
+      }
+    }
+
+    const printWindow = window.open('', '_blank');
+
+    if (!printWindow) {
+      alert('Please allow popups to print the receipt');
+      return;
+    }
+
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Payment Receipt - ${payment.id}</title>
+          <style>
+            @media print {
+              @page { margin: 0.5in; }
+              body { margin: 0; }
+            }
+
+            body {
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              line-height: 1.4;
+              color: #333;
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+
+            .header {
+              text-align: center;
+              border-bottom: 3px solid #d97706;
+              padding-bottom: 20px;
+              margin-bottom: 30px;
+              background: linear-gradient(135deg, #f59e0b, #d97706);
+              color: white;
+              padding: 30px 20px;
+              border-radius: 10px;
+              margin: -20px -20px 30px -20px;
+            }
+
+            .company-name {
+              font-size: 28px;
+              font-weight: bold;
+              margin-bottom: 5px;
+              text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+            }
+
+            .company-tagline {
+              font-size: 14px;
+              opacity: 0.9;
+              margin-bottom: 10px;
+            }
+
+            .receipt-title {
+              font-size: 24px;
+              font-weight: bold;
+              color: #1f2937;
+              text-align: center;
+              margin-bottom: 20px;
+              padding: 15px;
+              background: #f3f4f6;
+              border-radius: 8px;
+              border-left: 5px solid #d97706;
+            }
+
+            .receipt-info {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 20px;
+              margin-bottom: 30px;
+            }
+
+            .info-section {
+              background: #f9fafb;
+              padding: 20px;
+              border-radius: 8px;
+              border: 1px solid #e5e7eb;
+            }
+
+            .info-title {
+              font-weight: bold;
+              color: #374151;
+              margin-bottom: 10px;
+              font-size: 16px;
+              border-bottom: 2px solid #d97706;
+              padding-bottom: 5px;
+            }
+
+            .info-item {
+              margin-bottom: 8px;
+              display: flex;
+              justify-content: space-between;
+            }
+
+            .info-label {
+              font-weight: 500;
+              color: #6b7280;
+            }
+
+            .info-value {
+              font-weight: 600;
+              color: #1f2937;
+            }
+
+            .amount-section {
+              background: linear-gradient(135deg, #10b981, #059669);
+              color: white;
+              padding: 25px;
+              border-radius: 10px;
+              text-align: center;
+              margin: 30px 0;
+              box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+
+            .amount-label {
+              font-size: 16px;
+              margin-bottom: 10px;
+              opacity: 0.9;
+            }
+
+            .amount-value {
+              font-size: 36px;
+              font-weight: bold;
+              text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+            }
+
+            .notes-section {
+              background: #fef3c7;
+              border: 1px solid #f59e0b;
+              border-radius: 8px;
+              padding: 20px;
+              margin: 20px 0;
+            }
+
+            .notes-title {
+              font-weight: bold;
+              color: #92400e;
+              margin-bottom: 10px;
+            }
+
+            .notes-content {
+              color: #78350f;
+              font-style: italic;
+            }
+
+            .footer {
+              text-align: center;
+              margin-top: 40px;
+              padding-top: 20px;
+              border-top: 2px solid #e5e7eb;
+              color: #6b7280;
+            }
+
+            .footer-message {
+              font-size: 16px;
+              font-weight: 600;
+              color: #d97706;
+              margin-bottom: 10px;
+            }
+
+            .footer-contact {
+              font-size: 12px;
+              line-height: 1.6;
+            }
+
+            .items-section {
+              margin: 30px 0;
+              border: 1px solid #e5e7eb;
+              border-radius: 8px;
+              overflow: hidden;
+            }
+
+            .items-title {
+              background: #f3f4f6;
+              padding: 15px 20px;
+              font-weight: bold;
+              color: #374151;
+              border-bottom: 1px solid #e5e7eb;
+              font-size: 16px;
+            }
+
+            .items-table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+
+            .items-table th {
+              background: #f9fafb;
+              padding: 12px 8px;
+              text-align: left;
+              font-weight: 600;
+              color: #374151;
+              border-bottom: 1px solid #e5e7eb;
+              font-size: 12px;
+            }
+
+            .items-table td {
+              padding: 10px 8px;
+              border-bottom: 1px solid #f3f4f6;
+              font-size: 12px;
+            }
+
+            .items-table tr:last-child td {
+              border-bottom: none;
+            }
+
+            .items-table .text-right {
+              text-align: right;
+            }
+
+            .items-table .text-center {
+              text-align: center;
+            }
+
+            .items-total {
+              background: #f9fafb;
+              font-weight: bold;
+            }
+
+            @media print {
+              .header { margin: -20px -20px 20px -20px; }
+              body { font-size: 12px; }
+              .company-name { font-size: 24px; }
+              .receipt-title { font-size: 20px; }
+              .amount-value { font-size: 28px; }
+              .items-table th, .items-table td { font-size: 10px; padding: 6px 4px; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="company-name">🌶️ RoyalSpicyMasala</div>
+            <div class="company-tagline">Premium Quality Spices Since 1995</div>
+          </div>
+
+          <div class="receipt-title">
+            💰 Payment Receipt
+          </div>
+
+          <div class="receipt-info">
+            <div class="info-section">
+              <div class="info-title">📋 Receipt Details</div>
+              <div class="info-item">
+                <span class="info-label">Receipt No:</span>
+                <span class="info-value">#PAY-${payment.id.toString().padStart(6, '0')}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Date:</span>
+                <span class="info-value">${formatDate(payment.paymentDate)}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Payment Mode:</span>
+                <span class="info-value">${payment.paymentMode.charAt(0).toUpperCase() + payment.paymentMode.slice(1)}</span>
+              </div>
+              ${payment.referenceNo ? `
+              <div class="info-item">
+                <span class="info-label">Reference:</span>
+                <span class="info-value">${payment.referenceNo}</span>
+              </div>
+              ` : ''}
+            </div>
+
+            <div class="info-section">
+              <div class="info-title">👤 Caterer Details</div>
+              <div class="info-item">
+                <span class="info-label">Name:</span>
+                <span class="info-value">${catererName}</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Caterer ID:</span>
+                <span class="info-value">#${payment.catererId}</span>
+              </div>
+              ${payment.distributionId ? `
+              <div class="info-item">
+                <span class="info-label">Bill Reference:</span>
+                <span class="info-value">#DIST-${payment.distributionId}</span>
+              </div>
+              ` : ''}
+            </div>
+          </div>
+
+          <div class="amount-section">
+            <div class="amount-label">Amount Received</div>
+            <div class="amount-value">₹${formatCurrency(payment.amount)}</div>
+          </div>
+
+          ${distributionItems.length > 0 ? `
+          <div class="items-section">
+            <div class="items-title">📦 Items Purchased ${distributionDetails ? `(Bill: ${distributionDetails.billNo})` : ''}</div>
+            <table class="items-table">
+              <thead>
+                <tr>
+                  <th style="width: 5%;">#</th>
+                  <th style="width: 35%;">Item Name</th>
+                  <th style="width: 15%;" class="text-center">Quantity</th>
+                  <th style="width: 15%;" class="text-right">Rate</th>
+                  <th style="width: 10%;" class="text-center">GST%</th>
+                  <th style="width: 20%;" class="text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${distributionItems.map((item, index) => `
+                <tr>
+                  <td class="text-center">${index + 1}</td>
+                  <td><strong>${item.itemName}</strong></td>
+                  <td class="text-center">${parseFloat(item.quantity).toFixed(2)} ${item.unit}</td>
+                  <td class="text-right">₹${parseFloat(item.rate).toFixed(2)}</td>
+                  <td class="text-center">${parseFloat(item.gstPercentage).toFixed(1)}%</td>
+                  <td class="text-right"><strong>₹${parseFloat(item.amount).toFixed(2)}</strong></td>
+                </tr>
+                `).join('')}
+                ${distributionDetails ? `
+                <tr class="items-total">
+                  <td colspan="5" class="text-right"><strong>Subtotal:</strong></td>
+                  <td class="text-right"><strong>₹${parseFloat(distributionDetails.totalAmount).toFixed(2)}</strong></td>
+                </tr>
+                <tr class="items-total">
+                  <td colspan="5" class="text-right"><strong>GST Amount:</strong></td>
+                  <td class="text-right"><strong>₹${parseFloat(distributionDetails.totalGstAmount).toFixed(2)}</strong></td>
+                </tr>
+                <tr class="items-total">
+                  <td colspan="5" class="text-right"><strong>Grand Total:</strong></td>
+                  <td class="text-right"><strong>₹${parseFloat(distributionDetails.grandTotal).toFixed(2)}</strong></td>
+                </tr>
+                ` : ''}
+              </tbody>
+            </table>
+          </div>
+          ` : ''}
+
+          ${payment.notes ? `
+          <div class="notes-section">
+            <div class="notes-title">📝 Notes</div>
+            <div class="notes-content">${payment.notes}</div>
+          </div>
+          ` : ''}
+
+          <div class="footer">
+            <div class="footer-message">🙏 Thank you for your payment! 🙏</div>
+            <div class="footer-contact">
+              📞 Contact: +91-9876543210 | 📧 info@royalspicymasala.com<br/>
+              📍 Address: Spice Market, Mumbai | 🌐 www.royalspicymasala.com<br/>
+              <strong>This is a computer-generated receipt and does not require a signature.</strong>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+
+    // Wait for content to load then print
+    printWindow.onload = () => {
+      printWindow.print();
+      printWindow.close();
+
+      // Show success toast
+      const itemsText = distributionItems.length > 0 ? ` with ${distributionItems.length} items` : '';
+      toast({
+        title: "✅ Receipt Printed",
+        description: `Payment receipt for ${catererName}${itemsText} has been sent to printer.`,
+        duration: 3000,
+      });
+    };
+  };
+
   return (
     <Layout>
       <PageHeader
@@ -113,10 +518,45 @@ export default function CatererPaymentsPage() {
         description="View and manage all payments from caterers"
         icon={<FileText className="h-6 w-6 text-secondary" />}
       >
-        <Button onClick={() => navigate('/caterer-payments/new')}>
-          <Plus className="h-4 w-4 mr-2" />
-          Record Payment
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (filteredPayments.length === 0) {
+                toast({
+                  title: "⚠️ No Payments",
+                  description: "No payments available to print.",
+                  variant: "destructive",
+                });
+                return;
+              }
+
+              if (filteredPayments.length > 10) {
+                const confirmed = confirm(`You are about to print ${filteredPayments.length} receipts. This may take a while. Continue?`);
+                if (!confirmed) return;
+              }
+
+              toast({
+                title: "🖨️ Printing Started",
+                description: `Printing ${filteredPayments.length} payment receipts...`,
+              });
+
+              // Print all visible payments with delay
+              filteredPayments.forEach((payment, index) => {
+                setTimeout(() => printPaymentReceipt(payment), index * 1500);
+              });
+            }}
+            className="flex items-center gap-2"
+            disabled={filteredPayments.length === 0}
+          >
+            <Printer className="h-4 w-4" />
+            Print All ({filteredPayments.length})
+          </Button>
+          <Button onClick={() => navigate('/caterer-payments/new')}>
+            <Plus className="h-4 w-4 mr-2" />
+            Record Payment
+          </Button>
+        </div>
       </PageHeader>
 
       <Card className="mt-6">
@@ -233,6 +673,7 @@ export default function CatererPaymentsPage() {
                     <TableHead>Distribution</TableHead>
                     <TableHead>Receipt</TableHead>
                     <TableHead>Notes</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -284,6 +725,18 @@ export default function CatererPaymentsPage() {
                         )}
                       </TableCell>
                       <TableCell>{payment.notes || '-'}</TableCell>
+                      <TableCell>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => printPaymentReceipt(payment)}
+                          className="flex items-center gap-1 hover:bg-primary/10"
+                          disabled={isLoading}
+                        >
+                          <Printer className="h-4 w-4" />
+                          Print
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

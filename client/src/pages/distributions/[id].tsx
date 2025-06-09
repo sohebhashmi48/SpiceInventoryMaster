@@ -313,8 +313,8 @@ export default function DistributionDetailsPage({ params }: { params?: { id?: st
               preselectedDistributionId={distribution.id.toString()}
               preselectedAmount={distribution.balanceDue.toString()}
               onSuccess={() => {
-                // Refresh the page data
-                window.location.reload();
+                // Redirect to billing history
+                setLocation('/distributions');
               }}
             >
               <Button
@@ -364,8 +364,8 @@ export default function DistributionDetailsPage({ params }: { params?: { id?: st
               preselectedDistributionId={distribution.id.toString()}
               preselectedAmount={distribution.balanceDue.toString()}
               onSuccess={() => {
-                // Refresh the page data
-                window.location.reload();
+                // Redirect to billing history
+                setLocation('/distributions');
               }}
             >
               <Button

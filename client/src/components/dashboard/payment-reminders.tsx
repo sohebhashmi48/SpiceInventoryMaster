@@ -31,6 +31,8 @@ export default function PaymentReminders({ className }: PaymentRemindersProps) {
       }
       return response.json();
     },
+    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchIntervalInBackground: true,
   });
 
   // Fetch all caterers
@@ -45,6 +47,8 @@ export default function PaymentReminders({ className }: PaymentRemindersProps) {
       }
       return response.json();
     },
+    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchIntervalInBackground: true,
   });
 
   // Get caterer name by ID
@@ -99,12 +103,6 @@ export default function PaymentReminders({ className }: PaymentRemindersProps) {
     <div className={cn("", className)}>
       {!className ? (
         <Card>
-          <CardHeader className="pb-3 border-b">
-            <CardTitle className="text-lg flex items-center">
-              <AlertCircle className="h-5 w-5 mr-2 text-red-500" />
-              Payment Reminders
-            </CardTitle>
-          </CardHeader>
           <CardContent className="p-0">
             {distributionsLoading || caterersLoading ? (
               <div className="p-4 space-y-3">
@@ -157,8 +155,8 @@ export default function PaymentReminders({ className }: PaymentRemindersProps) {
                         preselectedDistributionId={distribution.id.toString()}
                         preselectedAmount={distribution.balanceDue.toString()}
                         onSuccess={() => {
-                          // Refresh the page data
-                          window.location.reload();
+                          // Redirect to billing history
+                          navigate('/distributions');
                         }}
                       >
                         <Button
@@ -245,8 +243,8 @@ export default function PaymentReminders({ className }: PaymentRemindersProps) {
                     preselectedDistributionId={distribution.id.toString()}
                     preselectedAmount={distribution.balanceDue.toString()}
                     onSuccess={() => {
-                      // Refresh the page data
-                      window.location.reload();
+                      // Redirect to billing history
+                      navigate('/distributions');
                     }}
                   >
                     <Button

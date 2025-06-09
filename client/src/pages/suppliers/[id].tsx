@@ -19,11 +19,14 @@ import {
   Calendar,
   Edit,
   ShoppingCart,
-  Star
+  Star,
+  CreditCard
 } from "lucide-react";
 import SupplierPurchaseHistory from "@/components/suppliers/supplier-purchase-history";
 import SupplierPurchaseHistoryNew from "@/components/suppliers/supplier-purchase-history-new";
 import SupplierPurchaseHistoryBillView from "@/components/suppliers/supplier-purchase-history-bill-view";
+import SupplierPaymentHistory from "@/components/suppliers/supplier-payment-history";
+import SupplierPaymentForm from "@/components/suppliers/supplier-payment-form";
 import { formatCurrency } from "@/lib/utils";
 
 export default function SupplierDetailsPage() {
@@ -36,11 +39,34 @@ export default function SupplierDetailsPage() {
   const tabParam = urlParams.get('tab');
   const [activeTab, setActiveTab] = useState(tabParam === 'purchases' ? 'purchases' : 'details');
 
+  // Payment form state for bill payments
+  const [paymentFormData, setPaymentFormData] = useState<{
+    amount: string;
+    reference: string;
+  } | null>(null);
+
   // Fetch supplier details
   const { data: supplier, isLoading } = useQuery<Vendor>({
     queryKey: [`/api/suppliers/${supplierId}`],
     enabled: !!supplierId,
   });
+
+  // Handle payment click from bill
+  const handlePaymentFromBill = (billAmount: number, billNo: string) => {
+    setPaymentFormData({
+      amount: billAmount.toString(),
+      reference: `Payment for ${billNo}`
+    });
+    setActiveTab("payments");
+
+    // Scroll to payment form after tab change
+    setTimeout(() => {
+      const paymentForm = document.querySelector('[data-payment-form]');
+      if (paymentForm) {
+        paymentForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+  };
 
   return (
     <Layout>
@@ -80,6 +106,15 @@ export default function SupplierDetailsPage() {
           <TabsTrigger value="purchases" className="flex items-center">
             <ShoppingCart className="h-4 w-4 mr-2" />
             Purchase History
+          </TabsTrigger>
+          <TabsTrigger value="payments" className="flex items-center">
+            <CreditCard className="h-4 w-4 mr-2" />
+            Payments & Due
+            {supplier && parseFloat(supplier.balanceDue?.toString() || '0') > 0 && (
+              <span className="ml-2 bg-red-100 text-red-800 text-xs rounded-full px-2 py-0.5">
+                ₹{parseFloat(supplier.balanceDue?.toString() || '0').toFixed(0)}
+              </span>
+            )}
           </TabsTrigger>
         </TabsList>
 
@@ -231,7 +266,41 @@ export default function SupplierDetailsPage() {
           {isLoading ? (
             <Skeleton className="h-64 w-full" />
           ) : supplier ? (
-            <SupplierPurchaseHistoryBillView supplierId={supplierId} />
+            <SupplierPurchaseHistoryBillView
+              supplierId={supplierId}
+              onPaymentClick={handlePaymentFromBill}
+            />
+          ) : (
+            <Card>
+              <CardContent className="p-6 text-center">
+                <p className="text-gray-500">Supplier not found</p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="payments" className="mt-6">
+          {isLoading ? (
+            <Skeleton className="h-64 w-full" />
+          ) : supplier ? (
+            <div className="space-y-6">
+              {/* Payment Form */}
+              <div data-payment-form>
+                <SupplierPaymentForm
+                  supplierId={supplierId}
+                  supplier={supplier}
+                  initialData={paymentFormData}
+                  onPaymentSuccess={() => {
+                    // Clear payment form data and refresh
+                    setPaymentFormData(null);
+                    window.location.reload();
+                  }}
+                />
+              </div>
+
+              {/* Payment History */}
+              <SupplierPaymentHistory supplierId={supplierId} />
+            </div>
           ) : (
             <Card>
               <CardContent className="p-6 text-center">

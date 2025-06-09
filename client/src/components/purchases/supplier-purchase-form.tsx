@@ -36,7 +36,7 @@ import {
   ShoppingCart,
   Scale,
   Package,
-  DollarSign,
+  IndianRupee,
   Percent,
   Calculator,
   CheckCircle,
@@ -694,7 +694,7 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
                 <div>
                   <label className="block text-sm font-medium text-blue-700 dark:text-blue-300 mb-1">
                     <div className="flex items-center">
-                      <DollarSign className="h-3.5 w-3.5 mr-1" />
+                      <IndianRupee className="h-3.5 w-3.5 mr-1" />
                       Rate
                     </div>
                   </label>
@@ -862,20 +862,20 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600 dark:text-gray-400">Subtotal:</span>
                   <span className="font-medium">
-                    ${parseFloat(form.watch("totalAmount") || "0").toFixed(2)}
+                    ₹{parseFloat(form.watch("totalAmount") || "0").toFixed(2)}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600 dark:text-gray-400">GST Total:</span>
                   <span className="font-medium">
-                    ${parseFloat(form.watch("totalGstAmount") || "0").toFixed(2)}
+                    ₹{parseFloat(form.watch("totalGstAmount") || "0").toFixed(2)}
                   </span>
                 </div>
                 <Separator />
                 <div className="flex justify-between text-base font-semibold">
                   <span>Grand Total:</span>
                   <span className="text-blue-600 dark:text-blue-400">
-                    ${parseFloat(form.watch("grandTotal") || "0").toFixed(2)}
+                    ₹{parseFloat(form.watch("grandTotal") || "0").toFixed(2)}
                   </span>
                 </div>
               </div>
@@ -964,7 +964,7 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
         <Card className="mt-6" id="payment-section" ref={paymentSectionRef}>
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center">
-              <DollarSign className="h-5 w-5 mr-2 text-green-600" />
+              <IndianRupee className="h-5 w-5 mr-2 text-green-600" />
               Payment Information
             </CardTitle>
           </CardHeader>

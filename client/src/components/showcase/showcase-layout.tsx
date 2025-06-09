@@ -45,23 +45,25 @@ export default function ShowcaseLayout({
       {/* Header */}
       <header className="bg-white shadow-lg sticky top-0 z-50">
         <div className="container mx-auto px-4">
-          {/* Top Bar with Contact Info */}
-          <div className="hidden md:flex justify-between items-center py-2 text-sm border-b border-gray-200">
-            <div className="flex items-center space-x-6 text-gray-600">
+          {/* Top Bar with Contact Info - Mobile Responsive */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center py-2 text-xs sm:text-sm border-b border-gray-200 gap-2">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-6 text-gray-600">
               <div className="flex items-center">
-                <Phone className="h-4 w-4 mr-2 text-primary" />
-                <span>+91 97027 13157</span>
+                <Phone className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 text-primary" />
+                <span className="hidden sm:inline">+91 97027 13157</span>
+                <span className="sm:hidden">Call</span>
               </div>
               <div className="flex items-center">
-                <Mail className="h-4 w-4 mr-2 text-primary" />
-                <span>orders@royalspicymasala.com</span>
+                <Mail className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 text-primary" />
+                <span className="hidden sm:inline">orders@royalspicymasala.com</span>
+                <span className="sm:hidden">Email</span>
               </div>
               <div className="flex items-center">
-                <MapPin className="h-4 w-4 mr-2 text-primary" />
+                <MapPin className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 text-primary" />
                 <span>Mumbai, Maharashtra</span>
               </div>
             </div>
-            <div className="text-primary font-medium">
+            <div className="text-primary font-medium text-xs sm:text-sm">
               ✨ Free Delivery on Orders Above ₹500
             </div>
           </div>
@@ -144,7 +146,7 @@ export default function ShowcaseLayout({
           </div>
 
           {/* Mobile Search Bar */}
-          <div className="md:hidden pb-4">
+          <div className="md:hidden pb-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
               <Input
@@ -152,7 +154,7 @@ export default function ShowcaseLayout({
                 placeholder="Search spices, masalas..."
                 value={searchQuery}
                 onChange={handleSearchChange}
-                className="pl-10 pr-4 py-2 w-full border-gray-300 focus:border-primary focus:ring-primary"
+                className="pl-10 pr-4 py-3 w-full border-gray-300 focus:border-primary focus:ring-primary text-base"
               />
             </div>
           </div>

@@ -38,6 +38,8 @@ import NotificationsPage from "./pages/notifications";
 import CustomerBillingPage from "./pages/customer-billing";
 import CustomerTransactionHistoryPage from "./pages/customer-transaction-history";
 import ProductShowcasePage from "./pages/showcase";
+import OrdersPage from "./pages/orders";
+import FinancialTrackerPage from "./pages/financial-tracker";
 import { ProtectedRoute } from "./lib/protected-route";
 import { AuthProvider } from "./hooks/use-auth";
 import { store } from "./store";
@@ -50,6 +52,7 @@ function Router() {
       {/* Public showcase routes - no authentication required */}
       <Route path="/showcase" component={ProductShowcasePage} />
       <ProtectedRoute path="/" component={DashboardPage} />
+      <ProtectedRoute path="/orders" component={OrdersPage} />
       <ProtectedRoute path="/inventory" component={InventoryPage} />
       <ProtectedRoute path="/inventory-history" component={InventoryHistoryPage} />
       <ProtectedRoute path="/spices" component={SpicesPage} />
@@ -84,6 +87,7 @@ function Router() {
       <ProtectedRoute path="/billing" component={BillingPage} />
       <ProtectedRoute path="/purchases" component={PurchaseEntryPage} />
       <ProtectedRoute path="/reports" component={ReportsPage} />
+      <ProtectedRoute path="/financial-tracker" component={FinancialTrackerPage} />
       <ProtectedRoute path="/settings" component={SettingsPage} />
       <ProtectedRoute path="/users" component={UsersPage} />
       <Route component={NotFound} />

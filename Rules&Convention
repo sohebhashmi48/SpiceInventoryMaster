@@ -1,0 +1,164 @@
+SpiceInventoryMaster - AI Development Rules & Conventions
+🎯 Project Overview
+SpiceInventoryMaster is a comprehensive spice inventory management system built with React (Vite), TypeScript, Node.js/Express, and MySQL. It manages spice inventory, customer/caterer billing, payments, suppliers, and includes a customer-facing product showcase.
+
+📋 Core Rules & Conventions
+1. Technology Stack Requirements
+Frontend: React 18+ with Vite, TypeScript, Tailwind CSS
+Backend: Node.js with Express, TypeScript
+Database: MySQL (NOT PostgreSQL)
+Routing: Wouter (NOT React Router)
+State Management: TanStack Query (React Query)
+UI Components: Shadcn/ui components
+Package Management: Always use package managers (npm/yarn) - NEVER edit package.json manually
+2. Database & Schema Rules
+MySQL Syntax Only: Use MySQL-compatible SQL syntax
+GROUP BY Compliance: Always include all non-aggregated columns in GROUP BY clauses
+Migration Scripts: Use MySQL syntax, avoid PostgreSQL-specific features
+Date Handling: Use MySQL date functions (CURDATE(), NOW(), DATE_FORMAT())
+3. Navigation & Routing
+Use Wouter: import { useLocation } from "wouter"
+Navigation: const [, setLocation] = useLocation(); setLocation('/path')
+NEVER use: React Router hooks like useNavigate()
+4. Code Organization
+client/src/
+├── components/          # Reusable UI components
+├── pages/              # Page components
+├── hooks/              # Custom hooks for API calls
+├── lib/                # Utilities and helpers
+└── types/              # TypeScript type definitions
+
+server/
+├── routes.ts           # Main API routes
+├── storage.ts          # Database operations
+└── uploads/            # File upload directories
+5. Component Patterns
+Consistent Layout: All pages use <Layout> wrapper
+Card-based Design: Use white cards with shadows for sections
+Responsive Design: Mobile-first approach with proper breakpoints
+Loading States: Always show skeletons/loading indicators
+Error Handling: Graceful error handling with user feedback
+🎨 UI/UX Design Standards
+Color Scheme & Branding
+Primary Colors: Orange/brown spice-themed colors (#d97706, #f59e0b)
+Company Name: "RoyalSpicyMasala" or "SpicyMasala"
+Gradients: Use subtle gradients for visual appeal
+Animations: Smooth transitions and hover effects
+Layout Principles
+Consistent Spacing: Use Tailwind spacing classes (gap-4, p-6, mb-6)
+Card Structure: White backgrounds with rounded-xl shadow-sm border
+Section Headers: Icons + titles for clear organization
+Responsive Grids: Adapt to screen sizes (grid-cols-1 sm:grid-cols-2 lg:grid-cols-4)
+Interactive Elements
+Buttons: Consistent styling with hover effects
+Forms: Proper validation and error states
+Tables: Sortable headers, pagination, search functionality
+Modals: Use for complex operations, dedicated pages for major features
+💾 Data Management Rules
+API Patterns
+Consistent Endpoints: RESTful API design
+Error Handling: Proper HTTP status codes and error messages
+Data Validation: Use Zod schemas for validation
+File Uploads: Dedicated upload endpoints in /uploads/{entity}/ directories
+State Management
+TanStack Query: For all API calls and caching
+Query Keys: Consistent naming convention
+Optimistic Updates: For better UX
+Error Boundaries: Graceful error handling
+Database Operations
+Transactions: Use for multi-table operations
+Connection Pooling: Proper connection management
+Prepared Statements: Prevent SQL injection
+Indexing: Optimize for performance
+🏗️ Feature Development Guidelines
+Inventory Management
+Automatic Deduction: Bills should automatically reduce inventory
+Batch Selection: FIFO (First In, First Out) principle
+Stock Alerts: 2-day advance notifications for expiry/low stock
+Transaction History: Track all inventory changes with timestamps
+Billing & Payments
+Print Layouts: Professional, colorful designs with company branding
+Payment Validation: Check outstanding balances before payments
+Confirmation Dialogs: For all critical operations
+Receipt Generation: Include all relevant details (items, amounts, dates)
+Customer Showcase
+Single Page Application: Dynamic tabs, no separate pages
+WhatsApp Integration: For order placement
+Real-time Updates: Inventory status without showing quantities
+Responsive Design: Mobile-optimized for customer use
+Image Handling
+Consistent Pattern: Database column → Upload API → ImageUpload component → Card view modal
+File Validation: Proper image format and size validation
+Storage: Organized in entity-specific directories
+🔧 Development Workflow
+Before Making Changes
+Information Gathering: Use codebase-retrieval to understand existing code
+Planning: Create detailed, low-level plans before implementation
+Context Understanding: Check related components and dependencies
+Code Quality Standards
+TypeScript: Strict typing, no any types unless necessary
+Error Handling: Comprehensive try-catch blocks
+Logging: Detailed console logs for debugging
+Comments: Clear, concise documentation
+Testing & Validation
+Manual Testing: Test all functionality before completion
+Edge Cases: Handle empty states, loading states, error states
+Cross-browser: Ensure compatibility
+Responsive: Test on different screen sizes
+📱 User Experience Priorities
+Performance
+Loading States: Never leave users wondering
+Optimistic Updates: Immediate feedback
+Caching: Efficient data management
+Lazy Loading: For large datasets
+Accessibility
+Keyboard Navigation: Full keyboard support
+Screen Readers: Proper ARIA labels
+Color Contrast: Accessible color combinations
+Error Messages: Clear, actionable feedback
+Business Logic
+No Authentication: System doesn't require login
+Real-time Data: Dashboard updates automatically
+Professional Output: All printed materials should be business-ready
+Data Integrity: Prevent data loss and corruption
+🚫 Common Pitfalls to Avoid
+Technical Don'ts
+❌ Don't use React Router (use Wouter)
+❌ Don't edit package.json manually (use package managers)
+❌ Don't use PostgreSQL syntax (MySQL only)
+❌ Don't ignore GROUP BY requirements
+❌ Don't create separate pages for simple features (use modals)
+UX Don'ts
+❌ Don't show raw error messages to users
+❌ Don't leave loading states without feedback
+❌ Don't break existing functionality when adding features
+❌ Don't ignore mobile responsiveness
+❌ Don't auto-print (manual control preferred)
+🎯 Success Criteria
+Feature Completion Checklist
+✅ Functionality works as specified
+✅ Responsive design on all screen sizes
+✅ Proper error handling and user feedback
+✅ Consistent with existing design patterns
+✅ No breaking changes to existing features
+✅ Performance optimized
+✅ Accessible and user-friendly
+Code Quality Checklist
+✅ TypeScript types properly defined
+✅ Consistent naming conventions
+✅ Proper error handling
+✅ Clean, readable code structure
+✅ Appropriate comments and documentation
+✅ No console errors or warnings
+📞 Support & Maintenance
+When Stuck
+Ask for Help: If going in circles, ask the user for guidance
+Provide Context: Explain what you've tried and what's not working
+Suggest Alternatives: Offer multiple solutions when possible
+Document Issues: Keep track of problems and solutions
+Continuous Improvement
+User Feedback: Always prioritize user experience
+Performance Monitoring: Watch for slow operations
+Code Refactoring: Improve code quality over time
+Feature Enhancement: Build upon existing functionality
+Remember: SpiceInventoryMaster is a business-critical application. Every change should enhance the user experience while maintaining system reliability and data integrity. Always test thoroughly and consider the impact on existing workflows

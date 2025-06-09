@@ -28,4 +28,12 @@ export default defineConfig({
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
   },
+  server: {
+    host: true, // Allow external connections
+    port: 3000,
+    strictPort: true,
+    hmr: {
+      port: 3001,
+    },
+  },
 });

@@ -10,7 +10,7 @@
  */
 export const getImageUrl = (
   imagePath: string | null | undefined,
-  entityType: 'suppliers' | 'caterers' | 'spices' | 'receipts' | 'categories' = 'suppliers'
+  entityType: 'suppliers' | 'caterers' | 'spices' | 'receipts' | 'expenseimg' | 'assets' | 'categories' = 'suppliers'
 ): string | null => {
   if (!imagePath) return null;
 
@@ -19,7 +19,7 @@ export const getImageUrl = (
     return imagePath;
   }
 
-  // If the path starts with /uploads, add /api prefix
+  // If the path starts with /uploads, add /api prefix (this is the main fix)
   if (imagePath.startsWith('/uploads/')) {
     return `/api${imagePath}`;
   }
@@ -27,6 +27,12 @@ export const getImageUrl = (
   // If it's just a filename, construct the full path
   if (!imagePath.includes('/')) {
     return `/api/uploads/${entityType}/${imagePath}`;
+  }
+
+  // Handle any other cases - try to extract filename and construct proper path
+  const filename = imagePath.split('/').pop();
+  if (filename) {
+    return `/api/uploads/${entityType}/${filename}`;
   }
 
   return imagePath;
@@ -54,10 +60,24 @@ export const getSpiceImageUrl = (imagePath: string | null | undefined): string |
 };
 
 /**
- * Helper function specifically for receipt images
+ * Helper function specifically for receipt images (for expenses)
  */
 export const getReceiptImageUrl = (imagePath: string | null | undefined): string | null => {
-  return getImageUrl(imagePath, 'receipts');
+  return getImageUrl(imagePath, 'expenseimg');
+};
+
+/**
+ * Helper function specifically for expense images (alias for receipt images)
+ */
+export const getExpenseImageUrl = (imagePath: string | null | undefined): string | null => {
+  return getImageUrl(imagePath, 'expenseimg');
+};
+
+/**
+ * Helper function specifically for asset images
+ */
+export const getAssetImageUrl = (imagePath: string | null | undefined): string | null => {
+  return getImageUrl(imagePath, 'assets');
 };
 
 /**

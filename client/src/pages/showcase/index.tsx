@@ -16,7 +16,7 @@ import { z } from 'zod';
 import ShowcaseLayout from '@/components/showcase/showcase-layout';
 import ProductCard from '@/components/showcase/product-card';
 import MixCalculator from '@/components/showcase/mix-calculator';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatQuantity } from '@/lib/utils';
 import { BUSINESS_WHATSAPP_NUMBER, generateOrderMessage, openWhatsApp } from '@/lib/whatsapp-utils';
 import {
   useShowcaseCategories,
@@ -26,6 +26,7 @@ import {
   useProductFilters,
   ShowcaseProduct
 } from '@/hooks/use-showcase';
+import { useOrderMutations } from '@/hooks/use-orders';
 
 // Checkout form schema
 const checkoutSchema = z.object({
@@ -50,7 +51,8 @@ export default function ProductShowcasePage() {
   // Hooks
   const { searchQuery, handleSearchChange } = useSearch();
   const { filters, updateFilter } = useProductFilters();
-  const { cart, addToCart, updateQuantity, removeFromCart, clearCart, getCartItemCount, getCartTotal, isInCart, getCartItem } = useShoppingCart();
+  const { cart, addToCart, updateQuantity, removeFromCart, clearCart, clearCartAfterTime, getCartItemCount, getCartTotal, isInCart, getCartItem } = useShoppingCart();
+  const { createOrder } = useOrderMutations();
 
   // Checkout form
   const {
@@ -135,6 +137,14 @@ export default function ProductShowcasePage() {
 
   const handleQuantityChange = (productId: number, newQuantity: number) => {
     updateQuantity(productId, newQuantity);
+  };
+
+  const handleRemoveFromCart = (productId: number) => {
+    removeFromCart(productId);
+    toast({
+      title: 'Removed from Cart',
+      description: 'Item has been removed from your cart.',
+    });
   };
 
   // Cart and checkout handlers
@@ -223,19 +233,48 @@ export default function ProductShowcasePage() {
         total: finalTotal
       });
 
+      // Save order to database before sending WhatsApp
+      const orderData = {
+        customerName: data.name,
+        customerPhone: data.phone,
+        customerEmail: data.email,
+        customerAddress: data.address,
+        notes: data.notes,
+        items: cart.map(item => ({
+          productId: item.productId,
+          name: item.name,
+          quantity: item.quantity,
+          unit: item.unit,
+          price: item.price,
+          total: item.total
+        })),
+        subtotal: cartTotal,
+        deliveryFee,
+        total: finalTotal,
+        whatsappMessage
+      };
+
+      // Save to database using the hook
+      const orderResult = await createOrder.mutateAsync(orderData);
+      console.log('Order saved:', orderResult);
+
       // Open WhatsApp with the order message
       openWhatsApp(BUSINESS_WHATSAPP_NUMBER, whatsappMessage);
 
       toast({
         title: 'Order Placed!',
-        description: 'Your order has been sent via WhatsApp. We will contact you shortly to confirm.',
+        description: `Your order #${orderResult.orderNumber} has been sent via WhatsApp. We will contact you shortly to confirm.`,
       });
 
       // Clear cart and reset form
       clearCart();
       reset();
       setCurrentView('products');
+
+      // Set auto-clear for next user (30 minutes)
+      clearCartAfterTime(30);
     } catch (error) {
+      console.error('Order submission error:', error);
       toast({
         title: 'Error',
         description: 'Failed to place order. Please try again.',
@@ -257,8 +296,8 @@ export default function ProductShowcasePage() {
       {currentView === 'products' && (
         <>
           {/* Category Tabs Section */}
-      <section className="py-8 md:py-12 bg-white">
-            <div className="container mx-auto px-4">
+      <section className="py-4 sm:py-6 md:py-8 lg:py-12 bg-white">
+            <div className="container mx-auto px-3 sm:px-4">
           {categoriesLoading ? (
             <div className="flex justify-center">
               <div className="animate-pulse flex space-x-4">
@@ -269,7 +308,45 @@ export default function ProductShowcasePage() {
             </div>
           ) : (
             <Tabs value={activeCategory} onValueChange={handleCategoryChange} className="w-full">
-              <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 h-auto p-2 bg-gray-100">
+              {/* Mobile: Horizontal scrollable tabs */}
+              <div className="md:hidden">
+                <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-hide">
+                  {/* All Products Tab */}
+                  <button
+                    onClick={() => handleCategoryChange("")}
+                    className={`flex flex-col items-center gap-1 p-3 min-w-[80px] rounded-lg transition-all duration-300 ${
+                      activeCategory === ""
+                        ? 'bg-primary text-white shadow-md'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    <Grid className="h-4 w-4" />
+                    <span className="text-xs font-medium whitespace-nowrap">All</span>
+                  </button>
+
+                  {/* Category Tabs */}
+                  {categories.map((category) => {
+                    const IconComponent = getCategoryIcon(category.name);
+                    return (
+                      <button
+                        key={category.id}
+                        onClick={() => handleCategoryChange(category.id.toString())}
+                        className={`flex flex-col items-center gap-1 p-3 min-w-[80px] rounded-lg transition-all duration-300 ${
+                          activeCategory === category.id.toString()
+                            ? 'bg-primary text-white shadow-md'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        <IconComponent className="h-4 w-4" />
+                        <span className="text-xs font-medium whitespace-nowrap">{category.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Desktop: Grid layout */}
+              <TabsList className="hidden md:grid w-full grid-cols-4 lg:grid-cols-7 gap-2 h-auto p-2 bg-gray-100">
                 {/* All Products Tab */}
                 <TabsTrigger
                   value=""
@@ -301,82 +378,97 @@ export default function ProductShowcasePage() {
                 className="mt-8 focus:outline-none"
               >
                 {/* All Products Header */}
-                <div className="mb-6">
-                  <h3 className="text-xl md:text-2xl font-bold text-primary mb-2">
+                <div className="mb-4 sm:mb-6">
+                  <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-primary mb-1 sm:mb-2">
                     All Products
                   </h3>
-                  <p className="text-gray-600">
+                  <p className="text-sm sm:text-base text-gray-600">
                     Browse our complete collection of premium spices and masalas
                   </p>
                 </div>
 
                 {/* Controls */}
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm text-gray-600">
+                <div className="flex flex-col gap-3 mb-4 sm:mb-6">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <span className="text-xs sm:text-sm text-gray-600">
                       Showing {Math.min(getVisibleCount(''), allProducts.length)} of {allProducts.length} products
                     </span>
-                  </div>
 
-                  <div className="flex items-center gap-3">
-                    {/* Sort */}
-                    <Select
-                      value={filters.sortBy}
-                      onValueChange={(value) => updateFilter('sortBy', value)}
-                    >
-                      <SelectTrigger className="w-40">
-                        <SelectValue placeholder="Sort by" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="name">Name</SelectItem>
-                        <SelectItem value="price">Price</SelectItem>
-                        <SelectItem value="stock">Stock</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    {/* Mobile-first controls */}
+                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                      {/* Sort */}
+                      <Select
+                        value={filters.sortBy}
+                        onValueChange={(value) => updateFilter('sortBy', value)}
+                      >
+                        <SelectTrigger className="w-24 sm:w-32 h-8 text-xs sm:text-sm">
+                          <SelectValue placeholder="Sort" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="name">Name</SelectItem>
+                          <SelectItem value="price">Price</SelectItem>
+                          <SelectItem value="stock">Stock</SelectItem>
+                        </SelectContent>
+                      </Select>
 
-                    {/* View Mode */}
-                    <div className="flex border rounded-lg">
-                      <Button
-                        variant={viewMode === 'grid' ? 'default' : 'ghost'}
-                        size="sm"
-                        onClick={() => setViewMode('grid')}
-                        className="rounded-r-none"
+                      {/* Sort Order */}
+                      <Select
+                        value={filters.sortOrder}
+                        onValueChange={(value) => updateFilter('sortOrder', value)}
                       >
-                        <Grid className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant={viewMode === 'list' ? 'default' : 'ghost'}
-                        size="sm"
-                        onClick={() => setViewMode('list')}
-                        className="rounded-l-none"
-                      >
-                        <List className="h-4 w-4" />
-                      </Button>
+                        <SelectTrigger className="w-20 sm:w-24 h-8 text-xs sm:text-sm">
+                          <SelectValue placeholder="Order" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="asc">A-Z</SelectItem>
+                          <SelectItem value="desc">Z-A</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      {/* View Mode - Hidden on mobile for better space usage */}
+                      <div className="hidden sm:flex border rounded-lg">
+                        <Button
+                          variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                          size="sm"
+                          onClick={() => setViewMode('grid')}
+                          className="rounded-r-none h-8"
+                        >
+                          <Grid className="h-3 w-3 sm:h-4 sm:w-4" />
+                        </Button>
+                        <Button
+                          variant={viewMode === 'list' ? 'default' : 'ghost'}
+                          size="sm"
+                          onClick={() => setViewMode('list')}
+                          className="rounded-l-none h-8"
+                        >
+                          <List className="h-3 w-3 sm:h-4 sm:w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 {/* All Products Grid */}
                 {productsLoading ? (
-                  <div className={`grid ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1'} gap-6`}>
+                  <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid-cols-1'} gap-3 sm:gap-4 md:gap-6`}>
                     {[...Array(8)].map((_, i) => (
                       <div key={i} className="animate-pulse">
-                        <div className="bg-gray-200 rounded-lg h-48 mb-4"></div>
-                        <div className="bg-gray-200 rounded h-4 mb-2"></div>
-                        <div className="bg-gray-200 rounded h-3 w-3/4 mb-2"></div>
-                        <div className="bg-gray-200 rounded h-6 w-1/2"></div>
+                        <div className="bg-gray-200 rounded-lg h-32 sm:h-40 md:h-48 mb-2 sm:mb-4"></div>
+                        <div className="bg-gray-200 rounded h-3 sm:h-4 mb-1 sm:mb-2"></div>
+                        <div className="bg-gray-200 rounded h-2 sm:h-3 w-3/4 mb-1 sm:mb-2"></div>
+                        <div className="bg-gray-200 rounded h-4 sm:h-6 w-1/2"></div>
                       </div>
                     ))}
                   </div>
                 ) : allProducts.length === 0 ? (
-                  <div className="text-center py-16">
-                    <div className="text-gray-400 text-6xl mb-4">📦</div>
-                    <h3 className="text-xl font-semibold text-gray-600 mb-2">No products found</h3>
-                    <p className="text-gray-500">No products available</p>
+                  <div className="text-center py-8 sm:py-16">
+                    <div className="text-gray-400 text-4xl sm:text-6xl mb-2 sm:mb-4">📦</div>
+                    <h3 className="text-lg sm:text-xl font-semibold text-gray-600 mb-1 sm:mb-2">No products found</h3>
+                    <p className="text-sm sm:text-base text-gray-500">No products available</p>
                   </div>
                 ) : (
                   <>
-                    <div className={`grid ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1'} gap-6`}>
+                    <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid-cols-1'} gap-3 sm:gap-4 md:gap-6`}>
                       {getVisibleProducts(allProducts, '').map((product) => (
                         <ProductCard
                           key={product.id}
@@ -385,6 +477,7 @@ export default function ProductShowcasePage() {
                           isInCart={isInCart(product.id)}
                           onAddToCart={handleAddToCart}
                           onUpdateQuantity={handleQuantityChange}
+                          onRemoveFromCart={handleRemoveFromCart}
                           viewMode={viewMode}
                         />
                       ))}
@@ -418,82 +511,97 @@ export default function ProductShowcasePage() {
                     className="mt-8 focus:outline-none"
                   >
                     {/* Category Header */}
-                    <div className="mb-6">
-                      <h3 className="text-xl md:text-2xl font-bold text-primary mb-2">
+                    <div className="mb-4 sm:mb-6">
+                      <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-primary mb-1 sm:mb-2">
                         {category.name}
                       </h3>
-                      <p className="text-gray-600">
+                      <p className="text-sm sm:text-base text-gray-600">
                         {category.description || `Explore our premium ${category.name.toLowerCase()} collection`}
                       </p>
                     </div>
 
                     {/* Controls */}
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-                      <div className="flex items-center gap-4">
-                        <span className="text-sm text-gray-600">
+                    <div className="flex flex-col gap-3 mb-4 sm:mb-6">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <span className="text-xs sm:text-sm text-gray-600">
                           Showing {Math.min(getVisibleCount(category.id.toString()), categoryProducts.length)} of {categoryProducts.length} products
                         </span>
-                      </div>
 
-                    <div className="flex items-center gap-3">
-                      {/* Sort */}
-                      <Select
-                        value={filters.sortBy}
-                        onValueChange={(value) => updateFilter('sortBy', value)}
-                      >
-                        <SelectTrigger className="w-40">
-                          <SelectValue placeholder="Sort by" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="name">Name</SelectItem>
-                          <SelectItem value="price">Price</SelectItem>
-                          <SelectItem value="stock">Stock</SelectItem>
-                        </SelectContent>
-                      </Select>
+                        {/* Mobile-first controls */}
+                        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                          {/* Sort */}
+                          <Select
+                            value={filters.sortBy}
+                            onValueChange={(value) => updateFilter('sortBy', value)}
+                          >
+                            <SelectTrigger className="w-24 sm:w-32 h-8 text-xs sm:text-sm">
+                              <SelectValue placeholder="Sort" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="name">Name</SelectItem>
+                              <SelectItem value="price">Price</SelectItem>
+                              <SelectItem value="stock">Stock</SelectItem>
+                            </SelectContent>
+                          </Select>
 
-                      {/* View Mode */}
-                      <div className="flex border rounded-lg">
-                        <Button
-                          variant={viewMode === 'grid' ? 'default' : 'ghost'}
-                          size="sm"
-                          onClick={() => setViewMode('grid')}
-                          className="rounded-r-none"
-                        >
-                          <Grid className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant={viewMode === 'list' ? 'default' : 'ghost'}
-                          size="sm"
-                          onClick={() => setViewMode('list')}
-                          className="rounded-l-none"
-                        >
-                          <List className="h-4 w-4" />
-                        </Button>
+                          {/* Sort Order */}
+                          <Select
+                            value={filters.sortOrder}
+                            onValueChange={(value) => updateFilter('sortOrder', value)}
+                          >
+                            <SelectTrigger className="w-20 sm:w-24 h-8 text-xs sm:text-sm">
+                              <SelectValue placeholder="Order" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="asc">A-Z</SelectItem>
+                              <SelectItem value="desc">Z-A</SelectItem>
+                            </SelectContent>
+                          </Select>
+
+                          {/* View Mode - Hidden on mobile for better space usage */}
+                          <div className="hidden sm:flex border rounded-lg">
+                            <Button
+                              variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                              size="sm"
+                              onClick={() => setViewMode('grid')}
+                              className="rounded-r-none h-8"
+                            >
+                              <Grid className="h-3 w-3 sm:h-4 sm:w-4" />
+                            </Button>
+                            <Button
+                              variant={viewMode === 'list' ? 'default' : 'ghost'}
+                              size="sm"
+                              onClick={() => setViewMode('list')}
+                              className="rounded-l-none h-8"
+                            >
+                              <List className="h-3 w-3 sm:h-4 sm:w-4" />
+                            </Button>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
                   {/* Products Grid */}
                   {productsLoading ? (
-                    <div className={`grid ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1'} gap-6`}>
+                    <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid-cols-1'} gap-3 sm:gap-4 md:gap-6`}>
                       {[...Array(8)].map((_, i) => (
                         <div key={i} className="animate-pulse">
-                          <div className="bg-gray-200 rounded-lg h-48 mb-4"></div>
-                          <div className="bg-gray-200 rounded h-4 mb-2"></div>
-                          <div className="bg-gray-200 rounded h-3 w-3/4 mb-2"></div>
-                          <div className="bg-gray-200 rounded h-6 w-1/2"></div>
+                          <div className="bg-gray-200 rounded-lg h-32 sm:h-40 md:h-48 mb-2 sm:mb-4"></div>
+                          <div className="bg-gray-200 rounded h-3 sm:h-4 mb-1 sm:mb-2"></div>
+                          <div className="bg-gray-200 rounded h-2 sm:h-3 w-3/4 mb-1 sm:mb-2"></div>
+                          <div className="bg-gray-200 rounded h-4 sm:h-6 w-1/2"></div>
                         </div>
                       ))}
                     </div>
                   ) : categoryProducts.length === 0 ? (
-                    <div className="text-center py-16">
-                      <div className="text-gray-400 text-6xl mb-4">📦</div>
-                      <h3 className="text-xl font-semibold text-gray-600 mb-2">No products found</h3>
-                      <p className="text-gray-500">No products available in this category</p>
+                    <div className="text-center py-8 sm:py-16">
+                      <div className="text-gray-400 text-4xl sm:text-6xl mb-2 sm:mb-4">📦</div>
+                      <h3 className="text-lg sm:text-xl font-semibold text-gray-600 mb-1 sm:mb-2">No products found</h3>
+                      <p className="text-sm sm:text-base text-gray-500">No products available in this category</p>
                     </div>
                   ) : (
                     <>
-                      <div className={`grid ${viewMode === 'grid' ? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1'} gap-6`}>
+                      <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid-cols-1'} gap-3 sm:gap-4 md:gap-6`}>
                         {getVisibleProducts(categoryProducts, category.id.toString()).map((product) => (
                           <ProductCard
                             key={product.id}
@@ -502,6 +610,7 @@ export default function ProductShowcasePage() {
                             isInCart={isInCart(product.id)}
                             onAddToCart={handleAddToCart}
                             onUpdateQuantity={handleQuantityChange}
+                            onRemoveFromCart={handleRemoveFromCart}
                             viewMode={viewMode}
                           />
                         ))}
@@ -606,7 +715,14 @@ export default function ProductShowcasePage() {
           66% { transform: translateY(10px) rotate(240deg); }
         }
 
-
+        /* Hide scrollbar for mobile category tabs */
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
       `}</style>
         </>
       )}
@@ -616,7 +732,7 @@ export default function ProductShowcasePage() {
         <div className="container mx-auto px-4 py-8">
           {/* Header */}
           <div className="mb-8">
-            <div className="flex items-center gap-4 mb-4">
+            <div className="flex items-center justify-between mb-4">
               <Button
                 variant="ghost"
                 onClick={handleContinueShopping}
@@ -625,6 +741,23 @@ export default function ProductShowcasePage() {
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Continue Shopping
               </Button>
+
+              {cart.length > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    clearCart();
+                    toast({
+                      title: 'Cart Cleared',
+                      description: 'All items have been removed from your cart.',
+                    });
+                  }}
+                  className="text-red-600 border-red-600 hover:bg-red-50"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Clear Cart
+                </Button>
+              )}
             </div>
             <h1 className="text-3xl font-bold text-primary">Shopping Cart</h1>
             <p className="text-gray-600 mt-2">
@@ -642,61 +775,78 @@ export default function ProductShowcasePage() {
               </Button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-8">
               {/* Cart Items */}
-              <div className="lg:col-span-2 space-y-4">
+              <div className="lg:col-span-2 space-y-3 lg:space-y-4">
                 {cart.map((item) => (
-                  <Card key={item.productId} className="p-4">
-                    <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 bg-gradient-to-br from-orange-100 to-amber-100 rounded-lg flex items-center justify-center">
+                  <Card key={item.productId} className="p-3 lg:p-4">
+                    <div className="flex items-center gap-3 lg:gap-4">
+                      <div className="w-12 h-12 lg:w-16 lg:h-16 bg-gradient-to-br from-orange-100 to-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
                         {item.imagePath ? (
                           <img
                             src={item.imagePath.startsWith('/api/') ? item.imagePath : `/api${item.imagePath}`}
                             alt={item.name}
                             className="w-full h-full object-cover rounded-lg"
+                            loading="lazy"
+                            onError={(e) => {
+                              // Hide broken image and show fallback
+                              const target = e.target as HTMLImageElement;
+                              target.style.display = 'none';
+                              const parent = target.parentElement;
+                              if (parent) {
+                                const fallback = document.createElement('span');
+                                fallback.className = 'text-lg lg:text-2xl';
+                                fallback.textContent = '🌶️';
+                                parent.appendChild(fallback);
+                              }
+                            }}
                           />
                         ) : (
-                          <span className="text-2xl">🌶️</span>
+                          <span className="text-lg lg:text-2xl">🌶️</span>
                         )}
                       </div>
 
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-lg">{item.name}</h3>
-                        <p className="text-gray-600">{formatCurrency(item.price)} per {item.unit}</p>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-sm lg:text-lg truncate">{item.name}</h3>
+                        <p className="text-gray-600 text-xs lg:text-sm">{formatCurrency(item.price)} per {item.unit}</p>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleCartQuantityChange(item.productId, item.quantity - 1)}
-                          className="h-8 w-8 p-0"
-                        >
-                          <Minus className="h-4 w-4" />
-                        </Button>
-                        <span className="px-3 py-1 bg-gray-100 rounded text-sm font-medium min-w-[3rem] text-center">
-                          {item.quantity}
-                        </span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleCartQuantityChange(item.productId, item.quantity + 1)}
-                          className="h-8 w-8 p-0"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
+                      <div className="flex flex-col lg:flex-row items-end lg:items-center gap-2 lg:gap-4">
+                        {/* Quantity Controls */}
+                        <div className="flex items-center gap-1 lg:gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleCartQuantityChange(item.productId, item.quantity - 1)}
+                            className="h-6 w-6 lg:h-8 lg:w-8 p-0"
+                          >
+                            <Minus className="h-3 w-3 lg:h-4 lg:w-4" />
+                          </Button>
+                          <span className="px-2 py-1 bg-gray-100 rounded text-xs lg:text-sm font-medium min-w-[2rem] lg:min-w-[3rem] text-center">
+                            {formatQuantity(item.quantity)}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleCartQuantityChange(item.productId, item.quantity + 1)}
+                            className="h-6 w-6 lg:h-8 lg:w-8 p-0"
+                          >
+                            <Plus className="h-3 w-3 lg:h-4 lg:w-4" />
+                          </Button>
+                        </div>
 
-                      <div className="text-right">
-                        <p className="font-semibold text-lg">{formatCurrency(item.total)}</p>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeFromCart(item.productId)}
-                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {/* Price and Remove */}
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <p className="font-semibold text-sm lg:text-lg">{formatCurrency(item.total)}</p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeFromCart(item.productId)}
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50 h-6 lg:h-8 px-1 lg:px-2"
+                          >
+                            <Trash2 className="h-3 w-3 lg:h-4 lg:w-4" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </Card>
@@ -848,7 +998,7 @@ export default function ProductShowcasePage() {
                 <div className="space-y-3 mb-4">
                   {cart.map((item) => (
                     <div key={item.productId} className="flex justify-between text-sm">
-                      <span>{item.name} × {item.quantity}</span>
+                      <span>{item.name} × {formatQuantity(item.quantity)}</span>
                       <span>{formatCurrency(item.total)}</span>
                     </div>
                   ))}

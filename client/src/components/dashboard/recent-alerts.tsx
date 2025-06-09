@@ -1,27 +1,82 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { 
-  AlertTriangle, 
-  Clock, 
-  ShoppingCart 
+import {
+  AlertTriangle,
+  Clock,
+  ShoppingCart,
+  PackageX
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { Alert } from "@shared/schema";
+import { Alert, Inventory } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useLocation } from "wouter";
 
 interface RecentAlertsProps {
   className?: string;
 }
 
 export default function RecentAlerts({ className }: RecentAlertsProps) {
-  const { data: alerts, isLoading } = useQuery<Alert[]>({
-    queryKey: ["/api/alerts?status=active"],
+  const [, setLocation] = useLocation();
+
+  // Fetch inventory alerts
+  const { data: lowStockItems, isLoading: lowStockLoading } = useQuery<Inventory[]>({
+    queryKey: ["/api/inventory/alerts/low-stock"],
+    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchIntervalInBackground: true,
   });
+
+  const { data: expiringItems, isLoading: expiringLoading } = useQuery<Inventory[]>({
+    queryKey: ["/api/inventory/alerts/expiring"],
+    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchIntervalInBackground: true,
+  });
+
+  const isLoading = lowStockLoading || expiringLoading;
+
+  // Create alert objects from inventory data
+  const inventoryAlerts = [];
+
+  if (lowStockItems) {
+    const outOfStockItems = lowStockItems.filter(item => Number(item.quantity) === 0);
+    const lowStockOnlyItems = lowStockItems.filter(item => Number(item.quantity) > 0);
+
+    if (outOfStockItems.length > 0) {
+      inventoryAlerts.push({
+        id: 'out-of-stock',
+        type: 'out_of_stock',
+        message: `${outOfStockItems.length} item(s) are completely out of stock`,
+        createdAt: new Date().toISOString(),
+        items: outOfStockItems
+      });
+    }
+
+    if (lowStockOnlyItems.length > 0) {
+      inventoryAlerts.push({
+        id: 'low-stock',
+        type: 'low_stock',
+        message: `${lowStockOnlyItems.length} item(s) are running low on stock`,
+        createdAt: new Date().toISOString(),
+        items: lowStockOnlyItems
+      });
+    }
+  }
+
+  if (expiringItems && expiringItems.length > 0) {
+    inventoryAlerts.push({
+      id: 'expiring',
+      type: 'expiry',
+      message: `${expiringItems.length} item(s) will expire within 30 days`,
+      createdAt: new Date().toISOString(),
+      items: expiringItems
+    });
+  }
 
   const renderAlertIcon = (type: string) => {
     switch (type) {
       case 'low_stock':
-        return <AlertTriangle className="text-red-500 h-5 w-5 mr-3" />;
+        return <AlertTriangle className="text-orange-500 h-5 w-5 mr-3" />;
+      case 'out_of_stock':
+        return <PackageX className="text-red-500 h-5 w-5 mr-3" />;
       case 'expiry':
         return <Clock className="text-yellow-500 h-5 w-5 mr-3" />;
       case 'order':
@@ -34,6 +89,8 @@ export default function RecentAlerts({ className }: RecentAlertsProps) {
   const getAlertColor = (type: string) => {
     switch (type) {
       case 'low_stock':
+        return 'bg-orange-50 border-l-4 border-orange-500';
+      case 'out_of_stock':
         return 'bg-red-50 border-l-4 border-red-500';
       case 'expiry':
         return 'bg-yellow-50 border-l-4 border-yellow-500';
@@ -83,22 +140,23 @@ export default function RecentAlerts({ className }: RecentAlertsProps) {
                 </div>
               </div>
             ))
-          ) : alerts && alerts.length > 0 ? (
-            alerts.slice(0, 3).map((alert) => (
-              <div 
-                key={alert.id} 
-                className={`flex items-start p-3 rounded-md ${getAlertColor(alert.type)}`}
+          ) : inventoryAlerts && inventoryAlerts.length > 0 ? (
+            inventoryAlerts.slice(0, 3).map((alert) => (
+              <div
+                key={alert.id}
+                className={`flex items-start p-3 rounded-md cursor-pointer hover:opacity-80 transition-opacity ${getAlertColor(alert.type)}`}
+                onClick={() => setLocation('/inventory')}
               >
                 {renderAlertIcon(alert.type)}
                 <div>
                   <p className="text-sm font-medium text-neutral-800">{alert.message}</p>
-                  {alert.type === 'low_stock' && (
-                    <p className="text-xs text-neutral-600 mt-1">Current stock: 2.3kg (Minimum: 5kg)</p>
+                  {(alert.type === 'low_stock' || alert.type === 'out_of_stock' || alert.type === 'expiry') && alert.items && (
+                    <p className="text-xs text-neutral-600 mt-1">
+                      Items: {alert.items.slice(0, 2).map(item => item.productName).join(', ')}
+                      {alert.items.length > 2 && ` +${alert.items.length - 2} more`}
+                    </p>
                   )}
-                  {alert.type === 'expiry' && (
-                    <p className="text-xs text-neutral-600 mt-1">Batch #A2048 expires in 15 days</p>
-                  )}
-                  <p className="text-xs text-neutral-500 mt-1">{formatDate(alert.createdAt)}</p>
+                  <p className="text-xs text-neutral-500 mt-1">Click to view inventory</p>
                 </div>
               </div>
             ))
@@ -106,10 +164,10 @@ export default function RecentAlerts({ className }: RecentAlertsProps) {
             <div className="flex items-center justify-center p-6 text-center">
               <div>
                 <div className="flex justify-center mb-2">
-                  <AlertTriangle className="h-8 w-8 text-neutral-300" />
+                  <div className="text-green-400 text-4xl">✅</div>
                 </div>
                 <p className="text-neutral-500">No active alerts</p>
-                <p className="text-xs text-neutral-400 mt-1">Everything is running smoothly</p>
+                <p className="text-xs text-neutral-400 mt-1">All inventory items are well stocked</p>
               </div>
             </div>
           )}

@@ -1,5 +1,5 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { MoreVertical } from "lucide-react";
+import { MoreVertical, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   PieChart as ReChartsPieChart,
@@ -37,6 +37,8 @@ export default function PieChart({ className }: PieChartProps) {
   // Fetch real category performance data
   const { data: categoryPerformance, isLoading } = useQuery<CategoryPerformance[]>({
     queryKey: ["/api/reports/category-performance"],
+    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchIntervalInBackground: true,
   });
 
   // Process data for pie chart
@@ -60,19 +62,21 @@ export default function PieChart({ className }: PieChartProps) {
   };
 
   return (
-    <Card className={cn("", className)}>
+    <Card className={cn("bg-white/80 backdrop-blur-sm border-white/20", className)}>
       <CardContent className="p-4">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="font-heading font-semibold text-neutral-800">Top Selling Spices</h2>
-          <Button variant="ghost" size="icon">
-            <MoreVertical className="h-4 w-4 text-neutral-500" />
-          </Button>
+        <div className="flex justify-between items-center mb-3">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-lg">
+              <BarChart3 className="h-4 w-4 text-white" />
+            </div>
+            <h3 className="font-semibold text-gray-800">Category Stock</h3>
+          </div>
         </div>
 
-        <div className="h-48 w-full">
+        <div className="h-40 w-full">
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
-              <Skeleton className="h-32 w-32 rounded-full" />
+              <Skeleton className="h-28 w-28 rounded-full" />
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -81,8 +85,8 @@ export default function PieChart({ className }: PieChartProps) {
                   data={data}
                   cx="50%"
                   cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
+                  innerRadius={50}
+                  outerRadius={70}
                   paddingAngle={2}
                   dataKey="value"
                 >
@@ -96,17 +100,17 @@ export default function PieChart({ className }: PieChartProps) {
           )}
         </div>
 
-        <div className="mt-4">
+        <div className="mt-3 space-y-1.5">
           {data.slice(0, 3).map((entry, index) => (
-            <div key={`legend-${index}`} className="flex items-center justify-between mb-2">
+            <div key={`legend-${index}`} className="flex items-center justify-between">
               <div className="flex items-center">
                 <span
-                  className="h-3 w-3 rounded-full mr-2"
+                  className="h-2.5 w-2.5 rounded-full mr-2"
                   style={{ backgroundColor: COLORS[index % COLORS.length] }}
                 />
-                <span className="text-sm text-neutral-700">{entry.name}</span>
+                <span className="text-xs text-gray-700">{entry.name}</span>
               </div>
-              <span className="text-sm font-medium">{entry.value}%</span>
+              <span className="text-xs font-medium text-gray-600">{entry.value}</span>
             </div>
           ))}
         </div>

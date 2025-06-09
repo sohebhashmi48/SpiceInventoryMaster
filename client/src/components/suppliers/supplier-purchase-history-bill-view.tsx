@@ -39,6 +39,7 @@ interface PurchaseBill {
   date: string;
   billNo: string;
   totalAmount: number;
+  status: string;
   items: PurchaseHistoryItem[];
 }
 
@@ -46,15 +47,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingCart, Eye, ChevronDown, ChevronRight, Package, FileText, Calendar } from "lucide-react";
+import { ShoppingCart, Eye, ChevronDown, ChevronRight, Package, FileText, Calendar, CreditCard, AlertCircle } from "lucide-react";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface SupplierPurchaseHistoryProps {
   supplierId: number;
+  onPaymentClick?: (billAmount: number, billNo: string) => void;
 }
 
-export default function SupplierPurchaseHistoryBillView({ supplierId }: SupplierPurchaseHistoryProps) {
+export default function SupplierPurchaseHistoryBillView({ supplierId, onPaymentClick }: SupplierPurchaseHistoryProps) {
   const [, setLocation] = useLocation();
   const [expandedBills, setExpandedBills] = useState<number[]>([]);
 
@@ -77,7 +79,9 @@ export default function SupplierPurchaseHistoryBillView({ supplierId }: Supplier
     enabled: !!supplierId,
   });
 
-  // Group purchases by bill (purchase ID)
+
+
+  // Group purchases by bill (purchase ID) and determine payment status
   const purchaseBills = useMemo(() => {
     if (!purchaseItems || purchaseItems.length === 0) return [];
 
@@ -91,6 +95,7 @@ export default function SupplierPurchaseHistoryBillView({ supplierId }: Supplier
           date: item.purchase_date,
           billNo: item.billNo || `Bill #${item.purchaseId}`,
           totalAmount: 0,
+          status: 'unpaid', // Will be determined later
           items: []
         });
       }
@@ -101,10 +106,71 @@ export default function SupplierPurchaseHistoryBillView({ supplierId }: Supplier
     });
 
     // Convert to array and sort by date (newest first)
-    return Array.from(billMap.values()).sort((a, b) =>
+    const bills = Array.from(billMap.values()).sort((a, b) =>
       new Date(b.date).getTime() - new Date(a.date).getTime()
     );
-  }, [purchaseItems]);
+
+    // Determine payment status for each bill
+    bills.forEach(bill => {
+      // Debug logging
+      console.log(`Processing bill ${bill.billNo} (Purchase ID: ${bill.purchaseId})`);
+      console.log('Available payments:', payments);
+
+      // Check if this purchase has any direct payments (from purchase creation)
+      const directPayments = payments?.filter(payment => {
+        const notes = payment.notes?.toLowerCase() || '';
+        const billNoLower = bill.billNo.toLowerCase();
+
+        const matchesPurchaseId = notes.includes(`purchase #${bill.purchaseId}`);
+        const matchesBillNo = notes.includes(billNoLower);
+        const hasDirectPurchaseId = payment.purchaseId === bill.purchaseId;
+
+        console.log(`Payment ${payment.id}: notes="${payment.notes}", matches purchase ID: ${matchesPurchaseId}, matches bill no: ${matchesBillNo}, direct purchase ID: ${hasDirectPurchaseId}`);
+
+        return matchesPurchaseId || matchesBillNo || hasDirectPurchaseId;
+      }) || [];
+
+      console.log(`Found ${directPayments.length} direct payments for bill ${bill.billNo}:`, directPayments);
+
+      // Calculate total direct payments for this bill
+      const totalDirectPayments = directPayments.reduce((sum, payment) =>
+        sum + parseFloat(payment.amount?.toString() || '0'), 0
+      );
+
+      console.log(`Total direct payments: ${totalDirectPayments}, Bill amount: ${bill.totalAmount}`);
+
+      // If direct payments cover the bill amount, mark as paid
+      if (totalDirectPayments >= bill.totalAmount) {
+        bill.status = 'paid';
+        console.log(`Bill ${bill.billNo} marked as PAID (direct payments cover amount)`);
+      } else {
+        // For bills without direct payments, use a heuristic based on supplier balance
+        // If supplier has no outstanding balance and this is an older bill, likely paid
+        const supplierBalanceDue = parseFloat(supplier?.balanceDue?.toString() || '0');
+        const billDate = new Date(bill.date);
+        const daysSinceBill = Math.floor((Date.now() - billDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        console.log(`Supplier balance due: ${supplierBalanceDue}, Days since bill: ${daysSinceBill}`);
+
+        // If supplier has no balance due and bill is older than 7 days, consider it paid
+        // This handles cases where payments were made but not specifically linked to bills
+        if (supplierBalanceDue === 0 && daysSinceBill > 7) {
+          bill.status = 'paid';
+          console.log(`Bill ${bill.billNo} marked as PAID (no supplier balance + old bill)`);
+        } else if (totalDirectPayments > 0) {
+          // If there are some payments but not enough, mark as partially paid
+          bill.status = 'partial';
+          console.log(`Bill ${bill.billNo} marked as PARTIAL`);
+        } else {
+          bill.status = 'unpaid';
+          console.log(`Bill ${bill.billNo} marked as UNPAID`);
+        }
+      }
+    });
+
+    console.log('Final bills with status:', bills);
+    return bills;
+  }, [purchaseItems, payments, supplier?.balanceDue]);
 
   // Toggle bill expansion
   const toggleBill = (purchaseId: number) => {
@@ -177,6 +243,11 @@ export default function SupplierPurchaseHistoryBillView({ supplierId }: Supplier
                   <div className="text-right">
                     <div className="font-medium">{formatCurrency(bill.totalAmount)}</div>
                     <div className="text-sm text-gray-500">{bill.items.length} item{bill.items.length !== 1 ? 's' : ''}</div>
+                    <div className="mt-2">
+                      <Badge variant="outline" className="text-gray-600 border-gray-200 bg-gray-50">
+                        📄 Purchase Record
+                      </Badge>
+                    </div>
                   </div>
                 </div>
 

@@ -355,10 +355,9 @@ export default function EnhancedPaymentForm({
       // Call success callback or navigate
       if (onSuccess) {
         onSuccess();
-      } else if (preselectedCatererId) {
-        setLocation(`/caterers/${preselectedCatererId}`);
       } else {
-        setLocation('/caterer-payments');
+        // Always redirect to billing history after payment
+        setLocation('/distributions');
       }
     } catch (error) {
       console.error('Error recording payment:', error);
@@ -405,10 +404,9 @@ export default function EnhancedPaymentForm({
 
       if (onSuccess) {
         onSuccess();
-      } else if (preselectedCatererId) {
-        setLocation(`/caterers/${preselectedCatererId}`);
       } else {
-        setLocation('/caterer-payments');
+        // Always redirect to billing history after payment
+        setLocation('/distributions');
       }
     } catch (error) {
       console.error('Error recording payment:', error);

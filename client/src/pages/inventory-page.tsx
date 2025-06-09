@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Layout from "@/components/layout/layout";
 import PageHeader from "@/components/common/page-header";
 import InventoryTable from "@/components/inventory/inventory-table";
@@ -7,8 +7,10 @@ import InventoryDashboard from "@/components/inventory/inventory-dashboard";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Barcode, Package, PackageCheck, AlertTriangle, Clock, BarChart, History } from "lucide-react";
+import { Barcode, Package, PackageCheck, AlertTriangle, Clock, BarChart, History, RefreshCw, PackageX } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Inventory } from "@shared/schema";
 import {
   Dialog,
@@ -24,6 +26,8 @@ export default function InventoryPage() {
   const [, setLocation] = useLocation();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { toast } = useToast();
   const [filters, setFilters] = useState({
     searchQuery: "",
     productId: null as number | null,
@@ -39,13 +43,17 @@ export default function InventoryPage() {
     queryKey: ["/api/inventory"],
   });
 
-  const { data: lowStockItems } = useQuery<Inventory[]>({
+  const { data: lowStockItems, isLoading: lowStockLoading, error: lowStockError } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory/alerts/low-stock"],
   });
+
+
 
   const { data: expiringItems } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory/alerts/expiring"],
   });
+
+
 
   const isExpiringSoon = (expiryDate: string | Date) => {
     const expiry = new Date(expiryDate);
@@ -63,6 +71,36 @@ export default function InventoryPage() {
 
   const expiredItems = inventory?.filter(item => isExpired(item.expiryDate));
 
+  // Calculate out of stock items from low stock data (since low stock now includes out of stock)
+  const outOfStockItemsLocal = lowStockItems?.filter(item => Number(item.quantity) === 0) || [];
+  const lowStockOnlyItems = lowStockItems?.filter(item => Number(item.quantity) > 0) || [];
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      // Invalidate all inventory-related queries
+      await queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/inventory/alerts/low-stock"] });
+
+      await queryClient.invalidateQueries({ queryKey: ["/api/inventory/alerts/expiring"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/vendors"] });
+
+      toast({
+        title: "Refreshed",
+        description: "Inventory data has been refreshed successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to refresh inventory data.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   return (
     <Layout>
       <PageHeader
@@ -70,6 +108,15 @@ export default function InventoryPage() {
         description="Track and manage your spice inventory"
       >
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+          </Button>
           <Button
             variant="outline"
             onClick={() => setLocation('/inventory-history')}
@@ -127,6 +174,7 @@ export default function InventoryPage() {
               </span>
             )}
           </TabsTrigger>
+
           <TabsTrigger value="expired" className="flex items-center">
             <PackageCheck className="h-4 w-4 mr-2" />
             Expired
@@ -160,14 +208,39 @@ export default function InventoryPage() {
                 <AlertTriangle className="h-5 w-5 text-red-500" />
               </div>
               <div className="ml-3">
-                <h3 className="text-sm font-medium text-red-800">Low Stock Alert</h3>
+                <h3 className="text-sm font-medium text-red-800">Low Stock & Out of Stock Alert</h3>
                 <div className="mt-2 text-sm text-red-700">
-                  <p>The following items are running low and need to be restocked soon.</p>
+                  <p>The following items are running low (≤10 units) or completely out of stock and need to be restocked.</p>
                 </div>
               </div>
             </div>
           </div>
-          <InventoryTable filters={{ ...filters, minQuantity: 0, maxQuantity: 5 }} />
+          {lowStockLoading ? (
+            <div className="text-center py-16">
+              <div className="text-gray-400 text-6xl mb-4">⏳</div>
+              <h3 className="text-xl font-semibold text-gray-600 mb-2">Loading low stock items...</h3>
+            </div>
+          ) : lowStockError ? (
+            <div className="text-center py-16">
+              <div className="text-red-400 text-6xl mb-4">❌</div>
+              <h3 className="text-xl font-semibold text-gray-600 mb-2">Error loading low stock items</h3>
+              <p className="text-gray-500">{lowStockError.toString()}</p>
+            </div>
+          ) : lowStockItems && lowStockItems.length > 0 ? (
+            <InventoryTable
+              filters={filters}
+              customData={lowStockItems}
+              emptyMessage="All items are well stocked"
+              emptyDescription="No items are currently running low on stock (≤10 units) or out of stock."
+              emptyIcon="✅"
+            />
+          ) : (
+            <div className="text-center py-16">
+              <div className="text-green-400 text-6xl mb-4">✅</div>
+              <h3 className="text-xl font-semibold text-gray-600 mb-2">All items are well stocked</h3>
+              <p className="text-gray-500">No items are currently running low on stock (≤10 units) or out of stock.</p>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="expiring" className="mt-6">
@@ -186,6 +259,8 @@ export default function InventoryPage() {
           </div>
           <InventoryTable filters={{ ...filters, status: 'expiring' }} />
         </TabsContent>
+
+
 
         <TabsContent value="expired" className="mt-6">
           <div className="bg-neutral-50 border-l-4 border-neutral-500 p-4 mb-6 rounded-r-md">

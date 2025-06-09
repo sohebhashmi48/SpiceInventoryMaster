@@ -21,7 +21,9 @@ import {
   DistributionWithItems,
   CustomerBill, InsertCustomerBill,
   CustomerBillItem, InsertCustomerBillItem,
-  CustomerBillWithItems
+  CustomerBillWithItems,
+  Expense, InsertExpense,
+  Asset, InsertAsset
 } from "@shared/schema";
 import createMemoryStore from "memorystore";
 import session, { Store } from "express-session";
@@ -105,6 +107,7 @@ export interface IStorage {
   updateInventoryItem(id: number, item: Partial<Inventory>): Promise<Inventory | undefined>;
   deleteInventoryItem(id: number): Promise<boolean>;
   getLowStockItems(threshold: number): Promise<Inventory[]>;
+  getOutOfStockItems(): Promise<Inventory[]>;
   getExpiringItems(daysThreshold: number): Promise<Inventory[]>;
   updateInventoryQuantity(spiceId: number, quantity: number, isAddition: boolean): Promise<boolean>;
   getInventoryAnalytics(): Promise<any>;
@@ -191,6 +194,20 @@ export interface IStorage {
   createCustomerBill(bill: CustomerBillWithItems): Promise<CustomerBill>;
   updateCustomerBill(id: number, bill: Partial<CustomerBillWithItems>): Promise<CustomerBill | undefined>;
   deleteCustomerBill(id: number): Promise<boolean>;
+
+  // Expense management
+  getExpenses(): Promise<Expense[]>;
+  getExpense(id: number): Promise<Expense | undefined>;
+  createExpense(expense: InsertExpense): Promise<Expense>;
+  updateExpense(id: number, expense: Partial<Expense>): Promise<Expense | undefined>;
+  deleteExpense(id: number): Promise<boolean>;
+
+  // Asset management
+  getAssets(): Promise<Asset[]>;
+  getAsset(id: number): Promise<Asset | undefined>;
+  createAsset(asset: InsertAsset): Promise<Asset>;
+  updateAsset(id: number, asset: Partial<Asset>): Promise<Asset | undefined>;
+  deleteAsset(id: number): Promise<boolean>;
 }
 
 export interface PaymentReminder {
@@ -356,7 +373,7 @@ export class MemStorage implements IStorage {
       }
 
       // Join with products and suppliers to get their names
-      // Only show active items with quantity > 0 by default
+      // Show all active items (including those with quantity = 0)
       const [rows] = await conn.execute(`
         SELECT
           i.*,
@@ -371,7 +388,6 @@ export class MemStorage implements IStorage {
           suppliers s ON i.supplier_id = s.id
         WHERE
           i.status = 'active'
-          AND i.quantity > 0
         ORDER BY
           i.purchase_date DESC
       `);
@@ -474,8 +490,9 @@ export class MemStorage implements IStorage {
         return [];
       }
 
-      // Join with products and suppliers to get their names
-      const [rows] = await conn.execute(`
+      // Get low stock items from inventory table AND products with no inventory (out of stock)
+      // First get items from inventory table with low stock
+      const [inventoryRows] = await conn.execute(`
         SELECT
           i.*,
           p.name as product_name,
@@ -490,14 +507,57 @@ export class MemStorage implements IStorage {
         WHERE
           i.status = 'active'
           AND i.quantity <= ?
-        ORDER BY
-          i.quantity ASC
       `, [threshold]);
 
-      console.log(`Retrieved ${(rows as any[]).length} low stock items`);
+      // Then get products that have no inventory entries (completely out of stock)
+      const [outOfStockRows] = await conn.execute(`
+        SELECT
+          NULL as id,
+          p.id as product_id,
+          NULL as supplier_id,
+          CONCAT('OUT-OF-STOCK-', p.id) as batch_number,
+          0 as quantity,
+          0 as unit_price,
+          0 as total_value,
+          DATE_ADD(CURDATE(), INTERVAL 1 YEAR) as expiry_date,
+          CURDATE() as purchase_date,
+          NULL as barcode,
+          'Product is out of stock' as notes,
+          'active' as status,
+          p.name as product_name,
+          p.unit as product_unit,
+          NULL as supplier_name
+        FROM
+          products p
+        WHERE
+          p.is_active = 1
+          AND p.id NOT IN (
+            SELECT DISTINCT product_id
+            FROM inventory
+            WHERE status = 'active' AND quantity > 0
+          )
+      `);
+
+      // Combine both results
+      const allRows = [...(inventoryRows as any[]), ...(outOfStockRows as any[])];
+
+      // Sort: low stock items first (quantity 1-10), then out of stock items (quantity 0)
+      allRows.sort((a, b) => {
+        const qtyA = Number(a.quantity);
+        const qtyB = Number(b.quantity);
+
+        // If one is 0 and other is not, non-zero comes first
+        if (qtyA === 0 && qtyB > 0) return 1;
+        if (qtyB === 0 && qtyA > 0) return -1;
+
+        // Otherwise sort by quantity ascending
+        return qtyA - qtyB;
+      });
+
+      console.log(`Retrieved ${allRows.length} low stock items (${(inventoryRows as any[]).length} from inventory, ${(outOfStockRows as any[]).length} out of stock products)`);
 
       // Map database fields to camelCase for the client
-      const inventoryItems = (rows as any[]).map(item => {
+      const inventoryItems = allRows.map(item => {
         return {
           id: item.id,
           productId: item.product_id,
@@ -723,6 +783,70 @@ export class MemStorage implements IStorage {
       };
     } catch (error) {
       console.error("Error fetching inventory analytics:", error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async getOutOfStockItems(): Promise<Inventory[]> {
+    const conn = await pool.getConnection();
+    try {
+      console.log(`Fetching out of stock items`);
+
+      // Check if inventory table exists
+      const [tables] = await conn.execute(`SHOW TABLES LIKE 'inventory'`);
+      if ((tables as any[]).length === 0) {
+        console.log("Inventory table doesn't exist yet");
+        return [];
+      }
+
+      // Join with products and suppliers to get their names
+      const [rows] = await conn.execute(`
+        SELECT
+          i.*,
+          p.name as product_name,
+          p.unit as product_unit,
+          s.name as supplier_name
+        FROM
+          inventory i
+        LEFT JOIN
+          products p ON i.product_id = p.id
+        LEFT JOIN
+          suppliers s ON i.supplier_id = s.id
+        WHERE
+          i.status = 'active'
+          AND i.quantity = 0
+        ORDER BY
+          i.id ASC
+      `);
+
+      console.log(`Retrieved ${(rows as any[]).length} out of stock items`);
+
+      // Map database fields to camelCase for the client
+      const inventoryItems = (rows as any[]).map(item => {
+        return {
+          id: item.id,
+          productId: item.product_id,
+          productName: item.product_name,
+          supplierId: item.supplier_id,
+          supplierName: item.supplier_name,
+          batchNumber: item.batch_number,
+          quantity: item.quantity,
+          unit: item.product_unit,
+          unitPrice: item.unit_price,
+          totalValue: item.total_value,
+          expiryDate: item.expiry_date,
+          purchaseDate: item.purchase_date,
+          barcode: item.barcode,
+          notes: item.notes,
+          status: item.status
+        };
+      });
+
+      return inventoryItems as Inventory[];
+    } catch (error) {
+      console.error(`Error fetching out of stock items:`, error);
       throw error;
     } finally {
       conn.release();
@@ -5744,6 +5868,556 @@ export class MemStorage implements IStorage {
     } catch (error) {
       await conn.rollback();
       console.error(`Error deleting customer bill with ID ${id}:`, error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  // Expense management methods
+  async getExpenses(): Promise<Expense[]> {
+    const conn = await pool.getConnection();
+    try {
+      console.log("Fetching all expenses");
+
+      // Check if the expenses table exists
+      const [tables] = await conn.execute(`SHOW TABLES LIKE 'expenses'`);
+      if ((tables as any[]).length === 0) {
+        console.log("Expenses table doesn't exist yet");
+        return [];
+      }
+
+      const [rows] = await conn.execute(`
+        SELECT * FROM expenses
+        ORDER BY expense_date DESC, created_at DESC
+      `);
+
+      // Map database fields to camelCase for the client
+      const expenses = (rows as any[]).map(expense => ({
+        id: expense.id,
+        icon: expense.icon,
+        title: expense.title,
+        expenseDate: expense.expense_date,
+        expiryDate: expense.expiry_date,
+        receiptImage: expense.receipt_image,
+        amount: expense.amount,
+        createdAt: expense.created_at,
+        updatedAt: expense.updated_at
+      }));
+
+      return expenses as Expense[];
+    } catch (error) {
+      console.error("Error fetching expenses:", error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async getExpense(id: number): Promise<Expense | undefined> {
+    const conn = await pool.getConnection();
+    try {
+      console.log(`Fetching expense with ID: ${id}`);
+
+      const [rows] = await conn.execute(`
+        SELECT * FROM expenses WHERE id = ?
+      `, [id]);
+
+      const expense = (rows as any[])[0];
+
+      if (!expense) {
+        return undefined;
+      }
+
+      // Map database fields to camelCase for the client
+      return {
+        id: expense.id,
+        icon: expense.icon,
+        title: expense.title,
+        expenseDate: expense.expense_date,
+        expiryDate: expense.expiry_date,
+        receiptImage: expense.receipt_image,
+        amount: expense.amount,
+        createdAt: expense.created_at,
+        updatedAt: expense.updated_at
+      } as Expense;
+    } catch (error) {
+      console.error(`Error fetching expense with ID ${id}:`, error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async createExpense(expense: InsertExpense): Promise<Expense> {
+    const conn = await pool.getConnection();
+    try {
+      console.log("Creating expense with data:", expense);
+
+      // Check if the expenses table exists
+      const [tables] = await conn.execute(`SHOW TABLES LIKE 'expenses'`);
+      if ((tables as any[]).length === 0) {
+        console.log("Expenses table doesn't exist, creating it...");
+        await conn.execute(`
+          CREATE TABLE expenses (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            icon VARCHAR(10) NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            expense_date DATE NOT NULL,
+            expiry_date DATE NULL,
+            receipt_image VARCHAR(255),
+            amount INT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+          )
+        `);
+        console.log("Expenses table created successfully");
+      }
+
+      // Format dates for MySQL
+      const expenseDate = expense.expenseDate instanceof Date
+        ? expense.expenseDate.toISOString().split('T')[0]
+        : (typeof expense.expenseDate === 'string' ? expense.expenseDate : new Date(expense.expenseDate).toISOString().split('T')[0]);
+
+      const expiryDate = expense.expiryDate
+        ? (expense.expiryDate instanceof Date
+          ? expense.expiryDate.toISOString().split('T')[0]
+          : (typeof expense.expiryDate === 'string' ? expense.expiryDate : new Date(expense.expiryDate).toISOString().split('T')[0]))
+        : null;
+
+      const [result] = await conn.execute(`
+        INSERT INTO expenses (icon, title, expense_date, expiry_date, receipt_image, amount)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [
+        expense.icon,
+        expense.title,
+        expenseDate,
+        expiryDate,
+        expense.receiptImage || null,
+        expense.amount
+      ]);
+
+      const expenseId = (result as any).insertId;
+
+      // Fetch the created expense
+      const [rows] = await conn.execute(`SELECT * FROM expenses WHERE id = ?`, [expenseId]);
+      const dbExpense = (rows as any[])[0];
+
+      if (!dbExpense) {
+        throw new Error("Failed to retrieve created expense");
+      }
+
+      // Map database fields to camelCase for the client
+      const createdExpense: Expense = {
+        id: dbExpense.id,
+        icon: dbExpense.icon,
+        title: dbExpense.title,
+        expenseDate: dbExpense.expense_date,
+        expiryDate: dbExpense.expiry_date,
+        receiptImage: dbExpense.receipt_image,
+        amount: dbExpense.amount,
+        createdAt: dbExpense.created_at,
+        updatedAt: dbExpense.updated_at
+      };
+
+      return createdExpense;
+    } catch (error) {
+      console.error("Error creating expense:", error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async updateExpense(id: number, expense: Partial<Expense>): Promise<Expense | undefined> {
+    const conn = await pool.getConnection();
+    try {
+      console.log(`Updating expense with ID: ${id}`, expense);
+
+      // Build dynamic update query
+      const updateFields = [];
+      const updateValues = [];
+
+      if (expense.icon !== undefined) {
+        updateFields.push('icon = ?');
+        updateValues.push(expense.icon);
+      }
+      if (expense.title !== undefined) {
+        updateFields.push('title = ?');
+        updateValues.push(expense.title);
+      }
+      if (expense.expenseDate !== undefined) {
+        updateFields.push('expense_date = ?');
+        updateValues.push(expense.expenseDate instanceof Date
+          ? expense.expenseDate.toISOString().split('T')[0]
+          : expense.expenseDate);
+      }
+      if (expense.expiryDate !== undefined) {
+        updateFields.push('expiry_date = ?');
+        updateValues.push(expense.expiryDate instanceof Date
+          ? expense.expiryDate.toISOString().split('T')[0]
+          : expense.expiryDate);
+      }
+      if (expense.receiptImage !== undefined) {
+        updateFields.push('receipt_image = ?');
+        updateValues.push(expense.receiptImage);
+      }
+      if (expense.amount !== undefined) {
+        updateFields.push('amount = ?');
+        updateValues.push(expense.amount);
+      }
+
+      if (updateFields.length === 0) {
+        // No fields to update, return the existing expense
+        return this.getExpense(id);
+      }
+
+      updateFields.push('updated_at = CURRENT_TIMESTAMP');
+      updateValues.push(id);
+
+      const [result] = await conn.execute(`
+        UPDATE expenses SET ${updateFields.join(', ')} WHERE id = ?
+      `, updateValues);
+
+      const affectedRows = (result as any).affectedRows;
+
+      if (affectedRows === 0) {
+        return undefined;
+      }
+
+      // Return the updated expense
+      return this.getExpense(id);
+    } catch (error) {
+      console.error(`Error updating expense with ID ${id}:`, error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async deleteExpense(id: number): Promise<boolean> {
+    const conn = await pool.getConnection();
+    try {
+      console.log(`Deleting expense with ID: ${id}`);
+
+      const [result] = await conn.execute(`DELETE FROM expenses WHERE id = ?`, [id]);
+      const affectedRows = (result as any).affectedRows;
+
+      return affectedRows > 0;
+    } catch (error) {
+      console.error(`Error deleting expense with ID ${id}:`, error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  // Asset management methods
+  async getAssets(): Promise<Asset[]> {
+    const conn = await pool.getConnection();
+    try {
+      console.log("Fetching all assets");
+
+      // Check if the assets table exists
+      const [tables] = await conn.execute(`SHOW TABLES LIKE 'assets'`);
+      if ((tables as any[]).length === 0) {
+        console.log("Assets table doesn't exist yet");
+        return [];
+      }
+
+      const [rows] = await conn.execute(`
+        SELECT * FROM assets
+        ORDER BY purchase_date DESC, created_at DESC
+      `);
+
+      // Map database fields to camelCase for the client
+      const assets = (rows as any[]).map(asset => ({
+        id: asset.id,
+        assetImage: asset.asset_image,
+        title: asset.title,
+        description: asset.description,
+        purchaseDate: asset.purchase_date,
+        expiryDate: asset.expiry_date,
+        receiptImage: asset.receipt_image,
+        amount: asset.amount,
+        currentValue: asset.current_value,
+        depreciationRate: asset.depreciation_rate,
+        category: asset.category,
+        location: asset.location,
+        serialNumber: asset.serial_number,
+        warrantyExpiry: asset.warranty_expiry,
+        createdAt: asset.created_at,
+        updatedAt: asset.updated_at
+      }));
+
+      return assets as Asset[];
+    } catch (error) {
+      console.error("Error fetching assets:", error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async getAsset(id: number): Promise<Asset | undefined> {
+    const conn = await pool.getConnection();
+    try {
+      console.log(`Fetching asset with ID: ${id}`);
+
+      const [rows] = await conn.execute(`
+        SELECT * FROM assets WHERE id = ?
+      `, [id]);
+
+      const asset = (rows as any[])[0];
+
+      if (!asset) {
+        return undefined;
+      }
+
+      // Map database fields to camelCase for the client
+      return {
+        id: asset.id,
+        assetImage: asset.asset_image,
+        title: asset.title,
+        description: asset.description,
+        purchaseDate: asset.purchase_date,
+        expiryDate: asset.expiry_date,
+        receiptImage: asset.receipt_image,
+        amount: asset.amount,
+        currentValue: asset.current_value,
+        depreciationRate: asset.depreciation_rate,
+        category: asset.category,
+        location: asset.location,
+        serialNumber: asset.serial_number,
+        warrantyExpiry: asset.warranty_expiry,
+        createdAt: asset.created_at,
+        updatedAt: asset.updated_at
+      } as Asset;
+    } catch (error) {
+      console.error(`Error fetching asset with ID ${id}:`, error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async createAsset(asset: InsertAsset): Promise<Asset> {
+    const conn = await pool.getConnection();
+    try {
+      console.log("Creating asset with data:", asset);
+
+      // Check if the assets table exists, create if not
+      const [tables] = await conn.execute(`SHOW TABLES LIKE 'assets'`);
+      if ((tables as any[]).length === 0) {
+        console.log("Assets table doesn't exist, creating it...");
+        await conn.execute(`
+          CREATE TABLE assets (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            asset_image TEXT,
+            title TEXT NOT NULL,
+            description TEXT,
+            purchase_date TIMESTAMP NOT NULL,
+            expiry_date TIMESTAMP NULL,
+            receipt_image TEXT,
+            amount INT NOT NULL,
+            current_value INT,
+            depreciation_rate INT,
+            category TEXT,
+            location TEXT,
+            serial_number TEXT,
+            warranty_expiry TIMESTAMP NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+          )
+        `);
+        console.log("Assets table created successfully");
+      }
+
+      // Format dates for MySQL
+      const purchaseDate = asset.purchaseDate instanceof Date
+        ? asset.purchaseDate.toISOString().split('T')[0]
+        : (typeof asset.purchaseDate === 'string' ? asset.purchaseDate : new Date(asset.purchaseDate).toISOString().split('T')[0]);
+
+      const expiryDate = asset.expiryDate
+        ? (asset.expiryDate instanceof Date
+          ? asset.expiryDate.toISOString().split('T')[0]
+          : (typeof asset.expiryDate === 'string' ? asset.expiryDate : new Date(asset.expiryDate).toISOString().split('T')[0]))
+        : null;
+
+      const warrantyExpiry = asset.warrantyExpiry
+        ? (asset.warrantyExpiry instanceof Date
+          ? asset.warrantyExpiry.toISOString().split('T')[0]
+          : (typeof asset.warrantyExpiry === 'string' ? asset.warrantyExpiry : new Date(asset.warrantyExpiry).toISOString().split('T')[0]))
+        : null;
+
+      const [result] = await conn.execute(`
+        INSERT INTO assets (
+          asset_image, title, description, purchase_date, expiry_date, receipt_image,
+          amount, current_value, depreciation_rate, category, location,
+          serial_number, warranty_expiry
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        asset.assetImage || null,
+        asset.title,
+        asset.description || null,
+        purchaseDate,
+        expiryDate,
+        asset.receiptImage || null,
+        asset.amount,
+        asset.currentValue || null,
+        asset.depreciationRate || null,
+        asset.category || null,
+        asset.location || null,
+        asset.serialNumber || null,
+        warrantyExpiry
+      ]);
+
+      const assetId = (result as any).insertId;
+
+      // Fetch the created asset
+      const [rows] = await conn.execute(`SELECT * FROM assets WHERE id = ?`, [assetId]);
+      const dbAsset = (rows as any[])[0];
+
+      if (!dbAsset) {
+        throw new Error("Failed to retrieve created asset");
+      }
+
+      // Map database fields to camelCase for the client
+      const createdAsset: Asset = {
+        id: dbAsset.id,
+        assetImage: dbAsset.asset_image,
+        title: dbAsset.title,
+        description: dbAsset.description,
+        purchaseDate: dbAsset.purchase_date,
+        expiryDate: dbAsset.expiry_date,
+        receiptImage: dbAsset.receipt_image,
+        amount: dbAsset.amount,
+        currentValue: dbAsset.current_value,
+        depreciationRate: dbAsset.depreciation_rate,
+        category: dbAsset.category,
+        location: dbAsset.location,
+        serialNumber: dbAsset.serial_number,
+        warrantyExpiry: dbAsset.warranty_expiry,
+        createdAt: dbAsset.created_at,
+        updatedAt: dbAsset.updated_at
+      };
+
+      return createdAsset;
+    } catch (error) {
+      console.error("Error creating asset:", error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async updateAsset(id: number, asset: Partial<Asset>): Promise<Asset | undefined> {
+    const conn = await pool.getConnection();
+    try {
+      console.log(`Updating asset with ID: ${id}`, asset);
+
+      // Build the update query dynamically based on provided fields
+      const updateFields = [];
+      const updateValues = [];
+
+      if (asset.assetImage !== undefined) {
+        updateFields.push('asset_image = ?');
+        updateValues.push(asset.assetImage);
+      }
+      if (asset.title !== undefined) {
+        updateFields.push('title = ?');
+        updateValues.push(asset.title);
+      }
+      if (asset.description !== undefined) {
+        updateFields.push('description = ?');
+        updateValues.push(asset.description);
+      }
+      if (asset.purchaseDate !== undefined) {
+        updateFields.push('purchase_date = ?');
+        updateValues.push(asset.purchaseDate instanceof Date
+          ? asset.purchaseDate.toISOString().split('T')[0]
+          : asset.purchaseDate);
+      }
+      if (asset.expiryDate !== undefined) {
+        updateFields.push('expiry_date = ?');
+        updateValues.push(asset.expiryDate instanceof Date
+          ? asset.expiryDate.toISOString().split('T')[0]
+          : asset.expiryDate);
+      }
+      if (asset.receiptImage !== undefined) {
+        updateFields.push('receipt_image = ?');
+        updateValues.push(asset.receiptImage);
+      }
+      if (asset.amount !== undefined) {
+        updateFields.push('amount = ?');
+        updateValues.push(asset.amount);
+      }
+      if (asset.currentValue !== undefined) {
+        updateFields.push('current_value = ?');
+        updateValues.push(asset.currentValue);
+      }
+      if (asset.depreciationRate !== undefined) {
+        updateFields.push('depreciation_rate = ?');
+        updateValues.push(asset.depreciationRate);
+      }
+      if (asset.category !== undefined) {
+        updateFields.push('category = ?');
+        updateValues.push(asset.category);
+      }
+      if (asset.location !== undefined) {
+        updateFields.push('location = ?');
+        updateValues.push(asset.location);
+      }
+      if (asset.serialNumber !== undefined) {
+        updateFields.push('serial_number = ?');
+        updateValues.push(asset.serialNumber);
+      }
+      if (asset.warrantyExpiry !== undefined) {
+        updateFields.push('warranty_expiry = ?');
+        updateValues.push(asset.warrantyExpiry instanceof Date
+          ? asset.warrantyExpiry.toISOString().split('T')[0]
+          : asset.warrantyExpiry);
+      }
+
+      if (updateFields.length === 0) {
+        // No fields to update, return the existing asset
+        return this.getAsset(id);
+      }
+
+      updateFields.push('updated_at = CURRENT_TIMESTAMP');
+      updateValues.push(id);
+
+      const [result] = await conn.execute(`
+        UPDATE assets SET ${updateFields.join(', ')} WHERE id = ?
+      `, updateValues);
+
+      const affectedRows = (result as any).affectedRows;
+
+      if (affectedRows === 0) {
+        return undefined;
+      }
+
+      // Return the updated asset
+      return this.getAsset(id);
+    } catch (error) {
+      console.error(`Error updating asset with ID ${id}:`, error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  async deleteAsset(id: number): Promise<boolean> {
+    const conn = await pool.getConnection();
+    try {
+      console.log(`Deleting asset with ID: ${id}`);
+
+      const [result] = await conn.execute(`DELETE FROM assets WHERE id = ?`, [id]);
+      const affectedRows = (result as any).affectedRows;
+
+      return affectedRows > 0;
+    } catch (error) {
+      console.error(`Error deleting asset with ID ${id}:`, error);
       throw error;
     } finally {
       conn.release();

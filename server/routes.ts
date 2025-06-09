@@ -6,7 +6,9 @@ import {
   insertCatererSchema,
   distributionWithItemsSchema,
   insertCatererPaymentSchema,
-  customerBillWithItemsSchema
+  customerBillWithItemsSchema,
+  insertExpenseSchema,
+  insertAssetSchema
 } from "@shared/schema";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./auth";
@@ -20,12 +22,239 @@ import customerBillsRouter from "./routes/customer-bills";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Fuzzy matching function for product names
+function calculateSimilarity(str1: string, str2: string): number {
+  const s1 = str1.toLowerCase().trim();
+  const s2 = str2.toLowerCase().trim();
+
+  // Exact match
+  if (s1 === s2) return 1.0;
+
+  // Check if one contains the other
+  if (s1.includes(s2) || s2.includes(s1)) return 0.8;
+
+  // Common spice name mappings
+  const spiceMappings: { [key: string]: string[] } = {
+    'mirchi': ['red chili powder', 'chili powder', 'red chilli powder', 'chilli powder'],
+    'turmeric': ['turmeric powder', 'haldi', 'haldi powder'],
+    'coriander': ['coriander powder', 'dhania', 'dhania powder'],
+    'cumin': ['cumin seeds', 'jeera', 'cumin powder'],
+    'garam masala': ['garam masala powder'],
+    'black pepper': ['black pepper powder', 'kali mirch'],
+    'cardamom': ['green cardamom', 'elaichi'],
+    'cinnamon': ['cinnamon stick', 'dalchini'],
+    'cloves': ['laung'],
+    'bay leaves': ['tej patta'],
+    'mustard': ['mustard seeds', 'sarson'],
+    'fenugreek': ['methi', 'fenugreek seeds'],
+    'asafoetida': ['hing'],
+    'fennel': ['saunf', 'fennel seeds']
+  };
+
+  // Check mappings
+  for (const [key, aliases] of Object.entries(spiceMappings)) {
+    if ((s1.includes(key) || aliases.some(alias => s1.includes(alias))) &&
+        (s2.includes(key) || aliases.some(alias => s2.includes(alias)))) {
+      return 0.9;
+    }
+  }
+
+  // Levenshtein distance for fuzzy matching
+  const matrix = Array(s2.length + 1).fill(null).map(() => Array(s1.length + 1).fill(null));
+
+  for (let i = 0; i <= s1.length; i++) matrix[0][i] = i;
+  for (let j = 0; j <= s2.length; j++) matrix[j][0] = j;
+
+  for (let j = 1; j <= s2.length; j++) {
+    for (let i = 1; i <= s1.length; i++) {
+      const indicator = s1[i - 1] === s2[j - 1] ? 0 : 1;
+      matrix[j][i] = Math.min(
+        matrix[j][i - 1] + 1,     // deletion
+        matrix[j - 1][i] + 1,     // insertion
+        matrix[j - 1][i - 1] + indicator // substitution
+      );
+    }
+  }
+
+  const distance = matrix[s2.length][s1.length];
+  const maxLength = Math.max(s1.length, s2.length);
+  return maxLength === 0 ? 1 : (maxLength - distance) / maxLength;
+}
+
+// Find best matching product for an order item
+async function findMatchingProduct(conn: any, itemName: string): Promise<any | null> {
+  const [products] = await conn.execute(`
+    SELECT id, name, unit, stocks_qty
+    FROM products
+    WHERE is_active = 1
+  `);
+
+  let bestMatch = null;
+  let bestScore = 0;
+  const threshold = 0.6; // Minimum similarity score
+
+  for (const product of products as any[]) {
+    const score = calculateSimilarity(itemName, product.name);
+    if (score > bestScore && score >= threshold) {
+      bestScore = score;
+      bestMatch = { ...product, similarity: score };
+    }
+  }
+
+  console.log(`Best match for "${itemName}": ${bestMatch ? `${bestMatch.name} (${(bestMatch.similarity * 100).toFixed(1)}%)` : 'None found'}`);
+  return bestMatch;
+}
+
+// Deduct inventory for an order item using FIFO
+async function deductInventoryForOrderItem(conn: any, orderItem: any, orderId: number): Promise<void> {
+  const { product_name, quantity, unit } = orderItem;
+
+  console.log(`Processing inventory deduction for: ${product_name} (${quantity} ${unit})`);
+
+  // Find matching product
+  const matchedProduct = await findMatchingProduct(conn, product_name);
+  if (!matchedProduct) {
+    console.log(`No matching product found for "${product_name}", skipping inventory deduction`);
+    return;
+  }
+
+  console.log(`Matched "${product_name}" to product "${matchedProduct.name}" (ID: ${matchedProduct.id})`);
+
+  // Get available inventory batches for this product (FIFO order)
+  const [inventoryBatches] = await conn.execute(`
+    SELECT id, batch_number, quantity, unit_price, expiry_date, purchase_date
+    FROM inventory
+    WHERE product_id = ? AND status = 'active' AND quantity > 0
+    ORDER BY expiry_date ASC, purchase_date ASC
+  `, [matchedProduct.id]);
+
+  const batches = inventoryBatches as any[];
+  console.log(`Found ${batches.length} available batches for product ${matchedProduct.name}`);
+
+  if (batches.length === 0) {
+    console.log(`No available inventory for product "${matchedProduct.name}"`);
+    return;
+  }
+
+  let remainingQuantity = Number(quantity);
+  const deductedBatches: { batchId: number; deductedQuantity: number }[] = [];
+
+  // Deduct from batches using FIFO
+  for (const batch of batches) {
+    if (remainingQuantity <= 0) break;
+
+    const availableQuantity = Number(batch.quantity);
+    const deductQuantity = Math.min(remainingQuantity, availableQuantity);
+    const newQuantity = availableQuantity - deductQuantity;
+
+    // Update batch quantity
+    if (newQuantity === 0) {
+      // Mark batch as inactive if depleted
+      await conn.execute(`
+        UPDATE inventory
+        SET quantity = 0, total_value = 0, status = 'inactive'
+        WHERE id = ?
+      `, [batch.id]);
+      console.log(`Batch ${batch.batch_number} depleted and marked as inactive`);
+    } else {
+      // Update remaining quantity and value
+      const unitPrice = Number(batch.unit_price);
+      const newValue = newQuantity * unitPrice;
+      await conn.execute(`
+        UPDATE inventory
+        SET quantity = ?, total_value = ?
+        WHERE id = ?
+      `, [newQuantity, newValue, batch.id]);
+      console.log(`Updated batch ${batch.batch_number}: ${availableQuantity} -> ${newQuantity}`);
+    }
+
+    // Record the deduction
+    deductedBatches.push({ batchId: batch.id, deductedQuantity: deductQuantity });
+    remainingQuantity -= deductQuantity;
+
+    console.log(`Deducted ${deductQuantity} from batch ${batch.batch_number}, remaining to deduct: ${remainingQuantity}`);
+  }
+
+  // Update product stock quantity
+  const totalDeducted = Number(quantity) - remainingQuantity;
+  if (totalDeducted > 0) {
+    await conn.execute(`
+      UPDATE products
+      SET stocks_qty = GREATEST(0, stocks_qty - ?)
+      WHERE id = ?
+    `, [totalDeducted, matchedProduct.id]);
+
+    console.log(`Updated product ${matchedProduct.name} stock quantity by -${totalDeducted}`);
+  }
+
+  // Log inventory transactions for audit trail
+  for (const { batchId, deductedQuantity } of deductedBatches) {
+    try {
+      // Check if inventory_transactions table exists, create if not
+      const [tables] = await conn.execute(`SHOW TABLES LIKE 'inventory_transactions'`);
+      if ((tables as any[]).length === 0) {
+        console.log("Creating inventory_transactions table...");
+        await conn.execute(`
+          CREATE TABLE inventory_transactions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            inventory_id INT NOT NULL,
+            transaction_type VARCHAR(50) NOT NULL,
+            quantity DECIMAL(10,3) NOT NULL,
+            reference_type VARCHAR(50),
+            reference_id INT,
+            notes TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (inventory_id) REFERENCES inventory(id)
+          )
+        `);
+      }
+
+      await conn.execute(`
+        INSERT INTO inventory_transactions (
+          inventory_id, transaction_type, quantity, reference_type, reference_id, notes, created_at
+        ) VALUES (?, 'deduction', ?, 'order_delivery', ?, ?, NOW())
+      `, [
+        batchId,
+        deductedQuantity,
+        orderId,
+        `Order delivery - Order #${orderItem.order_number} - Item: ${product_name}`
+      ]);
+    } catch (transactionError) {
+      console.warn("Failed to record inventory transaction:", transactionError);
+      // Continue without failing the entire operation
+    }
+  }
+
+  if (remainingQuantity > 0) {
+    console.warn(`Could not deduct full quantity for "${product_name}". Remaining: ${remainingQuantity} ${unit}`);
+  } else {
+    console.log(`Successfully deducted ${quantity} ${unit} of "${product_name}" from inventory`);
+  }
+}
+
 export async function registerRoutes(app: Express) {
-  // Serve static files from the public directory
-  app.use('/api/uploads', express.static(path.join(__dirname, 'public', 'uploads')));
+  const uploadsPath = path.join(__dirname, 'public', 'uploads');
+  console.log(`Serving static files from: ${uploadsPath} at /api/uploads`);
+  app.use('/api/uploads', express.static(uploadsPath));
 
   // Public API endpoints for customer showcase (no authentication required)
   // IMPORTANT: These must be defined BEFORE authentication setup
+
+  // Debug endpoint to check image paths
+  app.get("/api/debug/image-paths", async (_req, res) => {
+    try {
+      const products = await storage.getSpices();
+      const imagePaths = products.slice(0, 10).map(p => ({
+        id: p.id,
+        name: p.name,
+        imagePath: p.imagePath
+      }));
+      res.json(imagePaths);
+    } catch (error) {
+      console.error("Debug image paths error:", error);
+      res.status(500).json({ message: "Failed to fetch image paths" });
+    }
+  });
 
   // Get all categories for public showcase
   app.get("/api/public/categories", async (_req, res) => {
@@ -36,6 +265,118 @@ export async function registerRoutes(app: Express) {
     } catch (error) {
       console.error("Get public categories error:", error);
       res.status(500).json({ message: "Failed to fetch categories" });
+    }
+  });
+
+  // Create order from showcase (WhatsApp orders)
+  app.post("/api/public/orders", async (req, res) => {
+    try {
+      console.log("Creating showcase order");
+      const {
+        customerName,
+        customerPhone,
+        customerEmail,
+        customerAddress,
+        notes,
+        items,
+        subtotal,
+        deliveryFee,
+        total,
+        whatsappMessage
+      } = req.body;
+
+      // Generate order number
+      const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+
+      const conn = await storage.getConnection();
+      try {
+        await conn.beginTransaction();
+
+        // Insert order
+        const [orderResult] = await conn.execute(`
+          INSERT INTO orders (
+            order_number, customer_name, customer_phone, customer_email,
+            delivery_address, subtotal, delivery_fee, total_amount,
+            notes, whatsapp_sent, whatsapp_message, order_source, status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, 'showcase', 'pending')
+        `, [
+          orderNumber, customerName, customerPhone, customerEmail || null,
+          customerAddress, subtotal, deliveryFee, total,
+          notes || null, whatsappMessage
+        ]);
+
+        const orderId = (orderResult as any).insertId;
+
+        // Insert order items
+        for (const item of items) {
+          await conn.execute(`
+            INSERT INTO order_items (
+              order_id, product_id, product_name, quantity,
+              unit, unit_price, total_price
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `, [
+            orderId, item.productId || null, item.name,
+            item.quantity, item.unit, item.price, item.total
+          ]);
+        }
+
+        await conn.commit();
+
+        res.json({
+          success: true,
+          orderId,
+          orderNumber,
+          message: "Order created successfully"
+        });
+      } catch (error) {
+        await conn.rollback();
+        throw error;
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Create order error:", error);
+      res.status(500).json({ message: "Failed to create order" });
+    }
+  });
+
+  // Debug endpoint to check image paths
+  app.get("/api/debug/image-paths", async (_req, res) => {
+    try {
+      const products = await storage.getSpices();
+      const imagePaths = products.slice(0, 10).map(p => ({
+        id: p.id,
+        name: p.name,
+        imagePath: p.imagePath
+      }));
+      res.json(imagePaths);
+    } catch (error) {
+      console.error("Debug image paths error:", error);
+      res.status(500).json({ message: "Failed to fetch image paths" });
+    }
+  });
+
+  // Debug endpoint to check uploads directory
+  app.get("/api/debug/uploads", async (_req, res) => {
+    try {
+      const fs = await import('fs');
+      const uploadsPath = path.join(__dirname, 'public', 'uploads', 'spices');
+
+      if (!fs.existsSync(uploadsPath)) {
+        return res.json({
+          error: 'Uploads directory does not exist',
+          path: uploadsPath
+        });
+      }
+
+      const files = fs.readdirSync(uploadsPath);
+      res.json({
+        uploadsPath,
+        files: files.slice(0, 10) // First 10 files
+      });
+    } catch (error) {
+      console.error("Debug uploads error:", error);
+      res.status(500).json({ message: "Failed to check uploads directory" });
     }
   });
 
@@ -81,8 +422,16 @@ export async function registerRoutes(app: Express) {
         );
       }
 
-      // Sort products
+      // Sort products with availability priority
       products.sort((a, b) => {
+        // First priority: Available products (stocksQty > 0) come before out-of-stock (stocksQty = 0)
+        const aInStock = (a.stocksQty || 0) > 0;
+        const bInStock = (b.stocksQty || 0) > 0;
+
+        if (aInStock && !bInStock) return -1; // a is in stock, b is not - a comes first
+        if (!aInStock && bInStock) return 1;  // b is in stock, a is not - b comes first
+
+        // If both have same stock status, sort by the selected criteria
         let aValue, bValue;
 
         switch (sortBy) {
@@ -143,6 +492,21 @@ export async function registerRoutes(app: Express) {
         conn.release();
       }
 
+      // Sort products with availability priority (same logic as main products endpoint)
+      products.sort((a, b) => {
+        // First priority: Available products (stocksQty > 0) come before out-of-stock (stocksQty = 0)
+        const aInStock = (a.stocksQty || 0) > 0;
+        const bInStock = (b.stocksQty || 0) > 0;
+
+        if (aInStock && !bInStock) return -1; // a is in stock, b is not - a comes first
+        if (!aInStock && bInStock) return 1;  // b is in stock, a is not - b comes first
+
+        // If both have same stock status, sort by name (default)
+        const aValue = a.name.toLowerCase();
+        const bValue = b.name.toLowerCase();
+        return aValue > bValue ? 1 : -1;
+      });
+
       // Return all active products regardless of stock for public showcase
       const availableProducts = products.filter(p => p.isActive);
 
@@ -189,13 +553,336 @@ export async function registerRoutes(app: Express) {
     }
   });
 
+  // Order management endpoints (admin)
+  app.get("/api/orders", async (req, res) => {
+    try {
+      console.log("Fetching orders");
+      const { status, source, page = 1, limit = 50, date } = req.query;
+
+      const pageNum = parseInt(page as string) || 1;
+      const limitNum = parseInt(limit as string) || 50;
+      const offset = (pageNum - 1) * limitNum;
+
+      const conn = await storage.getConnection();
+      try {
+        // First, let's check if the orders table exists
+        const [tableCheck] = await conn.execute("SHOW TABLES LIKE 'orders'");
+        if ((tableCheck as any[]).length === 0) {
+          return res.json({
+            orders: [],
+            pagination: { page: pageNum, limit: limitNum, total: 0, pages: 0 },
+            message: "Orders table does not exist"
+          });
+        }
+
+        // Build WHERE clause dynamically
+        let whereClause = "";
+        let queryParams: any[] = [];
+
+        if (status && status !== 'all') {
+          whereClause += whereClause ? " AND " : " WHERE ";
+          whereClause += "o.status = ?";
+          queryParams.push(status);
+        }
+
+        if (source && source !== 'all') {
+          whereClause += whereClause ? " AND " : " WHERE ";
+          whereClause += "o.order_source = ?";
+          queryParams.push(source);
+        }
+
+        if (date) {
+          whereClause += whereClause ? " AND " : " WHERE ";
+          whereClause += "DATE(o.created_at) = ?";
+          queryParams.push(date);
+        }
+
+        // Get orders with items - using a simpler query first
+        const ordersQuery = `
+          SELECT
+            o.id,
+            o.order_number,
+            o.customer_name,
+            o.customer_phone,
+            o.customer_email,
+            o.delivery_address,
+            o.subtotal,
+            o.delivery_fee,
+            o.total_amount,
+            o.status,
+            o.order_source,
+            o.created_at,
+            o.notes,
+            COALESCE(item_summary.item_count, 0) as item_count,
+            COALESCE(item_summary.items_summary, '') as items_summary
+          FROM orders o
+          LEFT JOIN (
+            SELECT
+              order_id,
+              COUNT(*) as item_count,
+              GROUP_CONCAT(
+                CONCAT(product_name, ' (', quantity, ' ', unit, ')')
+                SEPARATOR ', '
+              ) as items_summary
+            FROM order_items
+            GROUP BY order_id
+          ) item_summary ON o.id = item_summary.order_id
+          ${whereClause}
+          ORDER BY o.created_at DESC
+          LIMIT ${limitNum} OFFSET ${offset}
+        `;
+
+        console.log("Orders query:", ordersQuery);
+        console.log("Query params:", queryParams);
+
+        const [orders] = await conn.execute(ordersQuery, queryParams);
+
+        // Get total count
+        const countQuery = `SELECT COUNT(*) as total FROM orders o${whereClause}`;
+        const [countResult] = await conn.execute(countQuery, queryParams);
+        const total = (countResult as any[])[0]?.total || 0;
+
+        console.log("Orders found:", (orders as any[]).length);
+        console.log("Total count:", total);
+
+        res.json({
+          orders,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total,
+            pages: Math.ceil(total / limitNum)
+          }
+        });
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Get orders error:", error);
+      res.status(500).json({ message: "Failed to fetch orders", error: error.message });
+    }
+  });
+
+  // Get single order with details
+  app.get("/api/orders/:id", async (req, res) => {
+    try {
+      const orderId = req.params.id;
+      console.log("Fetching order details for:", orderId);
+
+      const conn = await storage.getConnection();
+      try {
+        // Get order details
+        const [orderRows] = await conn.execute(`
+          SELECT o.*
+          FROM orders o
+          WHERE o.id = ?
+        `, [orderId]);
+
+        if ((orderRows as any[]).length === 0) {
+          return res.status(404).json({ message: "Order not found" });
+        }
+
+        const order = (orderRows as any[])[0];
+
+        // Get order items with product images
+        const [items] = await conn.execute(`
+          SELECT
+            oi.*,
+            p.image_path as product_image
+          FROM order_items oi
+          LEFT JOIN products p ON oi.product_id = p.id
+          WHERE oi.order_id = ?
+          ORDER BY oi.id
+        `, [orderId]);
+
+        res.json({
+          ...order,
+          items
+        });
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Get order details error:", error);
+      res.status(500).json({ message: "Failed to fetch order details" });
+    }
+  });
+
+  // Update order status
+  app.put("/api/orders/:id/status", async (req, res) => {
+    try {
+      const orderId = req.params.id;
+      const { status, notes } = req.body;
+      console.log("Updating order status:", orderId, status);
+
+      const conn = await storage.getConnection();
+      try {
+        await conn.beginTransaction();
+
+        // Update order status
+        await conn.execute(`
+          UPDATE orders
+          SET status = ?, notes = CONCAT(IFNULL(notes, ''), '\n', ?), delivered_at = ${status === 'delivered' ? 'NOW()' : 'delivered_at'}
+          WHERE id = ?
+        `, [status, `Status updated to ${status} at ${new Date().toISOString()}`, orderId]);
+
+        // If order is being marked as delivered, automatically deduct inventory
+        if (status === 'delivered') {
+          console.log(`Order ${orderId} marked as delivered, starting automatic inventory deduction`);
+
+          // Get order items
+          const [orderItems] = await conn.execute(`
+            SELECT oi.*, o.order_number
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.id
+            WHERE oi.order_id = ?
+          `, [orderId]);
+
+          const items = orderItems as any[];
+          console.log(`Found ${items.length} items to process for order ${orderId}`);
+
+          // Process each order item for inventory deduction
+          for (const item of items) {
+            try {
+              await deductInventoryForOrderItem(conn, item, orderId);
+            } catch (itemError) {
+              console.error(`Failed to deduct inventory for item ${item.id}:`, itemError);
+              // Continue processing other items even if one fails
+            }
+          }
+        }
+
+        await conn.commit();
+        res.json({ success: true, message: "Order status updated" });
+      } catch (error) {
+        await conn.rollback();
+        throw error;
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Update order status error:", error);
+      res.status(500).json({ message: "Failed to update order status" });
+    }
+  });
+
+  // Approve order
+  app.put("/api/orders/:id/approve", async (req, res) => {
+    try {
+      const orderId = req.params.id;
+      console.log("Approving order:", orderId);
+
+      const conn = await storage.getConnection();
+      try {
+        await conn.execute(`
+          UPDATE orders
+          SET status = 'confirmed', approved_at = NOW()
+          WHERE id = ? AND status = 'pending'
+        `, [orderId]);
+
+        res.json({ success: true, message: "Order approved successfully" });
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Approve order error:", error);
+      res.status(500).json({ message: "Failed to approve order" });
+    }
+  });
+
+  // Test endpoint to check if orders table exists
+  app.get("/api/test/orders-table", async (req, res) => {
+    try {
+      const conn = await storage.getConnection();
+      try {
+        // Check if orders table exists
+        const [tables] = await conn.execute("SHOW TABLES LIKE 'orders'");
+
+        if ((tables as any[]).length === 0) {
+          return res.json({
+            exists: false,
+            message: "Orders table does not exist. Please run the migration script."
+          });
+        }
+
+        // Check table structure
+        const [columns] = await conn.execute("DESCRIBE orders");
+
+        // Try to count orders
+        const [count] = await conn.execute("SELECT COUNT(*) as total FROM orders");
+        const total = (count as any[])[0].total;
+
+        // Count delivered orders
+        const [deliveredCount] = await conn.execute("SELECT COUNT(*) as total FROM orders WHERE status = 'delivered'");
+        const deliveredTotal = (deliveredCount as any[])[0].total;
+
+        // Count today's orders
+        const [todayCount] = await conn.execute("SELECT COUNT(*) as total FROM orders WHERE DATE(created_at) = CURDATE()");
+        const todayTotal = (todayCount as any[])[0].total;
+
+        res.json({
+          exists: true,
+          columns: columns,
+          totalOrders: total,
+          deliveredOrders: deliveredTotal,
+          todayOrders: todayTotal,
+          message: `Orders table exists with ${total} total orders (${deliveredTotal} delivered, ${todayTotal} today)`
+        });
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Test orders table error:", error);
+      res.status(500).json({ message: "Failed to check orders table", error: error.message });
+    }
+  });
+
+  // Test endpoint to check sales data
+  app.get("/api/test/sales-data", async (req, res) => {
+    try {
+      const conn = await storage.getConnection();
+      try {
+        // Check orders
+        const [orders] = await conn.execute(`
+          SELECT
+            COUNT(*) as total_orders,
+            SUM(total_amount) as total_revenue,
+            MIN(created_at) as first_order,
+            MAX(created_at) as last_order,
+            COUNT(CASE WHEN DATE(created_at) = CURDATE() THEN 1 END) as today_orders
+          FROM orders
+          WHERE status NOT IN ('cancelled')
+        `);
+
+        // Get sample orders
+        const [sampleOrders] = await conn.execute(`
+          SELECT id, order_number, customer_name, total_amount, status, created_at
+          FROM orders
+          ORDER BY created_at DESC
+          LIMIT 5
+        `);
+
+        res.json({
+          summary: (orders as any[])[0],
+          sampleOrders: sampleOrders,
+          message: "Sales data check complete"
+        });
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Sales data check error:", error);
+      res.status(500).json({ message: "Failed to check sales data", error: error.message });
+    }
+  });
+
   // Setup authentication routes and middleware
   await setupAuth(app);
 
   // Register vendor payments router with conditional authentication
   app.use("/api", (req, res, next) => {
-    // Skip authentication for public routes
-    if (req.path.startsWith('/public/')) {
+    // Skip authentication for public routes and uploads
+    if (req.path.startsWith('/public/') || req.path.startsWith('/uploads/')) {
       return next();
     }
     // Apply authentication for all other routes
@@ -708,6 +1395,17 @@ export async function registerRoutes(app: Express) {
         conn.release();
       }
 
+      // Sort products with availability priority (available first, then by name)
+      products.sort((a, b) => {
+        const aInStock = (a.stocksQty || 0) > 0;
+        const bInStock = (b.stocksQty || 0) > 0;
+
+        if (aInStock && !bInStock) return -1;
+        if (!aInStock && bInStock) return 1;
+
+        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+      });
+
       console.log("Fetched all products:", products.map(p => ({ id: p.id, name: p.name, stocksQty: p.stocksQty })));
       res.json(products);
     } catch (error) {
@@ -715,6 +1413,8 @@ export async function registerRoutes(app: Express) {
       res.status(500).json({ message: "Failed to fetch products" });
     }
   });
+
+
 
   // Debug endpoint to get product IDs
   app.get("/api/products/debug/ids", isAuthenticated, async (_req, res) => {
@@ -1250,32 +1950,118 @@ export async function registerRoutes(app: Express) {
           WHERE i.status = 'active'
         `);
 
-        // Get active spice types count
+        // Get active spice types count (products that have inventory entries with quantity > 0)
         const [activeSpicesResult] = await conn.execute(`
           SELECT COUNT(DISTINCT p.id) as activeSpices
           FROM products p
-          WHERE p.stocks_qty > 0
+          JOIN inventory i ON p.id = i.product_id
+          WHERE i.status = 'active' AND CAST(i.quantity AS DECIMAL(10,2)) > 0
         `);
 
-        // Get pending invoices/orders count (using distributions with pending status)
-        const [pendingInvoicesResult] = await conn.execute(`
-          SELECT COUNT(*) as pendingInvoices
-          FROM distributions d
-          WHERE d.status = 'pending' OR d.balance_due > 0
-        `);
-
-        // Get low stock alerts count
-        const [lowStockAlertsResult] = await conn.execute(`
-          SELECT COUNT(*) as lowStockAlerts
+        // Debug: Get the actual list of active products
+        const [debugActiveProducts] = await conn.execute(`
+          SELECT DISTINCT p.id, p.name, i.quantity
           FROM products p
-          WHERE p.stocks_qty <= 10
+          JOIN inventory i ON p.id = i.product_id
+          WHERE i.status = 'active' AND CAST(i.quantity AS DECIMAL(10,2)) > 0
+          ORDER BY p.name
+        `);
+        console.log('Active products with inventory:', debugActiveProducts);
+
+        // Get pending orders count (from orders table)
+        const [pendingOrdersResult] = await conn.execute(`
+          SELECT COUNT(*) as pendingOrders
+          FROM orders o
+          WHERE o.status IN ('pending', 'confirmed', 'processing', 'out_for_delivery')
         `);
 
-        const stats = {
+        // Debug: Get the actual pending orders
+        const [debugPendingOrders] = await conn.execute(`
+          SELECT o.id, o.order_number, o.status, o.customer_name, o.created_at
+          FROM orders o
+          WHERE o.status IN ('pending', 'confirmed', 'processing', 'out_for_delivery')
+          ORDER BY o.created_at DESC
+        `);
+        console.log('Pending orders:', debugPendingOrders);
+
+        // Get low stock alerts count (inventory items with quantity <= 10 + out of stock products)
+        const [lowStockInventoryResult] = await conn.execute(`
+          SELECT COUNT(*) as lowStockFromInventory
+          FROM inventory i
+          WHERE i.status = 'active' AND i.quantity <= 10
+        `);
+
+        const [outOfStockProductsResult] = await conn.execute(`
+          SELECT COUNT(*) as outOfStockProducts
+          FROM products p
+          WHERE p.is_active = 1
+            AND p.id NOT IN (
+              SELECT DISTINCT product_id
+              FROM inventory
+              WHERE status = 'active' AND quantity > 0
+            )
+        `);
+
+        const lowStockAlerts = Number((lowStockInventoryResult as any[])[0]?.lowStockFromInventory || 0) +
+                              Number((outOfStockProductsResult as any[])[0]?.outOfStockProducts || 0);
+
+        // Get historical data for comparison (30 days ago)
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
+
+        // Historical total value (approximate - using current prices with historical quantities)
+        const [historicalValueResult] = await conn.execute(`
+          SELECT SUM(i.quantity * i.unit_price) as totalValue
+          FROM inventory i
+          WHERE i.status = 'active' AND DATE(i.purchase_date) <= ?
+        `, [thirtyDaysAgoStr]);
+
+        // Historical active spices count
+        const [historicalSpicesResult] = await conn.execute(`
+          SELECT COUNT(DISTINCT p.id) as activeSpices
+          FROM products p
+          JOIN inventory i ON p.id = i.product_id
+          WHERE i.status = 'active' AND DATE(i.purchase_date) <= ?
+        `, [thirtyDaysAgoStr]);
+
+        // Historical pending orders (orders from 30 days ago)
+        const [historicalPendingResult] = await conn.execute(`
+          SELECT COUNT(*) as pendingOrders
+          FROM orders o
+          WHERE o.status IN ('pending', 'confirmed', 'processing', 'out_for_delivery')
+            AND DATE(o.created_at) <= ?
+        `, [thirtyDaysAgoStr]);
+
+        // Calculate current values
+        const currentStats = {
           totalValue: Number((totalValueResult as any[])[0]?.totalValue || 0),
           activeSpices: Number((activeSpicesResult as any[])[0]?.activeSpices || 0),
-          pendingInvoices: Number((pendingInvoicesResult as any[])[0]?.pendingInvoices || 0),
-          lowStockAlerts: Number((lowStockAlertsResult as any[])[0]?.lowStockAlerts || 0)
+          pendingInvoices: Number((pendingOrdersResult as any[])[0]?.pendingOrders || 0),
+          lowStockAlerts: lowStockAlerts
+        };
+
+        // Calculate historical values
+        const historicalStats = {
+          totalValue: Number((historicalValueResult as any[])[0]?.totalValue || 0),
+          activeSpices: Number((historicalSpicesResult as any[])[0]?.activeSpices || 0),
+          pendingInvoices: Number((historicalPendingResult as any[])[0]?.pendingOrders || 0)
+        };
+
+        // Calculate percentage changes
+        const calculateChange = (current: number, historical: number) => {
+          if (historical === 0) return current > 0 ? 100 : 0;
+          return ((current - historical) / historical) * 100;
+        };
+
+        const stats = {
+          ...currentStats,
+          changes: {
+            totalValueChange: calculateChange(currentStats.totalValue, historicalStats.totalValue),
+            activeSpicesChange: calculateChange(currentStats.activeSpices, historicalStats.activeSpices),
+            pendingInvoicesChange: calculateChange(currentStats.pendingInvoices, historicalStats.pendingInvoices),
+            lowStockAlertsChange: 0 // No historical comparison for alerts
+          }
         };
 
         console.log("Dashboard stats:", stats);
@@ -1286,6 +2072,470 @@ export async function registerRoutes(app: Express) {
     } catch (error) {
       console.error("Get dashboard stats error:", error);
       res.status(500).json({ message: "Failed to fetch dashboard stats" });
+    }
+  });
+
+  // Daily profit endpoint
+  app.get("/api/dashboard/daily-profit", async (req, res) => {
+    try {
+      const conn = await storage.getConnection();
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+        console.log("Calculating daily profit for:", today);
+
+        // First, check if orders table exists
+        const [tableCheck] = await conn.execute("SHOW TABLES LIKE 'orders'");
+        if ((tableCheck as any[]).length === 0) {
+          return res.json({
+            totalProfit: 0,
+            totalRevenue: 0,
+            totalCost: 0,
+            ordersDelivered: 0,
+            itemsSold: 0,
+            profitMargin: 0,
+            previousDayProfit: 0,
+            profitChange: 0,
+            profitChangePercentage: 0,
+            message: "Orders table does not exist"
+          });
+        }
+
+        // Get today's showcase orders (all statuses) with profit calculation
+        const [todayShowcaseOrders] = await conn.execute(`
+          SELECT
+            o.id,
+            o.order_number,
+            o.status,
+            o.total_amount as revenue,
+            o.created_at,
+            o.order_source,
+            SUM(oi.quantity * COALESCE(oi.unit_price * 0.6, 100)) as estimated_cost,
+            SUM(oi.quantity) as total_quantity
+          FROM orders o
+          JOIN order_items oi ON o.id = oi.order_id
+          WHERE DATE(o.created_at) = ?
+            AND o.order_source = 'showcase'
+            AND o.status NOT IN ('cancelled')
+          GROUP BY o.id
+        `, [today]);
+
+        console.log("Today's showcase orders:", (todayShowcaseOrders as any[]).length);
+
+        // If no showcase orders today, get all today's orders
+        let ordersToUse = todayShowcaseOrders as any[];
+        if (ordersToUse.length === 0) {
+          console.log("No showcase orders today, checking all today's orders...");
+
+          const [todayAllOrders] = await conn.execute(`
+            SELECT
+              o.id,
+              o.order_number,
+              o.status,
+              o.total_amount as revenue,
+              o.created_at,
+              o.order_source,
+              SUM(oi.quantity * COALESCE(oi.unit_price * 0.6, 100)) as estimated_cost,
+              SUM(oi.quantity) as total_quantity
+            FROM orders o
+            JOIN order_items oi ON o.id = oi.order_id
+            WHERE DATE(o.created_at) = ?
+              AND o.status NOT IN ('cancelled')
+            GROUP BY o.id
+          `, [today]);
+
+          ordersToUse = todayAllOrders as any[];
+          console.log("Today's all orders:", ordersToUse.length);
+        }
+
+        // Get yesterday's profit for comparison (showcase orders)
+        const [yesterdayOrders] = await conn.execute(`
+          SELECT
+            COALESCE(SUM(o.total_amount), 0) as total_revenue,
+            COALESCE(SUM(oi.quantity * COALESCE(oi.unit_price * 0.6, 100)), 0) as total_cost
+          FROM orders o
+          JOIN order_items oi ON o.id = oi.order_id
+          WHERE DATE(o.created_at) = ?
+            AND o.order_source = 'showcase'
+            AND o.status NOT IN ('cancelled')
+        `, [yesterday]);
+
+        // Calculate today's metrics
+        const totalRevenue = ordersToUse.reduce((sum, order) => sum + parseFloat(order.revenue || 0), 0);
+        const totalCost = ordersToUse.reduce((sum, order) => sum + parseFloat(order.estimated_cost || 0), 0);
+        const totalProfit = totalRevenue - totalCost;
+        const ordersProcessed = ordersToUse.length; // Changed from ordersDelivered to ordersProcessed
+        const itemsSold = ordersToUse.reduce((sum, order) => sum + parseFloat(order.total_quantity || 0), 0);
+        const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+        // Yesterday's profit
+        const yesterdayData = (yesterdayOrders as any[])[0];
+        const previousDayRevenue = parseFloat(yesterdayData?.total_revenue || 0);
+        const previousDayCost = parseFloat(yesterdayData?.total_cost || 0);
+        const previousDayProfit = previousDayRevenue - previousDayCost;
+
+        const profitChange = totalProfit - previousDayProfit;
+        const profitChangePercentage = previousDayProfit > 0 ? (profitChange / previousDayProfit) * 100 : 0;
+
+        console.log("Profit calculation:", {
+          totalRevenue,
+          totalCost,
+          totalProfit,
+          ordersProcessed,
+          itemsSold,
+          profitMargin,
+          previousDayProfit
+        });
+
+        res.json({
+          totalProfit,
+          totalRevenue,
+          totalCost,
+          ordersDelivered: ordersProcessed, // Keep the same field name for frontend compatibility
+          itemsSold,
+          profitMargin,
+          previousDayProfit,
+          profitChange,
+          profitChangePercentage
+        });
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Daily profit error:", error);
+      res.status(500).json({
+        message: "Failed to fetch daily profit data",
+        error: error.message,
+        totalProfit: 0,
+        totalRevenue: 0,
+        totalCost: 0,
+        ordersDelivered: 0,
+        itemsSold: 0,
+        profitMargin: 0,
+        previousDayProfit: 0,
+        profitChange: 0,
+        profitChangePercentage: 0
+      });
+    }
+  });
+
+  // Sales trends endpoint for dashboard chart
+  app.get("/api/dashboard/sales-trends", async (req, res) => {
+    try {
+      const { timeRange = 'daily' } = req.query;
+      console.log("Fetching sales trends for:", timeRange);
+
+      const conn = await storage.getConnection();
+
+      try {
+        let salesData = [];
+
+        // Check if orders table exists
+        const [tableCheck] = await conn.execute("SHOW TABLES LIKE 'orders'");
+        if ((tableCheck as any[]).length === 0) {
+          console.log("Orders table does not exist");
+          return res.json([]);
+        }
+
+        // First, let's check what orders we have
+        const [allOrders] = await conn.execute(`
+          SELECT COUNT(*) as total,
+                 SUM(total_amount) as total_revenue,
+                 MIN(created_at) as earliest_order,
+                 MAX(created_at) as latest_order
+          FROM orders
+          WHERE status NOT IN ('cancelled')
+        `);
+
+        const orderStats = (allOrders as any[])[0];
+        console.log("Order statistics:", orderStats);
+
+        switch (timeRange) {
+          case 'daily':
+            // Get hourly data for today, but if no data today, get recent data
+            let [dailyData] = await conn.execute(`
+              SELECT
+                hour_val as hour_num,
+                CONCAT(hour_val, ':00') as period,
+                COALESCE(SUM(o.total_amount), 0) as revenue,
+                COUNT(o.id) as orders,
+                COALESCE(SUM(o.total_amount * 0.4), 0) as profit,
+                CURDATE() as date
+              FROM (
+                SELECT HOUR(created_at) as hour_val, total_amount, id
+                FROM orders
+                WHERE DATE(created_at) = CURDATE()
+                  AND status NOT IN ('cancelled')
+              ) o
+              GROUP BY hour_val
+              ORDER BY hour_val
+            `);
+
+            console.log("Today's hourly data:", (dailyData as any[]).length, "hours with data");
+
+            // If no data today, show existing orders distributed across hours
+            if ((dailyData as any[]).length === 0) {
+              console.log("No data for today, showing existing orders...");
+              [dailyData] = await conn.execute(`
+                SELECT
+                  hour_val as hour_num,
+                  CONCAT(hour_val, ':00') as period,
+                  COALESCE(SUM(o.total_amount), 0) as revenue,
+                  COUNT(o.id) as orders,
+                  COALESCE(SUM(o.total_amount * 0.4), 0) as profit,
+                  CURDATE() as date
+                FROM (
+                  SELECT HOUR(created_at) as hour_val, total_amount, id
+                  FROM orders
+                  WHERE status NOT IN ('cancelled')
+                ) o
+                GROUP BY hour_val
+                ORDER BY hour_val
+                LIMIT 24
+              `);
+            }
+
+            // Fill in missing hours with zero values
+            const hours = Array.from({ length: 24 }, (_, i) => i);
+            salesData = hours.map(hour => {
+              const existingData = (dailyData as any[]).find(d => d.hour_num === hour);
+              return {
+                period: `${hour.toString().padStart(2, '0')}:00`,
+                revenue: existingData ? parseFloat(existingData.revenue) : 0,
+                orders: existingData ? parseInt(existingData.orders) : 0,
+                profit: existingData ? parseFloat(existingData.profit) : 0,
+                date: new Date().toISOString().split('T')[0]
+              };
+            });
+            break;
+
+          case 'weekly':
+            // Get daily data for last 7 days, or all available data if less
+            let [weeklyData] = await conn.execute(`
+              SELECT
+                date_val as date,
+                DAYNAME(date_val) as period,
+                COALESCE(SUM(o.total_amount), 0) as revenue,
+                COUNT(o.id) as orders,
+                COALESCE(SUM(o.total_amount * 0.4), 0) as profit
+              FROM (
+                SELECT DATE(created_at) as date_val, total_amount, id
+                FROM orders
+                WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+                  AND status NOT IN ('cancelled')
+              ) o
+              GROUP BY date_val
+              ORDER BY date_val
+            `);
+
+            // If no data in last 7 days, get all available data
+            if ((weeklyData as any[]).length === 0) {
+              [weeklyData] = await conn.execute(`
+                SELECT
+                  date_val as date,
+                  DAYNAME(date_val) as period,
+                  COALESCE(SUM(o.total_amount), 0) as revenue,
+                  COUNT(o.id) as orders,
+                  COALESCE(SUM(o.total_amount * 0.4), 0) as profit
+                FROM (
+                  SELECT DATE(created_at) as date_val, total_amount, id
+                  FROM orders
+                  WHERE status NOT IN ('cancelled')
+                ) o
+                GROUP BY date_val
+                ORDER BY date_val DESC
+                LIMIT 7
+              `);
+            }
+
+            salesData = weeklyData as any[];
+            console.log("Weekly data:", salesData.length, "days");
+            break;
+
+          case 'monthly':
+            // Get daily data for last 30 days, or all available data
+            let [monthlyData] = await conn.execute(`
+              SELECT
+                date_val as date,
+                DATE_FORMAT(date_val, '%b %d') as period,
+                COALESCE(SUM(o.total_amount), 0) as revenue,
+                COUNT(o.id) as orders,
+                COALESCE(SUM(o.total_amount * 0.4), 0) as profit
+              FROM (
+                SELECT DATE(created_at) as date_val, total_amount, id
+                FROM orders
+                WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+                  AND status NOT IN ('cancelled')
+              ) o
+              GROUP BY date_val
+              ORDER BY date_val
+            `);
+
+            // If no data in last 30 days, get all available data
+            if ((monthlyData as any[]).length === 0) {
+              [monthlyData] = await conn.execute(`
+                SELECT
+                  date_val as date,
+                  DATE_FORMAT(date_val, '%b %d') as period,
+                  COALESCE(SUM(o.total_amount), 0) as revenue,
+                  COUNT(o.id) as orders,
+                  COALESCE(SUM(o.total_amount * 0.4), 0) as profit
+                FROM (
+                  SELECT DATE(created_at) as date_val, total_amount, id
+                  FROM orders
+                  WHERE status NOT IN ('cancelled')
+                ) o
+                GROUP BY date_val
+                ORDER BY date_val DESC
+                LIMIT 30
+              `);
+            }
+
+            salesData = monthlyData as any[];
+            console.log("Monthly data:", salesData.length, "days");
+            break;
+
+          case 'yearly':
+            // Get monthly data for last 12 months, or all available data
+            let [yearlyData] = await conn.execute(`
+              SELECT
+                month_val as date,
+                DATE_FORMAT(STR_TO_DATE(CONCAT(month_val, '-01'), '%Y-%m-%d'), '%b %Y') as period,
+                COALESCE(SUM(o.total_amount), 0) as revenue,
+                COUNT(o.id) as orders,
+                COALESCE(SUM(o.total_amount * 0.4), 0) as profit
+              FROM (
+                SELECT DATE_FORMAT(created_at, '%Y-%m') as month_val, total_amount, id
+                FROM orders
+                WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+                  AND status NOT IN ('cancelled')
+              ) o
+              GROUP BY month_val
+              ORDER BY month_val
+            `);
+
+            // If no data in last 12 months, get all available data
+            if ((yearlyData as any[]).length === 0) {
+              [yearlyData] = await conn.execute(`
+                SELECT
+                  month_val as date,
+                  DATE_FORMAT(STR_TO_DATE(CONCAT(month_val, '-01'), '%Y-%m-%d'), '%b %Y') as period,
+                  COALESCE(SUM(o.total_amount), 0) as revenue,
+                  COUNT(o.id) as orders,
+                  COALESCE(SUM(o.total_amount * 0.4), 0) as profit
+                FROM (
+                  SELECT DATE_FORMAT(created_at, '%Y-%m') as month_val, total_amount, id
+                  FROM orders
+                  WHERE status NOT IN ('cancelled')
+                ) o
+                GROUP BY month_val
+                ORDER BY month_val DESC
+                LIMIT 12
+              `);
+            }
+
+            salesData = yearlyData as any[];
+            console.log("Yearly data:", salesData.length, "months");
+            break;
+
+          default:
+            salesData = [];
+        }
+
+        // Convert to proper format
+        const formattedData = salesData.map(item => ({
+          period: item.period,
+          revenue: parseFloat(item.revenue || 0),
+          orders: parseInt(item.orders || 0),
+          profit: parseFloat(item.profit || 0),
+          date: item.date
+        }));
+
+        console.log(`Sales trends (${timeRange}):`, formattedData.length, 'data points');
+        res.json(formattedData);
+
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Sales trends error:", error);
+      res.status(500).json({ message: "Failed to fetch sales trends" });
+    }
+  });
+
+  // Supplier payment endpoints
+  app.post("/api/vendors/:vendorId/payment", async (req, res) => {
+    try {
+      const vendorId = parseInt(req.params.vendorId);
+      const { amount, paymentDate, paymentMethod, referenceNo, notes } = req.body;
+
+      if (!vendorId || !amount || !paymentDate || !paymentMethod) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      const conn = await storage.getConnection();
+      try {
+        await conn.beginTransaction();
+
+        // Insert payment record
+        const [paymentResult] = await conn.execute(`
+          INSERT INTO vendor_payments (
+            vendor_id, amount, payment_date, payment_method,
+            reference_no, notes, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, NOW())
+        `, [vendorId, amount, paymentDate, paymentMethod, referenceNo || null, notes || null]);
+
+        // Update vendor balance
+        await conn.execute(`
+          UPDATE vendors
+          SET balance_due = GREATEST(0, COALESCE(balance_due, 0) - ?)
+          WHERE id = ?
+        `, [amount, vendorId]);
+
+        await conn.commit();
+
+        res.json({
+          success: true,
+          paymentId: (paymentResult as any).insertId,
+          message: "Payment recorded successfully"
+        });
+
+      } catch (error) {
+        await conn.rollback();
+        throw error;
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Supplier payment error:", error);
+      res.status(500).json({ message: "Failed to record payment" });
+    }
+  });
+
+  app.get("/api/vendors/:vendorId/payments", async (req, res) => {
+    try {
+      const vendorId = parseInt(req.params.vendorId);
+      const conn = await storage.getConnection();
+
+      try {
+        const [payments] = await conn.execute(`
+          SELECT
+            vp.*,
+            v.name as vendor_name
+          FROM vendor_payments vp
+          JOIN vendors v ON vp.vendor_id = v.id
+          WHERE vp.vendor_id = ?
+          ORDER BY vp.payment_date DESC, vp.created_at DESC
+        `, [vendorId]);
+
+        res.json(payments);
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("Fetch vendor payments error:", error);
+      res.status(500).json({ message: "Failed to fetch payments" });
     }
   });
 
@@ -1414,9 +2664,9 @@ export async function registerRoutes(app: Express) {
             (i.quantity * i.unit_price) as amount
           FROM inventory i
           JOIN products p ON i.product_id = p.id
-          WHERE i.purchase_date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+          WHERE i.purchase_date >= DATE_SUB(NOW(), INTERVAL 14 DAY)
           ORDER BY i.purchase_date DESC
-          LIMIT 3
+          LIMIT 6
         `);
 
         // Get recent distributions (sales)
@@ -1430,9 +2680,9 @@ export async function registerRoutes(app: Express) {
             d.id as entityId,
             d.grand_total as amount
           FROM distributions d
-          WHERE d.distribution_date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+          WHERE d.distribution_date >= DATE_SUB(NOW(), INTERVAL 14 DAY)
           ORDER BY d.distribution_date DESC
-          LIMIT 3
+          LIMIT 6
         `);
 
         // Get recent payments
@@ -1446,9 +2696,9 @@ export async function registerRoutes(app: Express) {
             cp.id as entityId,
             cp.amount as amount
           FROM caterer_payments cp
-          WHERE cp.payment_date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+          WHERE cp.payment_date >= DATE_SUB(NOW(), INTERVAL 14 DAY)
           ORDER BY cp.payment_date DESC
-          LIMIT 2
+          LIMIT 4
         `);
 
         // Get recent supplier additions
@@ -1462,9 +2712,41 @@ export async function registerRoutes(app: Express) {
             s.id as entityId,
             0 as amount
           FROM suppliers s
-          WHERE s.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+          WHERE s.created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
           ORDER BY s.created_at DESC
-          LIMIT 2
+          LIMIT 3
+        `);
+
+        // Get recent orders (showcase orders)
+        const [orderActivities] = await conn.execute(`
+          SELECT
+            CONCAT('order_', o.id) as id,
+            'order' as type,
+            'New Order Received' as title,
+            CONCAT('Order #', o.order_number, ' from ', o.customer_name, ' - ₹', o.total_amount) as description,
+            o.created_at as timestamp,
+            o.id as entityId,
+            o.total_amount as amount
+          FROM orders o
+          WHERE o.created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+          ORDER BY o.created_at DESC
+          LIMIT 4
+        `);
+
+        // Get recent product additions
+        const [productActivities] = await conn.execute(`
+          SELECT
+            CONCAT('product_', p.id) as id,
+            'product' as type,
+            'Product Added' as title,
+            CONCAT('New product "', p.name, '" added to catalog') as description,
+            p.created_at as timestamp,
+            p.id as entityId,
+            0 as amount
+          FROM products p
+          WHERE p.created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)
+          ORDER BY p.created_at DESC
+          LIMIT 3
         `);
 
         // Combine all activities
@@ -1472,13 +2754,15 @@ export async function registerRoutes(app: Express) {
           ...(inventoryActivities as any[]),
           ...(distributionActivities as any[]),
           ...(paymentActivities as any[]),
-          ...(supplierActivities as any[])
+          ...(supplierActivities as any[]),
+          ...(orderActivities as any[]),
+          ...(productActivities as any[])
         ];
 
-        // Sort by timestamp and take top 5
+        // Sort by timestamp and take top 12 to fill the layout height
         const sortedActivities = allActivities
           .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-          .slice(0, 5);
+          .slice(0, 12);
 
         res.json(sortedActivities);
       } finally {
@@ -1989,6 +3273,15 @@ export async function registerRoutes(app: Express) {
       res.json(expiringItems);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch expiring items" });
+    }
+  });
+
+  app.get("/api/inventory/alerts/out-of-stock", isAuthenticated, async (req, res) => {
+    try {
+      const outOfStockItems = await storage.getOutOfStockItems();
+      res.json(outOfStockItems);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch out of stock items" });
     }
   });
 
@@ -3171,6 +4464,309 @@ export async function registerRoutes(app: Express) {
     } catch (error) {
       console.error('Error fetching caterer balance:', error);
       res.status(500).json({ error: 'Failed to fetch caterer balance' });
+    }
+  });
+
+  // Expense management routes
+  app.get("/api/expenses", isAuthenticated, async (req, res) => {
+    try {
+      console.log("Fetching expenses");
+      const expenses = await storage.getExpenses();
+      res.json(expenses);
+    } catch (error) {
+      console.error("Get expenses error:", error);
+      res.status(500).json({ message: "Failed to fetch expenses" });
+    }
+  });
+
+  app.get("/api/expenses/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid expense ID' });
+      }
+
+      console.log(`Fetching expense with ID: ${id}`);
+      const expense = await storage.getExpense(id);
+
+      if (!expense) {
+        return res.status(404).json({ error: 'Expense not found' });
+      }
+
+      res.json(expense);
+    } catch (error) {
+      console.error("Get expense error:", error);
+      res.status(500).json({ message: "Failed to fetch expense" });
+    }
+  });
+
+  // Expense receipt image upload endpoint
+  app.post("/api/expenses/upload-receipt", isAuthenticated, upload.single('receiptImage'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file provided" });
+      }
+
+      // Get the relative path for storage in the database
+      const imagePath = `/api/uploads/expenseimg/${path.basename(req.file.path)}`;
+      console.log("Expense receipt image uploaded to:", imagePath);
+
+      // Return the image URL
+      res.json({
+        url: imagePath,
+        filename: path.basename(req.file.path),
+        originalName: req.file.originalname,
+        size: req.file.size
+      });
+    } catch (error) {
+      console.error("Expense receipt image upload error:", error);
+      res.status(500).json({ message: "Failed to upload receipt image" });
+    }
+  });
+
+  // Asset receipt image upload endpoint
+  app.post("/api/assets/upload-receipt", isAuthenticated, upload.single('receiptImage'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file provided" });
+      }
+
+      // Get the relative path for storage in the database
+      const imagePath = `/api/uploads/assets/${path.basename(req.file.path)}`;
+      console.log("Asset receipt image uploaded to:", imagePath);
+
+      // Return the image URL
+      res.json({
+        url: imagePath,
+        filename: path.basename(req.file.path),
+        originalName: req.file.originalname,
+        size: req.file.size
+      });
+    } catch (error) {
+      console.error("Asset receipt image upload error:", error);
+      res.status(500).json({ message: "Failed to upload asset receipt image" });
+    }
+  });
+
+  // Asset main image upload endpoint
+  app.post("/api/assets/upload-image", isAuthenticated, upload.single('assetImage'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file provided" });
+      }
+
+      // Get the relative path for storage in the database
+      const imagePath = `/api/uploads/assets/${path.basename(req.file.path)}`;
+      console.log("Asset main image uploaded to:", imagePath);
+
+      // Return the image URL
+      res.json({
+        url: imagePath,
+        filename: path.basename(req.file.path),
+        originalName: req.file.originalname,
+        size: req.file.size
+      });
+    } catch (error) {
+      console.error("Asset main image upload error:", error);
+      res.status(500).json({ message: "Failed to upload asset main image" });
+    }
+  });
+
+  app.post("/api/expenses", isAuthenticated, async (req, res) => {
+    try {
+      console.log("Creating expense with data:", req.body);
+
+      // Validate the request body
+      const validatedData = insertExpenseSchema.parse(req.body);
+      console.log("Validated expense data:", validatedData);
+
+      const expense = await storage.createExpense(validatedData);
+      console.log("Expense created successfully:", expense);
+      res.status(201).json(expense);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.error("Validation error:", error.errors);
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      console.error("Create expense error:", error);
+      console.error("Error stack:", error instanceof Error ? error.stack : 'No stack trace');
+      res.status(500).json({
+        message: "Failed to create expense",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.put("/api/expenses/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid expense ID' });
+      }
+
+      console.log(`Updating expense with ID: ${id}`, req.body);
+
+      const expense = await storage.updateExpense(id, req.body);
+
+      if (!expense) {
+        return res.status(404).json({ error: 'Expense not found' });
+      }
+
+      res.json(expense);
+    } catch (error) {
+      console.error("Update expense error:", error);
+      res.status(500).json({ message: "Failed to update expense" });
+    }
+  });
+
+  app.delete("/api/expenses/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid expense ID' });
+      }
+
+      console.log(`Deleting expense with ID: ${id}`);
+
+      const success = await storage.deleteExpense(id);
+
+      if (!success) {
+        return res.status(404).json({ error: 'Expense not found' });
+      }
+
+      res.json({ message: 'Expense deleted successfully' });
+    } catch (error) {
+      console.error("Delete expense error:", error);
+      res.status(500).json({ message: "Failed to delete expense" });
+    }
+  });
+
+  app.delete("/api/expenses/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid expense ID' });
+      }
+
+      console.log(`Deleting expense with ID: ${id}`);
+
+      const success = await storage.deleteExpense(id);
+
+      if (!success) {
+        return res.status(404).json({ error: 'Expense not found' });
+      }
+
+      res.json({ message: 'Expense deleted successfully' });
+    } catch (error) {
+      console.error("Delete expense error:", error);
+      res.status(500).json({ message: "Failed to delete expense" });
+    }
+  });
+
+  // Asset management routes
+  app.get("/api/assets", isAuthenticated, async (req, res) => {
+    try {
+      console.log("Fetching assets");
+      const assets = await storage.getAssets();
+      res.json(assets);
+    } catch (error) {
+      console.error("Get assets error:", error);
+      res.status(500).json({ message: "Failed to fetch assets" });
+    }
+  });
+
+  app.get("/api/assets/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid asset ID' });
+      }
+
+      console.log(`Fetching asset with ID: ${id}`);
+      const asset = await storage.getAsset(id);
+
+      if (!asset) {
+        return res.status(404).json({ error: 'Asset not found' });
+      }
+
+      res.json(asset);
+    } catch (error) {
+      console.error("Get asset error:", error);
+      res.status(500).json({ message: "Failed to fetch asset" });
+    }
+  });
+
+  app.post("/api/assets", isAuthenticated, async (req, res) => {
+    try {
+      console.log("Creating asset with data:", req.body);
+
+      // Validate the request body
+      const validatedData = insertAssetSchema.parse(req.body);
+      console.log("Validated asset data:", validatedData);
+
+      const asset = await storage.createAsset(validatedData);
+      console.log("Asset created successfully:", asset);
+      res.status(201).json(asset);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.error("Validation error:", error.errors);
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: error.errors
+        });
+      }
+      console.error("Create asset error:", error);
+      res.status(500).json({
+        message: "Failed to create asset",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.put("/api/assets/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid asset ID' });
+      }
+
+      console.log(`Updating asset with ID: ${id}`, req.body);
+
+      const asset = await storage.updateAsset(id, req.body);
+
+      if (!asset) {
+        return res.status(404).json({ error: 'Asset not found' });
+      }
+
+      res.json(asset);
+    } catch (error) {
+      console.error("Update asset error:", error);
+      res.status(500).json({ message: "Failed to update asset" });
+    }
+  });
+
+  app.delete("/api/assets/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'Invalid asset ID' });
+      }
+
+      console.log(`Deleting asset with ID: ${id}`);
+
+      const success = await storage.deleteAsset(id);
+
+      if (!success) {
+        return res.status(404).json({ error: 'Asset not found' });
+      }
+
+      res.json({ message: 'Asset deleted successfully' });
+    } catch (error) {
+      console.error("Delete asset error:", error);
+      res.status(500).json({ message: "Failed to delete asset" });
     }
   });
 

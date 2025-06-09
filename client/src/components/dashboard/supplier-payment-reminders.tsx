@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { formatCurrency } from '@/lib/utils';
 import { AlertCircle, Clock, CreditCard, DollarSign, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import SupplierPaymentModal from '@/components/suppliers/supplier-payment-modal';
 
 interface Vendor {
   id: number;
@@ -36,16 +37,18 @@ export default function SupplierPaymentReminders({ className }: SupplierPaymentR
       }
       return response.json();
     },
+    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchIntervalInBackground: true,
   });
 
   // Filter vendors we owe money to
   const vendorsWeOweMoney = vendors?.filter(
-    vendor => Number(vendor.moneyOwed) > 0
+    vendor => Number(vendor.balanceDue) > 0
   ) || [];
 
-  // Sort by money owed (highest first)
+  // Sort by balance due (highest first)
   const sortedVendorsWeOweMoney = [...vendorsWeOweMoney].sort(
-    (a, b) => Number(b.moneyOwed) - Number(a.moneyOwed)
+    (a, b) => Number(b.balanceDue) - Number(a.balanceDue)
   );
 
   // Calculate days overdue
@@ -88,12 +91,6 @@ export default function SupplierPaymentReminders({ className }: SupplierPaymentR
     <div className={cn("", className)}>
       {!className ? (
         <Card>
-          <CardHeader className="pb-3 border-b">
-            <CardTitle className="text-lg flex items-center">
-              <AlertCircle className="h-5 w-5 mr-2 text-orange-500" />
-              Supplier Payment Reminders
-            </CardTitle>
-          </CardHeader>
           <CardContent className="p-0">
             {isLoading ? (
               <div className="p-4 space-y-3">
@@ -122,7 +119,7 @@ export default function SupplierPaymentReminders({ className }: SupplierPaymentR
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="font-medium text-orange-600">{formatCurrency(Number(vendor.moneyOwed))}</p>
+                        <p className="font-medium text-orange-600">{formatCurrency(Number(vendor.balanceDue))}</p>
                       </div>
                     </div>
                     <div className="flex justify-end mt-2 space-x-2">
@@ -131,22 +128,31 @@ export default function SupplierPaymentReminders({ className }: SupplierPaymentR
                         size="sm"
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/vendors/${vendor.id}`);
+                          navigate(`/suppliers/${vendor.id}`);
                         }}
                       >
                         View Supplier
                       </Button>
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/vendors/${vendor.id}/payment`);
+                      <SupplierPaymentModal
+                        supplierId={vendor.id.toString()}
+                        supplierName={vendor.name}
+                        preselectedAmount={vendor.balanceDue?.toString()}
+                        onSuccess={() => {
+                          // Refresh the data
+                          window.location.reload();
                         }}
                       >
-                        <CreditCard className="h-3 w-3 mr-1" />
-                        Record Payment
-                      </Button>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                          }}
+                        >
+                          <CreditCard className="h-3 w-3 mr-1" />
+                          Record Payment
+                        </Button>
+                      </SupplierPaymentModal>
                     </div>
                   </div>
                 ))}
@@ -155,7 +161,7 @@ export default function SupplierPaymentReminders({ className }: SupplierPaymentR
                   <div className="p-3 text-center">
                     <Button
                       variant="link"
-                      onClick={() => navigate('/vendors')}
+                      onClick={() => navigate('/suppliers')}
                       className="text-primary"
                     >
                       View all {sortedVendorsWeOweMoney.length} pending payments
@@ -196,7 +202,7 @@ export default function SupplierPaymentReminders({ className }: SupplierPaymentR
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="font-medium text-orange-600">{formatCurrency(Number(vendor.moneyOwed))}</p>
+                    <p className="font-medium text-orange-600">{formatCurrency(Number(vendor.balanceDue))}</p>
                   </div>
                 </div>
                 <div className="flex justify-end mt-2 space-x-2">
@@ -205,22 +211,31 @@ export default function SupplierPaymentReminders({ className }: SupplierPaymentR
                     size="sm"
                     onClick={(e) => {
                       e.stopPropagation();
-                      navigate(`/vendors/${vendor.id}`);
+                      navigate(`/suppliers/${vendor.id}`);
                     }}
                   >
                     View Supplier
                   </Button>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/vendors/${vendor.id}/payment`);
+                  <SupplierPaymentModal
+                    supplierId={vendor.id.toString()}
+                    supplierName={vendor.name}
+                    preselectedAmount={vendor.balanceDue?.toString()}
+                    onSuccess={() => {
+                      // Refresh the data
+                      window.location.reload();
                     }}
                   >
-                    <CreditCard className="h-3 w-3 mr-1" />
-                    Record Payment
-                  </Button>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
+                    >
+                      <CreditCard className="h-3 w-3 mr-1" />
+                      Record Payment
+                    </Button>
+                  </SupplierPaymentModal>
                 </div>
               </div>
             ))}
@@ -229,7 +244,7 @@ export default function SupplierPaymentReminders({ className }: SupplierPaymentR
               <div className="p-3 text-center">
                 <Button
                   variant="link"
-                  onClick={() => navigate('/vendors')}
+                  onClick={() => navigate('/suppliers')}
                   className="text-primary"
                 >
                   View all {sortedVendorsWeOweMoney.length} pending payments

@@ -40,8 +40,8 @@ export default function MixCalculator({ products, onAddToCart, onClose }: MixCal
       
       setSelectedProducts(prev => prev.map(sp => ({
         ...sp,
-        allocatedPrice: pricePerProduct,
-        calculatedQuantity: Math.floor((pricePerProduct / parseFloat(sp.product.retailPrice)) * 1000) / 1000 // Round to 3 decimal places
+        allocatedPrice: Math.round(pricePerProduct * 100) / 100,
+        calculatedQuantity: Math.round((pricePerProduct / parseFloat(sp.product.retailPrice)) * 1000) / 1000 // Round to 3 decimal places
       })));
     }
   }, [totalBudget, selectedProducts.length]);

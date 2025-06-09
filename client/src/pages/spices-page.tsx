@@ -11,16 +11,19 @@ import {
   Tag,
   Package,
   Settings,
-  Plus
+  Plus,
+  Printer
 } from "lucide-react";
 import CategoryManager from "@/components/inventory/category-manager";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { queryClient } from "@/lib/queryClient";
 import AddSpiceForm from "@/components/inventory/add-spice-form";
+import CataloguePrintDialog from "@/components/catalogue/catalogue-print-dialog";
 
 export default function SpicesPage() {
   const [activeTab, setActiveTab] = useState("list");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isCatalogueDialogOpen, setIsCatalogueDialogOpen] = useState(false);
 
   return (
     <Layout>
@@ -28,13 +31,23 @@ export default function SpicesPage() {
         title="Product Management"
         description="Manage your product catalog and categories"
       >
-        <Button
-          onClick={() => setIsAddDialogOpen(true)}
-          className="bg-secondary hover:bg-secondary-dark text-white"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Add Product
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => setIsCatalogueDialogOpen(true)}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <Printer className="h-4 w-4" />
+            Print Catalogue
+          </Button>
+          <Button
+            onClick={() => setIsAddDialogOpen(true)}
+            className="bg-secondary hover:bg-secondary-dark text-white"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Add Product
+          </Button>
+        </div>
       </PageHeader>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
@@ -84,6 +97,12 @@ export default function SpicesPage() {
           />
         </DialogContent>
       </Dialog>
+
+      {/* Catalogue Print Dialog */}
+      <CataloguePrintDialog
+        open={isCatalogueDialogOpen}
+        onOpenChange={setIsCatalogueDialogOpen}
+      />
     </Layout>
   );
 }

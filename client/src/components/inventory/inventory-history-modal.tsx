@@ -114,16 +114,16 @@ export default function InventoryHistoryModal({
   const formatChangeDescription = (item: InventoryHistoryItem) => {
     switch (item.changeType) {
       case "created":
-        return `New inventory item created with quantity: ${item.quantityAfter}`;
+        return `New inventory item created with quantity: ${Number(item.quantityAfter || 0).toFixed(2)}`;
       case "quantity_adjusted":
-        return `Quantity changed from ${item.quantityBefore} to ${item.quantityAfter}`;
+        return `Quantity changed from ${Number(item.quantityBefore || 0).toFixed(2)} to ${Number(item.quantityAfter || 0).toFixed(2)}`;
       case "updated":
         if (item.fieldChanged && item.oldValue && item.newValue) {
           return `${item.fieldChanged} changed from "${item.oldValue}" to "${item.newValue}"`;
         }
         return "Item updated";
       case "deleted":
-        return `Inventory item deleted (had quantity: ${item.quantityBefore})`;
+        return `Inventory item deleted (had quantity: ${Number(item.quantityBefore || 0).toFixed(2)})`;
       default:
         return item.reason || "Unknown change";
     }

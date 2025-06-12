@@ -100,14 +100,36 @@ export function useCreateCatererPayment() {
       // Invalidate the caterer balance query specifically
       queryClient.invalidateQueries({ queryKey: ['caterers', variables.catererId, 'balance'] });
 
-      // Invalidate payment reminders since they might be affected by payment status changes
-      queryClient.invalidateQueries({ queryKey: ['payment-reminders'] });
-
       if (variables.distributionId) {
         queryClient.invalidateQueries({ queryKey: ['distributions'] });
         queryClient.invalidateQueries({ queryKey: ['distributions', variables.distributionId] });
         queryClient.invalidateQueries({ queryKey: ['distributions', 'caterer', variables.catererId] });
       }
+
+      // Invalidate payment reminders after distributions to ensure proper order
+      queryClient.invalidateQueries({ queryKey: ['payment-reminders'] });
+
+      // Force cleanup and refetch payment reminders multiple times to ensure consistency
+      setTimeout(async () => {
+        try {
+          await fetch('/api/payment-reminders/cleanup', {
+            method: 'POST',
+            credentials: 'include',
+          });
+          queryClient.refetchQueries({ queryKey: ['payment-reminders'] });
+        } catch (error) {
+          // Still try to refetch even if cleanup fails
+          queryClient.refetchQueries({ queryKey: ['payment-reminders'] });
+        }
+      }, 500);
+
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ['payment-reminders'] });
+      }, 1500);
+
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ['payment-reminders'] });
+      }, 3000);
 
       toast({
         title: 'Payment recorded',

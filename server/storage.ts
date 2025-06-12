@@ -3087,6 +3087,15 @@ export class MemStorage implements IStorage {
             const newBalanceDue = Math.max(0, grandTotal - newAmountPaid);
             const newStatus = newBalanceDue <= 0 ? 'paid' : 'partial';
 
+            console.log(`Updating distribution ${distributionId}:`, {
+              currentAmountPaid,
+              grandTotal,
+              paymentAmount: amount,
+              newAmountPaid,
+              newBalanceDue,
+              newStatus
+            });
+
             // Update the distribution
             await conn.execute(`
               UPDATE distributions
@@ -3102,14 +3111,23 @@ export class MemStorage implements IStorage {
               distributionId
             ]);
 
-            // If the distribution is now fully paid, remove any payment reminders for it
-            if (newStatus === 'paid') {
-              console.log(`Distribution ${distributionId} is now fully paid, removing payment reminders`);
-              await conn.execute(`
+            // Always check and remove payment reminders for distributions that are paid or have no balance
+            if (newStatus === 'paid' || newBalanceDue <= 0) {
+              console.log(`Distribution ${distributionId} is now fully paid (status: ${newStatus}, balance: ${newBalanceDue}), removing payment reminders`);
+              const deleteResult = await conn.execute(`
                 DELETE FROM payment_reminders
                 WHERE distribution_id = ?
               `, [distributionId]);
+              console.log(`Deleted ${(deleteResult as any)[0].affectedRows} payment reminders for distribution ${distributionId}`);
             }
+
+            // Also clean up any orphaned reminders for this distribution
+            await conn.execute(`
+              DELETE FROM payment_reminders
+              WHERE distribution_id = ? AND (
+                SELECT status FROM distributions WHERE id = ?
+              ) = 'paid'
+            `, [distributionId, distributionId]);
           }
         }
 
@@ -5052,6 +5070,41 @@ export class MemStorage implements IStorage {
 
   private toSnakeCase(str: string): string {
     return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+  }
+
+  // Clean up payment reminders for bills that are now fully paid
+  async cleanupPaidBillReminders(): Promise<void> {
+    const conn = await this.getConnection();
+    try {
+      console.log("Cleaning up payment reminders for paid bills...");
+
+      // First, let's see what reminders exist and their associated distributions
+      const [existingReminders] = await conn.execute(`
+        SELECT pr.id, pr.distribution_id, d.status, d.balance_due, d.bill_no
+        FROM payment_reminders pr
+        INNER JOIN distributions d ON pr.distribution_id = d.id
+      `);
+
+      console.log("Existing payment reminders with distribution status:", existingReminders);
+
+      // Delete payment reminders where the associated distribution is fully paid
+      const result = await conn.execute(`
+        DELETE pr FROM payment_reminders pr
+        INNER JOIN distributions d ON pr.distribution_id = d.id
+        WHERE d.status = 'paid' OR d.balance_due <= 0
+      `);
+
+      const deletedCount = (result as any)[0].affectedRows;
+      if (deletedCount > 0) {
+        console.log(`Cleaned up ${deletedCount} payment reminders for paid bills`);
+      } else {
+        console.log("No payment reminders needed cleanup");
+      }
+    } catch (error) {
+      console.error("Error cleaning up paid bill reminders:", error);
+    } finally {
+      conn.release();
+    }
   }
 
   // User management

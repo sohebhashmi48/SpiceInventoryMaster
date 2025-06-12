@@ -94,28 +94,81 @@ export default function ReportsPage() {
   // Existing queries
   const { data: inventory } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory"],
+    queryFn: async () => {
+      const response = await fetch('/api/inventory', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch inventory');
+      }
+      return response.json();
+    },
   });
 
   const { data: spices } = useQuery<Spice[]>({
     queryKey: ["/api/products"],
+    queryFn: async () => {
+      const response = await fetch('/api/products', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch products');
+      }
+      return response.json();
+    },
   });
 
   const { data: vendors } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
+    queryFn: async () => {
+      const response = await fetch('/api/vendors', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch vendors');
+      }
+      return response.json();
+    },
   });
 
   // New API queries for reports
   const { data: inventoryTrends, isLoading: trendsLoading } = useQuery<InventoryTrend[]>({
     queryKey: ["/api/reports/inventory-trends", timeRange],
-    queryFn: () => fetch(`/api/reports/inventory-trends?timeRange=${timeRange}`).then(res => res.json()),
+    queryFn: async () => {
+      const response = await fetch(`/api/reports/inventory-trends?timeRange=${timeRange}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch inventory trends');
+      }
+      return response.json();
+    },
   });
 
   const { data: categoryPerformance, isLoading: categoryLoading } = useQuery<CategoryPerformance[]>({
     queryKey: ["/api/reports/category-performance"],
+    queryFn: async () => {
+      const response = await fetch('/api/reports/category-performance', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch category performance');
+      }
+      return response.json();
+    },
   });
 
   const { data: supplierPerformance, isLoading: supplierLoading } = useQuery<SupplierPerformance[]>({
     queryKey: ["/api/reports/supplier-performance"],
+    queryFn: async () => {
+      const response = await fetch('/api/reports/supplier-performance', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch supplier performance');
+      }
+      return response.json();
+    },
   });
 
   const getSpiceName = (spiceId: number) => {

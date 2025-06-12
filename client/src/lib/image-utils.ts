@@ -19,7 +19,7 @@ export const getImageUrl = (
     return imagePath;
   }
 
-  // If the path starts with /uploads, add /api prefix (this is the main fix)
+  // If the path starts with /uploads, add /api prefix
   if (imagePath.startsWith('/uploads/')) {
     return `/api${imagePath}`;
   }
@@ -27,12 +27,6 @@ export const getImageUrl = (
   // If it's just a filename, construct the full path
   if (!imagePath.includes('/')) {
     return `/api/uploads/${entityType}/${imagePath}`;
-  }
-
-  // Handle any other cases - try to extract filename and construct proper path
-  const filename = imagePath.split('/').pop();
-  if (filename) {
-    return `/api/uploads/${entityType}/${filename}`;
   }
 
   return imagePath;

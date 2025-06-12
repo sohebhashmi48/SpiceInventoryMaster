@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
+import { getBusinessEmail, getDisplayPhoneNumber, getFormattedAddress } from "@/config/business";
 
 interface Product {
   id: number;
@@ -628,8 +629,8 @@ export default function CataloguePrintDialog({
 
     <div class="footer">
         <p><strong>Generated on ${new Date().toLocaleDateString('en-IN')}</strong></p>
-        <p>Contact: +91 97027 13157 | Email: orders@royalspicymasala.com</p>
-        <p>Mumbai, Maharashtra | Free Delivery on Orders Above ₹500</p>
+        <p>Contact: ${getDisplayPhoneNumber()} | Email: ${getBusinessEmail()}</p>
+        <p>${getFormattedAddress()} | Free Delivery on Orders Above ₹500</p>
     </div>
 </body>
 </html>`;

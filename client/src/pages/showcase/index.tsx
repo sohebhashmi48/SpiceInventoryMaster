@@ -296,13 +296,13 @@ export default function ProductShowcasePage() {
       {currentView === 'products' && (
         <>
           {/* Category Tabs Section */}
-      <section className="py-4 sm:py-6 md:py-8 lg:py-12 bg-white">
+      <section className="py-3 sm:py-4 md:py-6 lg:py-8 bg-white">
             <div className="container mx-auto px-3 sm:px-4">
           {categoriesLoading ? (
             <div className="flex justify-center">
-              <div className="animate-pulse flex space-x-4">
+              <div className="animate-pulse flex space-x-2 sm:space-x-4">
                 {[...Array(4)].map((_, i) => (
-                  <div key={i} className="bg-gray-200 rounded-lg h-12 w-32"></div>
+                  <div key={i} className="bg-gray-200 rounded-lg h-10 sm:h-12 w-20 sm:w-32"></div>
                 ))}
               </div>
             </div>
@@ -310,11 +310,11 @@ export default function ProductShowcasePage() {
             <Tabs value={activeCategory} onValueChange={handleCategoryChange} className="w-full">
               {/* Mobile: Horizontal scrollable tabs */}
               <div className="md:hidden">
-                <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-hide">
+                <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-hide px-1">
                   {/* All Products Tab */}
                   <button
                     onClick={() => handleCategoryChange("")}
-                    className={`flex flex-col items-center gap-1 p-3 min-w-[80px] rounded-lg transition-all duration-300 ${
+                    className={`flex flex-col items-center gap-1 p-2 sm:p-3 min-w-[70px] sm:min-w-[80px] rounded-lg transition-all duration-300 ${
                       activeCategory === ""
                         ? 'bg-primary text-white shadow-md'
                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -331,14 +331,16 @@ export default function ProductShowcasePage() {
                       <button
                         key={category.id}
                         onClick={() => handleCategoryChange(category.id.toString())}
-                        className={`flex flex-col items-center gap-1 p-3 min-w-[80px] rounded-lg transition-all duration-300 ${
+                        className={`flex flex-col items-center gap-1 p-2 sm:p-3 min-w-[70px] sm:min-w-[80px] rounded-lg transition-all duration-300 ${
                           activeCategory === category.id.toString()
                             ? 'bg-primary text-white shadow-md'
                             : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                         }`}
                       >
                         <IconComponent className="h-4 w-4" />
-                        <span className="text-xs font-medium whitespace-nowrap">{category.name}</span>
+                        <span className="text-xs font-medium whitespace-nowrap truncate max-w-[60px] sm:max-w-none">
+                          {category.name}
+                        </span>
                       </button>
                     );
                   })}
@@ -450,25 +452,25 @@ export default function ProductShowcasePage() {
 
                 {/* All Products Grid */}
                 {productsLoading ? (
-                  <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid-cols-1'} gap-3 sm:gap-4 md:gap-6`}>
-                    {[...Array(8)].map((_, i) => (
+                  <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6' : 'grid-cols-1'} gap-2 sm:gap-3 md:gap-4 lg:gap-6`}>
+                    {[...Array(12)].map((_, i) => (
                       <div key={i} className="animate-pulse">
-                        <div className="bg-gray-200 rounded-lg h-32 sm:h-40 md:h-48 mb-2 sm:mb-4"></div>
+                        <div className="bg-gray-200 rounded-lg h-32 sm:h-36 md:h-40 lg:h-44 mb-2 sm:mb-3"></div>
                         <div className="bg-gray-200 rounded h-3 sm:h-4 mb-1 sm:mb-2"></div>
                         <div className="bg-gray-200 rounded h-2 sm:h-3 w-3/4 mb-1 sm:mb-2"></div>
-                        <div className="bg-gray-200 rounded h-4 sm:h-6 w-1/2"></div>
+                        <div className="bg-gray-200 rounded h-4 sm:h-5 w-1/2"></div>
                       </div>
                     ))}
                   </div>
                 ) : allProducts.length === 0 ? (
-                  <div className="text-center py-8 sm:py-16">
-                    <div className="text-gray-400 text-4xl sm:text-6xl mb-2 sm:mb-4">📦</div>
-                    <h3 className="text-lg sm:text-xl font-semibold text-gray-600 mb-1 sm:mb-2">No products found</h3>
+                  <div className="text-center py-8 sm:py-12 md:py-16">
+                    <div className="text-gray-400 text-4xl sm:text-5xl md:text-6xl mb-2 sm:mb-3 md:mb-4">📦</div>
+                    <h3 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-600 mb-1 sm:mb-2">No products found</h3>
                     <p className="text-sm sm:text-base text-gray-500">No products available</p>
                   </div>
                 ) : (
                   <>
-                    <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid-cols-1'} gap-3 sm:gap-4 md:gap-6`}>
+                    <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6' : 'grid-cols-1'} gap-2 sm:gap-3 md:gap-4 lg:gap-6`}>
                       {getVisibleProducts(allProducts, '').map((product) => (
                         <ProductCard
                           key={product.id}
@@ -485,14 +487,15 @@ export default function ProductShowcasePage() {
 
                     {/* Show More Button */}
                     {getVisibleCount('') < allProducts.length && (
-                      <div className="text-center mt-8">
+                      <div className="text-center mt-6 sm:mt-8">
                         <Button
                           onClick={() => handleShowMore('')}
                           variant="outline"
                           size="lg"
-                          className="bg-white border-primary text-primary hover:bg-primary hover:text-white transition-all duration-300"
+                          className="bg-white border-primary text-primary hover:bg-primary hover:text-white transition-all duration-300 w-full sm:w-auto"
                         >
-                          Show More Products ({allProducts.length - getVisibleCount('')} remaining)
+                          <span className="hidden sm:inline">Show More Products ({allProducts.length - getVisibleCount('')} remaining)</span>
+                          <span className="sm:hidden">Show More ({allProducts.length - getVisibleCount('')})</span>
                         </Button>
                       </div>
                     )}
@@ -583,25 +586,25 @@ export default function ProductShowcasePage() {
 
                   {/* Products Grid */}
                   {productsLoading ? (
-                    <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid-cols-1'} gap-3 sm:gap-4 md:gap-6`}>
-                      {[...Array(8)].map((_, i) => (
+                    <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6' : 'grid-cols-1'} gap-2 sm:gap-3 md:gap-4 lg:gap-6`}>
+                      {[...Array(12)].map((_, i) => (
                         <div key={i} className="animate-pulse">
-                          <div className="bg-gray-200 rounded-lg h-32 sm:h-40 md:h-48 mb-2 sm:mb-4"></div>
+                          <div className="bg-gray-200 rounded-lg h-32 sm:h-36 md:h-40 lg:h-44 mb-2 sm:mb-3"></div>
                           <div className="bg-gray-200 rounded h-3 sm:h-4 mb-1 sm:mb-2"></div>
                           <div className="bg-gray-200 rounded h-2 sm:h-3 w-3/4 mb-1 sm:mb-2"></div>
-                          <div className="bg-gray-200 rounded h-4 sm:h-6 w-1/2"></div>
+                          <div className="bg-gray-200 rounded h-4 sm:h-5 w-1/2"></div>
                         </div>
                       ))}
                     </div>
                   ) : categoryProducts.length === 0 ? (
-                    <div className="text-center py-8 sm:py-16">
-                      <div className="text-gray-400 text-4xl sm:text-6xl mb-2 sm:mb-4">📦</div>
-                      <h3 className="text-lg sm:text-xl font-semibold text-gray-600 mb-1 sm:mb-2">No products found</h3>
+                    <div className="text-center py-8 sm:py-12 md:py-16">
+                      <div className="text-gray-400 text-4xl sm:text-5xl md:text-6xl mb-2 sm:mb-3 md:mb-4">📦</div>
+                      <h3 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-600 mb-1 sm:mb-2">No products found</h3>
                       <p className="text-sm sm:text-base text-gray-500">No products available in this category</p>
                     </div>
                   ) : (
                     <>
-                      <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid-cols-1'} gap-3 sm:gap-4 md:gap-6`}>
+                      <div className={`grid ${viewMode === 'grid' ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6' : 'grid-cols-1'} gap-2 sm:gap-3 md:gap-4 lg:gap-6`}>
                         {getVisibleProducts(categoryProducts, category.id.toString()).map((product) => (
                           <ProductCard
                             key={product.id}
@@ -618,14 +621,15 @@ export default function ProductShowcasePage() {
 
                       {/* Show More Button */}
                       {getVisibleCount(category.id.toString()) < categoryProducts.length && (
-                        <div className="text-center mt-8">
+                        <div className="text-center mt-6 sm:mt-8">
                           <Button
                             onClick={() => handleShowMore(category.id.toString())}
                             variant="outline"
                             size="lg"
-                            className="bg-white border-primary text-primary hover:bg-primary hover:text-white transition-all duration-300"
+                            className="bg-white border-primary text-primary hover:bg-primary hover:text-white transition-all duration-300 w-full sm:w-auto"
                           >
-                            Show More Products ({categoryProducts.length - getVisibleCount(category.id.toString())} remaining)
+                            <span className="hidden sm:inline">Show More Products ({categoryProducts.length - getVisibleCount(category.id.toString())} remaining)</span>
+                            <span className="sm:hidden">Show More ({categoryProducts.length - getVisibleCount(category.id.toString())})</span>
                           </Button>
                         </div>
                       )}
@@ -729,14 +733,14 @@ export default function ProductShowcasePage() {
 
       {/* Cart Section */}
       {currentView === 'cart' && (
-        <div className="container mx-auto px-4 py-8">
+        <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-8">
           {/* Header */}
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-4">
+          <div className="mb-6 sm:mb-8">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-4">
               <Button
                 variant="ghost"
                 onClick={handleContinueShopping}
-                className="text-primary hover:text-primary hover:bg-primary/10"
+                className="text-primary hover:text-primary hover:bg-primary/10 self-start"
               >
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Continue Shopping
@@ -752,24 +756,25 @@ export default function ProductShowcasePage() {
                       description: 'All items have been removed from your cart.',
                     });
                   }}
-                  className="text-red-600 border-red-600 hover:bg-red-50"
+                  className="text-red-600 border-red-600 hover:bg-red-50 self-start sm:self-auto"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
-                  Clear Cart
+                  <span className="hidden sm:inline">Clear Cart</span>
+                  <span className="sm:hidden">Clear</span>
                 </Button>
               )}
             </div>
-            <h1 className="text-3xl font-bold text-primary">Shopping Cart</h1>
-            <p className="text-gray-600 mt-2">
+            <h1 className="text-2xl sm:text-3xl font-bold text-primary">Shopping Cart</h1>
+            <p className="text-gray-600 mt-2 text-sm sm:text-base">
               {getCartItemCount() === 0 ? 'Your cart is empty' : `${getCartItemCount()} item${getCartItemCount() !== 1 ? 's' : ''} in your cart`}
             </p>
           </div>
 
           {cart.length === 0 ? (
-            <div className="text-center py-16">
-              <div className="text-gray-400 text-6xl mb-4">🛒</div>
-              <h3 className="text-xl font-semibold text-gray-600 mb-2">Your cart is empty</h3>
-              <p className="text-gray-500 mb-6">Add some delicious spices to get started!</p>
+            <div className="text-center py-12 sm:py-16">
+              <div className="text-gray-400 text-5xl sm:text-6xl mb-3 sm:mb-4">🛒</div>
+              <h3 className="text-lg sm:text-xl font-semibold text-gray-600 mb-2">Your cart is empty</h3>
+              <p className="text-gray-500 mb-4 sm:mb-6 text-sm sm:text-base">Add some delicious spices to get started!</p>
               <Button onClick={handleContinueShopping} className="bg-primary hover:bg-primary/90">
                 Start Shopping
               </Button>
@@ -779,27 +784,14 @@ export default function ProductShowcasePage() {
               {/* Cart Items */}
               <div className="lg:col-span-2 space-y-3 lg:space-y-4">
                 {cart.map((item) => (
-                  <Card key={item.productId} className="p-3 lg:p-4">
-                    <div className="flex items-center gap-3 lg:gap-4">
+                  <Card key={item.productId} className="p-3 sm:p-4">
+                    <div className="flex items-start sm:items-center gap-3 sm:gap-4">
                       <div className="w-12 h-12 lg:w-16 lg:h-16 bg-gradient-to-br from-orange-100 to-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
                         {item.imagePath ? (
                           <img
                             src={item.imagePath.startsWith('/api/') ? item.imagePath : `/api${item.imagePath}`}
                             alt={item.name}
                             className="w-full h-full object-cover rounded-lg"
-                            loading="lazy"
-                            onError={(e) => {
-                              // Hide broken image and show fallback
-                              const target = e.target as HTMLImageElement;
-                              target.style.display = 'none';
-                              const parent = target.parentElement;
-                              if (parent) {
-                                const fallback = document.createElement('span');
-                                fallback.className = 'text-lg lg:text-2xl';
-                                fallback.textContent = '🌶️';
-                                parent.appendChild(fallback);
-                              }
-                            }}
                           />
                         ) : (
                           <span className="text-lg lg:text-2xl">🌶️</span>
@@ -898,31 +890,31 @@ export default function ProductShowcasePage() {
 
       {/* Checkout Section */}
       {currentView === 'checkout' && (
-        <div className="container mx-auto px-4 py-8">
+        <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-8">
           {/* Header */}
-          <div className="mb-8">
+          <div className="mb-6 sm:mb-8">
             <Button
               variant="ghost"
               onClick={handleBackToCart}
-              className="text-primary hover:text-primary hover:bg-primary/10 mb-4"
+              className="text-primary hover:text-primary hover:bg-primary/10 mb-3 sm:mb-4"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Cart
             </Button>
-            <h1 className="text-3xl font-bold text-primary">Checkout</h1>
-            <p className="text-gray-600 mt-2">Complete your order details</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-primary">Checkout</h1>
+            <p className="text-gray-600 mt-2 text-sm sm:text-base">Complete your order details</p>
           </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
             {/* Customer Details */}
-            <div className="lg:col-span-2 space-y-6">
-              <Card className="p-6">
-                <h3 className="text-xl font-semibold mb-4 flex items-center">
-                  <User className="h-5 w-5 mr-2" />
+            <div className="lg:col-span-2 space-y-4 sm:space-y-6">
+              <Card className="p-4 sm:p-6">
+                <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4 flex items-center">
+                  <User className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
                   Customer Details
                 </h3>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div>
                     <Label htmlFor="name">Full Name *</Label>
                     <Input
@@ -949,41 +941,42 @@ export default function ProductShowcasePage() {
                     )}
                   </div>
 
-                  <div className="md:col-span-2">
-                    <Label htmlFor="email">Email Address</Label>
+                  <div className="sm:col-span-2">
+                    <Label htmlFor="email" className="text-sm sm:text-base">Email Address</Label>
                     <Input
                       id="email"
                       type="email"
                       {...register('email')}
                       placeholder="Enter your email (optional)"
-                      className={errors.email ? 'border-red-500' : ''}
+                      className={`text-base ${errors.email ? 'border-red-500' : ''}`}
                     />
                     {errors.email && (
                       <p className="text-red-500 text-sm mt-1">{errors.email.message}</p>
                     )}
                   </div>
 
-                  <div className="md:col-span-2">
-                    <Label htmlFor="address">Delivery Address *</Label>
+                  <div className="sm:col-span-2">
+                    <Label htmlFor="address" className="text-sm sm:text-base">Delivery Address *</Label>
                     <Textarea
                       id="address"
                       {...register('address')}
                       placeholder="Enter your complete delivery address"
                       rows={3}
-                      className={errors.address ? 'border-red-500' : ''}
+                      className={`text-base resize-none ${errors.address ? 'border-red-500' : ''}`}
                     />
                     {errors.address && (
                       <p className="text-red-500 text-sm mt-1">{errors.address.message}</p>
                     )}
                   </div>
 
-                  <div className="md:col-span-2">
-                    <Label htmlFor="notes">Order Notes</Label>
+                  <div className="sm:col-span-2">
+                    <Label htmlFor="notes" className="text-sm sm:text-base">Order Notes</Label>
                     <Textarea
                       id="notes"
                       {...register('notes')}
                       placeholder="Any special instructions for your order (optional)"
                       rows={2}
+                      className="text-base resize-none"
                     />
                   </div>
                 </div>
@@ -992,31 +985,33 @@ export default function ProductShowcasePage() {
 
             {/* Order Summary */}
             <div className="lg:col-span-1">
-              <Card className="p-6 sticky top-4">
-                <h3 className="text-xl font-semibold mb-4">Order Summary</h3>
+              <Card className="p-4 sm:p-6 lg:sticky lg:top-4">
+                <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Order Summary</h3>
 
-                <div className="space-y-3 mb-4">
+                <div className="space-y-2 sm:space-y-3 mb-3 sm:mb-4 max-h-48 overflow-y-auto">
                   {cart.map((item) => (
                     <div key={item.productId} className="flex justify-between text-sm">
-                      <span>{item.name} × {formatQuantity(item.quantity)}</span>
-                      <span>{formatCurrency(item.total)}</span>
+                      <span className="truncate mr-2">{item.name} × {formatQuantity(item.quantity)}</span>
+                      <span className="font-medium flex-shrink-0">{formatCurrency(item.total)}</span>
                     </div>
                   ))}
                 </div>
 
-                <Separator className="my-4" />
+                <Separator className="my-3 sm:my-4" />
 
-                <div className="space-y-2 mb-4">
-                  <div className="flex justify-between">
+                <div className="space-y-2 mb-4 sm:mb-6">
+                  <div className="flex justify-between text-sm sm:text-base">
                     <span>Subtotal</span>
                     <span>{formatCurrency(getCartTotal())}</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between text-sm sm:text-base">
                     <span>Delivery Fee</span>
-                    <span>{getCartTotal() >= 500 ? 'Free' : formatCurrency(50)}</span>
+                    <span className={getCartTotal() >= 500 ? 'text-green-600 font-medium' : ''}>
+                      {getCartTotal() >= 500 ? 'Free' : formatCurrency(50)}
+                    </span>
                   </div>
                   <Separator />
-                  <div className="flex justify-between font-semibold text-lg">
+                  <div className="flex justify-between font-semibold text-base sm:text-lg">
                     <span>Total</span>
                     <span>{formatCurrency(getCartTotal() + (getCartTotal() >= 500 ? 0 : 50))}</span>
                   </div>
@@ -1025,18 +1020,20 @@ export default function ProductShowcasePage() {
                 <Button
                   type="submit"
                   disabled={isSubmitting || cart.length === 0}
-                  className="w-full bg-green-600 hover:bg-green-700"
+                  className="w-full bg-green-600 hover:bg-green-700 h-12 sm:h-auto"
                   size="lg"
                 >
                   {isSubmitting ? (
                     <>
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Placing Order...
+                      <span className="hidden sm:inline">Placing Order...</span>
+                      <span className="sm:hidden">Placing...</span>
                     </>
                   ) : (
                     <>
                       <MessageCircle className="h-4 w-4 mr-2" />
-                      Place Order via WhatsApp
+                      <span className="hidden sm:inline">Place Order via WhatsApp</span>
+                      <span className="sm:hidden">Place Order</span>
                     </>
                   )}
                 </Button>

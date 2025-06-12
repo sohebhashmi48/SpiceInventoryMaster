@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Separator } from '@/components/ui/separator';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Plus, Trash2, Save, ArrowLeft, Calculator, ChefHat, FileText, Package, Image, Upload } from 'lucide-react';
+import { CalendarIcon, Plus, Trash2, Save, ArrowLeft, Calculator, ChefHat, FileText, Package, Image, Upload, AlertTriangle } from 'lucide-react';
 import { formatCurrency, formatQuantityWithUnit, UnitType, convertUnit, cn } from '@/lib/utils';
 import UnitSelector from '@/components/ui/unit-selector';
 import InventoryBatchSelector from './inventory-batch-selector';
@@ -39,6 +39,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { toast } from '@/components/ui/use-toast';
+import {
+  Dialog, DialogContent, DialogDescription,
+  DialogHeader, DialogTitle, DialogFooter
+} from '@/components/ui/dialog';
+import { addDays } from 'date-fns';
 
 // Define the schema for the bill form
 const billItemSchema = z.object({
@@ -83,6 +88,11 @@ export default function ModernCatererBillingUI() {
   const [receiptImage, setReceiptImage] = useState<File | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  // State for reminder dialog
+  const [showReminderDialog, setShowReminderDialog] = useState(false);
+  const [reminderDate, setReminderDate] = useState<Date>(addDays(new Date(), 7));
+  const [remainingBalance, setRemainingBalance] = useState<number>(0);
   const { data: caterers, isLoading: caterersLoading } = useCaterers();
   const { data: products, isLoading: productsLoading } = useProducts();
   const { data: categories, isLoading: categoriesLoading } = useCategories();
@@ -832,6 +842,14 @@ export default function ModernCatererBillingUI() {
       // Determine status based on payment
       const status = balanceDue <= 0 ? 'paid' : 'partial';
 
+      // Check if reminder is needed for partial payments
+      if (balanceDue > 0 && amountPaid > 0 && paymentOption !== 'later') {
+        setRemainingBalance(balanceDue);
+        setShowReminderDialog(true);
+        setIsUploading(false); // Reset loading state
+        return; // Wait for reminder dialog completion
+      }
+
       // Prepare distribution data
       const distributionData = {
         billNo: data.billNo,
@@ -962,6 +980,182 @@ export default function ModernCatererBillingUI() {
   const handleAddProduct = (data: ProductFormValues) => {
     setNewProduct(data);
     productForm.reset();
+  };
+
+  // Handle skipping reminder
+  const handleSkipReminder = async () => {
+    setShowReminderDialog(false);
+    await proceedWithBillCreation();
+  };
+
+  // Handle reminder confirmation
+  const handleReminderConfirm = async () => {
+    setShowReminderDialog(false);
+
+    const formData = form.getValues();
+
+    try {
+      // First, create the payment reminder
+      const reminderData = {
+        catererId: formData.catererId,
+        amount: remainingBalance,
+        originalDueDate: formData.dueDate,
+        reminderDate: reminderDate,
+        notes: `Reminder for remaining balance after partial payment of ₹${(formData.amountPaid || 0).toLocaleString()}. Original due date: ${format(formData.dueDate, 'PPP')}`
+      };
+
+      console.log("Creating payment reminder:", reminderData);
+
+      const reminderResponse = await fetch('/api/payment-reminders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(reminderData),
+      });
+
+      if (!reminderResponse.ok) {
+        throw new Error('Failed to create payment reminder');
+      }
+
+      toast({
+        title: "Reminder Set",
+        description: `Payment reminder set for ${format(reminderDate, 'PPP')} for remaining balance of ₹${remainingBalance.toLocaleString()}`,
+      });
+
+      // Continue with bill creation
+      await proceedWithBillCreation();
+    } catch (error) {
+      console.error('Error creating reminder:', error);
+      toast({
+        title: "Failed to create reminder",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+      // Still proceed with bill creation even if reminder fails
+      await proceedWithBillCreation();
+    }
+  };
+
+  // Proceed with bill creation (extracted from onSubmit)
+  const proceedWithBillCreation = async () => {
+    const data = form.getValues();
+    setIsUploading(true);
+
+    try {
+      const { totalAmount, totalGstAmount, grandTotal } = calculatedTotals;
+
+      // Prepare items data with proper unit conversion
+      const items = data.items.map(item => {
+        const itemAmount = calculateItemAmount(item.quantity, item.unit, item.rate);
+        const gstAmount = (itemAmount * item.gstPercentage) / 100;
+
+        return {
+          productId: item.productId,
+          itemName: item.productName || '', // Changed from productName to itemName to match schema
+          quantity: item.quantity.toString(), // Convert to string to match schema
+          unit: item.unit,
+          rate: item.rate.toString(), // Convert to string to match schema
+          gstPercentage: item.gstPercentage.toString(), // Convert to string to match schema
+          gstAmount: gstAmount.toString(), // Convert to string to match schema with proper unit conversion
+          amount: itemAmount.toString(), // Convert to string to match schema with proper unit conversion
+        };
+      });
+
+      // Get amount paid from form
+      const amountPaid = data.amountPaid || 0;
+      const balanceDue = Math.max(0, grandTotal - amountPaid);
+
+      // Determine status based on payment
+      const status = balanceDue <= 0 ? 'paid' : 'partial';
+
+      // Prepare distribution data
+      const distributionData = {
+        billNo: data.billNo,
+        catererId: data.catererId,
+        distributionDate: format(data.billDate, 'yyyy-MM-dd'),
+        totalAmount: totalAmount.toString(),
+        totalGstAmount: totalGstAmount.toString(),
+        grandTotal: grandTotal.toString(),
+        amountPaid: amountPaid.toString(),
+        balanceDue: balanceDue.toString(),
+        paymentMode: data.paymentMethod,
+        status: status,
+        notes: data.notes || '',
+        receiptImage: null, // Will be handled separately
+        items: items,
+      };
+
+      // Submit the distribution
+      const result = await createDistribution.mutateAsync(distributionData);
+      console.log("Distribution created successfully:", result);
+
+      // Handle inventory updates (existing code)
+      const updatePromises: Promise<any>[] = [];
+      let updatedInventory = false;
+
+      for (const item of data.items) {
+        const productBatches = selectedBatches[item.productId];
+        if (productBatches && productBatches.batchIds && productBatches.batchIds.length > 0) {
+          for (let i = 0; i < productBatches.batchIds.length; i++) {
+            const batchId = productBatches.batchIds[i];
+            const quantity = productBatches.quantities[i];
+
+            if (quantity > 0) {
+              updatedInventory = true;
+              updatePromises.push(
+                updateInventoryQuantity.mutateAsync({
+                  id: batchId,
+                  quantity: quantity,
+                  isAddition: false
+                })
+              );
+            }
+          }
+        }
+      }
+
+      if (updatePromises.length > 0) {
+        await Promise.all(updatePromises);
+        if (updatedInventory) {
+          toast({
+            title: "Inventory Updated",
+            description: "Inventory quantities have been updated successfully.",
+          });
+        }
+      }
+
+      // Show success toast
+      toast({
+        title: "Bill Saved Successfully",
+        description: `Bill ${data.billNo} has been created successfully.`,
+        variant: "default"
+      });
+
+      // Clear form state
+      form.reset();
+      setSelectedBatches({});
+      setProductBatchQuantities({});
+      setProductUnits({});
+      setReceiptImage(null);
+      setReceiptPreview(null);
+
+      // Navigate back to caterers page
+      setTimeout(() => {
+        navigate('/caterers');
+      }, 1500);
+
+    } catch (error) {
+      console.error('Error creating distribution:', error);
+      toast({
+        title: "Error Creating Bill",
+        description: error instanceof Error ? error.message : "An unexpected error occurred while creating the bill.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -1854,6 +2048,76 @@ export default function ModernCatererBillingUI() {
           )}
         </Button>
       </div>
+
+      {/* Reminder Dialog */}
+      <Dialog open={showReminderDialog} onOpenChange={setShowReminderDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center">
+              <AlertTriangle className="h-5 w-5 mr-2 text-orange-500" />
+              Set Payment Reminder
+            </DialogTitle>
+            <DialogDescription>
+              You have a remaining balance of ₹{remainingBalance.toLocaleString()}.
+              <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-md">
+                <p className="text-sm text-red-700 font-medium">
+                  ⚠️ Payment is due on {format(form.getValues('dueDate'), 'PPP')}
+                </p>
+              </div>
+              <div className="mt-2">
+                Would you like to set a reminder for the next payment?
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-4 bg-slate-50 rounded-lg">
+              <h4 className="font-medium text-slate-900 mb-2">Bill Details</h4>
+              <div className="text-sm text-slate-600 space-y-1">
+                <p><span className="font-medium">Bill No:</span> {form.getValues('billNo')}</p>
+                <p><span className="font-medium">Bill Date:</span> {format(form.getValues('billDate'), 'PPP')}</p>
+                <p><span className="font-medium">Total Amount:</span> ₹{calculatedTotals.grandTotal.toLocaleString()}</p>
+                <p><span className="font-medium">Amount Paying Now:</span> ₹{(form.getValues('amountPaid') || 0).toLocaleString()}</p>
+                <p><span className="font-medium text-orange-600">Remaining Balance:</span> ₹{remainingBalance.toLocaleString()}</p>
+                <p><span className="font-medium text-red-600">Payment Due:</span> {format(form.getValues('dueDate'), 'PPP')}</p>
+              </div>
+            </div>
+            <div>
+              <Label>Next Payment Reminder Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start text-left font-normal"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {format(reminderDate, "PPP")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={reminderDate}
+                    onSelect={(date) => date && setReminderDate(date)}
+                    initialFocus
+                    disabled={(date) => date < new Date()}
+                  />
+                </PopoverContent>
+              </Popover>
+              <p className="text-xs text-slate-500 mt-1">
+                Choose a future date when you want to be reminded about the remaining payment
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleSkipReminder}>
+              Skip Reminder
+            </Button>
+            <Button onClick={handleReminderConfirm}>
+              Set Reminder
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

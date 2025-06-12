@@ -37,6 +37,15 @@ export default function PieChart({ className }: PieChartProps) {
   // Fetch real category performance data
   const { data: categoryPerformance, isLoading } = useQuery<CategoryPerformance[]>({
     queryKey: ["/api/reports/category-performance"],
+    queryFn: async () => {
+      const response = await fetch('/api/reports/category-performance', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch category performance');
+      }
+      return response.json();
+    },
     refetchInterval: 30000, // Refresh every 30 seconds
     refetchIntervalInBackground: true,
   });

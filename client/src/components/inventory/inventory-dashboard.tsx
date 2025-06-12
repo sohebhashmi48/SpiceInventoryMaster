@@ -542,7 +542,7 @@ export default function InventoryDashboard() {
                       {analytics.expiryInsights.map((item, index) => (
                         <tr key={index} className={index % 2 === 0 ? 'bg-background' : 'bg-muted/30'}>
                           <td className="p-2">{item.name}</td>
-                          <td className="p-2">{item.quantity} {item.unit}</td>
+                          <td className="p-2">{Number(item.quantity).toFixed(2)} {item.unit}</td>
                           <td className="p-2">{new Date(item.expiry_date).toLocaleDateString()}</td>
                           <td className="p-2">{item.daysUntilExpiry}</td>
                           <td className="p-2">

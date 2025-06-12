@@ -15,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 
 import { toast } from '@/hooks/use-toast';
+import { getFormattedAddress, getBusinessEmail, getDisplayPhoneNumber } from '@/config/business';
 import {
   ShoppingCart,
   Plus,
@@ -31,7 +32,10 @@ import {
   Tag,
   ToggleLeft,
   ToggleRight,
-  IndianRupee
+  IndianRupee,
+  Calculator,
+  X,
+  Search
 } from 'lucide-react';
 import Layout from '@/components/layout/layout';
 import PageHeader from '@/components/common/page-header';
@@ -101,6 +105,12 @@ export default function CustomerBillingPage() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [, setLocation] = useLocation();
 
+  // Mix Calculator state
+  const [showMixCalculator, setShowMixCalculator] = useState(false);
+  const [mixBudget, setMixBudget] = useState<string>('');
+  const [mixSelectedProducts, setMixSelectedProducts] = useState<{id: number, name: string, price: number, allocatedPrice: number, calculatedQuantity: number}[]>([]);
+  const [mixSearchQuery, setMixSearchQuery] = useState('');
+
   const form = useForm<CustomerBillingForm>({
     resolver: zodResolver(customerBillingSchema),
     defaultValues: {
@@ -120,6 +130,86 @@ export default function CustomerBillingPage() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Mix Calculator functions
+  const handleMixCalculatorOpen = () => {
+    setShowMixCalculator(true);
+  };
+
+  const handleMixCalculatorClose = () => {
+    setShowMixCalculator(false);
+    setMixBudget('');
+    setMixSelectedProducts([]);
+    setMixSearchQuery('');
+  };
+
+  const addProductToMix = (product: any) => {
+    const newProduct = {
+      id: product.id,
+      name: product.name,
+      price: Number(product.retailPrice || product.price || 0),
+      allocatedPrice: 0,
+      calculatedQuantity: 0
+    };
+    setMixSelectedProducts(prev => [...prev, newProduct]);
+    setMixSearchQuery('');
+  };
+
+  const removeProductFromMix = (productId: number) => {
+    setMixSelectedProducts(prev => prev.filter(p => p.id !== productId));
+  };
+
+  // Calculate mix quantities when budget or products change
+  useEffect(() => {
+    if (mixBudget && mixSelectedProducts.length > 0) {
+      const budget = parseFloat(mixBudget);
+      const pricePerProduct = budget / mixSelectedProducts.length;
+
+      setMixSelectedProducts(prev => prev.map(p => ({
+        ...p,
+        allocatedPrice: Math.round(pricePerProduct * 100) / 100,
+        calculatedQuantity: Math.round((pricePerProduct / p.price) * 100) / 100
+      })));
+    }
+  }, [mixBudget, mixSelectedProducts.length]);
+
+  const addMixToCart = () => {
+    mixSelectedProducts.forEach(mixProduct => {
+      if (mixProduct.calculatedQuantity > 0) {
+        const product = products?.find(p => p.id === mixProduct.id);
+        if (product) {
+          const productPrice = Number(product.retailPrice || product.price || 0);
+          const marketPrice = Number(product.marketPrice || productPrice * 1.2);
+
+          const newItem: CartItem = {
+            productId: product.id,
+            productName: product.name,
+            quantity: mixProduct.calculatedQuantity,
+            unit: 'kg',
+            displayQuantity: `${mixProduct.calculatedQuantity.toFixed(2)} kg`,
+            pricePerKg: productPrice,
+            marketPricePerKg: marketPrice,
+            total: mixProduct.calculatedQuantity * productPrice,
+            selectedBatches: undefined
+          };
+
+          setCart(prev => [...prev, newItem]);
+        }
+      }
+    });
+
+    handleMixCalculatorClose();
+    toast({
+      title: 'Success',
+      description: 'Mix products added to cart successfully!',
+    });
+  };
+
+  // Filter products for mix calculator
+  const filteredMixProducts = products?.filter(product =>
+    product.name.toLowerCase().includes(mixSearchQuery.toLowerCase()) &&
+    !mixSelectedProducts.some(mp => mp.id === product.id)
+  ) || [];
 
 
 
@@ -859,8 +949,8 @@ export default function CustomerBillingPage() {
               <h1>RoyalSpicyMasala</h1>
               <div className="print-company-tagline">Premium Quality Spices & Masalas</div>
               <div className="print-company-contact">
-                📍 123 Spice Market, Trade Center, Mumbai - 400001<br/>
-                📞 +91-9876543210 | ✉️ info@royalspicymasala.com<br/>
+                📍 {getFormattedAddress()}<br/>
+                📞 {getDisplayPhoneNumber()} | ✉️ {getBusinessEmail()}<br/>
                 🌐 www.royalspicymasala.com | GST: 27ABCDE1234F1Z5
               </div>
             </div>
@@ -961,7 +1051,7 @@ export default function CustomerBillingPage() {
             <div className="print-footer-message">🙏 Thank you for shopping with us! 🙏</div>
             <div className="print-footer-branding">RoyalSpicyMasala - Your Trusted Spice Partner</div>
             <div className="print-footer-contact">
-              For queries: +91-9876543210 | Visit: www.royalspicymasala.com<br/>
+              For queries: {getDisplayPhoneNumber()} | Visit: www.royalspicymasala.com<br/>
               Follow us: @RoyalSpicyMasala | Quality Guaranteed Since 1995
             </div>
           </div>
@@ -992,9 +1082,9 @@ export default function CustomerBillingPage() {
                   </div>
                 </div>
                 <div className="text-sm text-gray-600 space-y-2">
-                  <p className="flex items-center"><MapPin className="w-4 h-4 mr-2 text-primary" /> 123 Spice Market, Trade Center</p>
-                  <p className="flex items-center"><Phone className="w-4 h-4 mr-2 text-primary" /> +91-9876543210</p>
-                  <p className="flex items-center"><Mail className="w-4 h-4 mr-2 text-primary" /> info@royalspicy.com</p>
+                  <p className="flex items-center"><MapPin className="w-4 h-4 mr-2 text-primary" /> {getFormattedAddress()}</p>
+                  <p className="flex items-center"><Phone className="w-4 h-4 mr-2 text-primary" /> {getDisplayPhoneNumber()}</p>
+                  <p className="flex items-center"><Mail className="w-4 h-4 mr-2 text-primary" /> {getBusinessEmail()}</p>
                 </div>
               </div>
 
@@ -1080,6 +1170,15 @@ export default function CustomerBillingPage() {
               </div>
 
               <div className="flex space-x-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-orange-500 text-orange-600 hover:bg-orange-500 hover:text-white"
+                  onClick={handleMixCalculatorOpen}
+                >
+                  <Calculator className="w-4 h-4 mr-1" />
+                  Mix Calculator
+                </Button>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1405,6 +1504,161 @@ export default function CustomerBillingPage() {
 
 
       </div>
+
+      {/* Mix Calculator Modal */}
+      {showMixCalculator && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-4xl max-h-[90vh] overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calculator className="h-5 w-5 text-primary" />
+                <CardTitle>Mix Calculator</CardTitle>
+              </div>
+              <Button variant="ghost" size="sm" onClick={handleMixCalculatorClose}>
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+
+            <CardContent className="space-y-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+              {/* Budget Input */}
+              <div className="space-y-2">
+                <Label htmlFor="mixBudget">Total Budget</Label>
+                <Input
+                  id="mixBudget"
+                  type="number"
+                  placeholder="Enter your total budget (₹)"
+                  value={mixBudget}
+                  onChange={(e) => setMixBudget(e.target.value)}
+                  className="text-lg"
+                />
+              </div>
+
+              {/* Product Search */}
+              <div className="space-y-2">
+                <Label htmlFor="mixSearch">Add Products</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                  <Input
+                    id="mixSearch"
+                    placeholder="Search products to add..."
+                    value={mixSearchQuery}
+                    onChange={(e) => setMixSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+
+                {/* Search Results */}
+                {mixSearchQuery && (
+                  <div className="max-h-40 overflow-y-auto border rounded-lg">
+                    {filteredMixProducts.length > 0 ? (
+                      filteredMixProducts.slice(0, 5).map(product => (
+                        <div
+                          key={product.id}
+                          className="p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0 flex justify-between items-center"
+                          onClick={() => addProductToMix(product)}
+                        >
+                          <div>
+                            <span className="font-medium">{product.name}</span>
+                            <span className="text-sm text-gray-500 ml-2">
+                              ₹{Number(product.retailPrice || product.price || 0).toFixed(2)} per kg
+                            </span>
+                          </div>
+                          <Plus className="h-4 w-4 text-primary" />
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-3 text-gray-500 text-center">No products found</div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Selected Products */}
+              {mixSelectedProducts.length > 0 && (
+                <div className="space-y-4">
+                  <h4 className="font-semibold">Selected Products ({mixSelectedProducts.length})</h4>
+
+                  <div className="space-y-3">
+                    {mixSelectedProducts.map((mixProduct) => (
+                      <Card key={mixProduct.id} className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3">
+                              <span className="font-medium">{mixProduct.name}</span>
+                              <Badge variant="outline">
+                                ₹{mixProduct.price.toFixed(2)} per kg
+                              </Badge>
+                            </div>
+
+                            {mixBudget && mixSelectedProducts.length > 0 && (
+                              <div className="mt-2 text-sm text-gray-600 space-y-1">
+                                <div>Allocated Budget: ₹{mixProduct.allocatedPrice.toFixed(2)}</div>
+                                <div className="font-medium text-primary">
+                                  Quantity: {mixProduct.calculatedQuantity.toFixed(2)} kg
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => removeProductFromMix(mixProduct.id)}
+                            className="text-red-600 border-red-200 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+
+                  {/* Summary */}
+                  {mixBudget && mixSelectedProducts.length > 0 && (
+                    <Card className="bg-green-50 border-green-200">
+                      <CardContent className="p-4">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h4 className="font-semibold text-green-800">Mix Summary</h4>
+                            <p className="text-sm text-green-700">
+                              Total Budget: ₹{parseFloat(mixBudget).toFixed(2)} |
+                              Products: {mixSelectedProducts.length} |
+                              Avg per product: ₹{(parseFloat(mixBudget) / mixSelectedProducts.length).toFixed(2)}
+                            </p>
+                          </div>
+                          <Button
+                            onClick={addMixToCart}
+                            className="bg-green-600 hover:bg-green-700"
+                          >
+                            <ShoppingCart className="h-4 w-4 mr-2" />
+                            Add Mix to Cart
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              )}
+
+              {/* Instructions */}
+              {mixSelectedProducts.length === 0 && (
+                <Card className="bg-blue-50 border-blue-200">
+                  <CardContent className="p-4">
+                    <h4 className="font-semibold text-blue-800 mb-2">How to use Mix Calculator:</h4>
+                    <ol className="text-sm text-blue-700 space-y-1 list-decimal list-inside">
+                      <li>Enter your total budget amount</li>
+                      <li>Search and select the products you want to mix</li>
+                      <li>The calculator will divide your budget equally among selected products</li>
+                      <li>View the calculated quantities for each product</li>
+                      <li>Add all products to your cart with calculated quantities</li>
+                    </ol>
+                  </CardContent>
+                </Card>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </Layout>
   );
 }

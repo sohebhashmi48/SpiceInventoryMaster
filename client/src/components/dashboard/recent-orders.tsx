@@ -3,15 +3,16 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Clock, 
-  CheckCircle, 
-  Package, 
-  Truck, 
+import {
+  Clock,
+  CheckCircle,
+  Package,
+  Truck,
   XCircle,
   Eye,
   ArrowRight,
-  RefreshCw
+  RefreshCw,
+  Users
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { useLocation } from 'wouter';
@@ -96,11 +97,16 @@ export default function RecentOrders({ autoRefresh = true, refreshInterval = 300
   };
 
   return (
-    <Card className="h-full">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-        <div>
-          <CardTitle className="text-lg font-semibold">Recent Orders</CardTitle>
-          <CardDescription>Latest customer orders</CardDescription>
+    <div className="h-full">
+      <div className="flex flex-row items-center justify-between space-y-0 p-6 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl shadow-lg">
+            <Users className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900">Recent Orders</h2>
+            <p className="text-slate-600">Latest customer orders</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -120,9 +126,9 @@ export default function RecentOrders({ autoRefresh = true, refreshInterval = 300
             <ArrowRight className="h-4 w-4 ml-1" />
           </Button>
         </div>
-      </CardHeader>
-      
-      <CardContent>
+      </div>
+
+      <div className="px-6 pb-6 max-h-96 overflow-y-auto">
         {isLoading ? (
           <div className="space-y-3">
             {[...Array(5)].map((_, i) => (
@@ -132,10 +138,10 @@ export default function RecentOrders({ autoRefresh = true, refreshInterval = 300
             ))}
           </div>
         ) : !recentOrders || recentOrders.length === 0 ? (
-          <div className="text-center py-8">
-            <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No recent orders</h3>
-            <p className="text-gray-500">New orders will appear here</p>
+          <div className="text-center py-6">
+            <Package className="h-8 w-8 text-gray-400 mx-auto mb-3" />
+            <h3 className="text-base font-medium text-gray-900 mb-1">No recent orders</h3>
+            <p className="text-sm text-gray-500">New orders will appear here</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -183,7 +189,7 @@ export default function RecentOrders({ autoRefresh = true, refreshInterval = 300
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

@@ -371,30 +371,25 @@ export default function EnhancedPaymentForm({
     }
   };
 
-  // Handle reminder confirmation
-  const handleReminderConfirm = async () => {
+  // Handle skipping reminder
+  const handleSkipReminder = async () => {
     setShowReminderDialog(false);
 
-    // Create reminder (this would typically call an API)
-    toast({
-      title: "Reminder Set",
-      description: `Payment reminder set for ${format(reminderDate, 'PPP')} for remaining balance of ₹${remainingBalance.toLocaleString()}`,
-    });
-
-    // Continue with payment submission
     const formData = form.getValues();
-    const paymentData = {
-      catererId: parseInt(formData.catererId),
-      distributionId: formData.distributionId && formData.distributionId !== 'none' ? parseInt(formData.distributionId) : undefined,
-      amount: formData.amount,
-      paymentDate: formData.paymentDate.toISOString(),
-      paymentMode: formData.paymentMode,
-      referenceNo: formData.referenceNo || undefined,
-      notes: formData.notes || undefined,
-      receiptImage: undefined // Already handled
-    };
 
     try {
+      // Continue with payment submission without creating reminder
+      const paymentData = {
+        catererId: parseInt(formData.catererId),
+        distributionId: formData.distributionId && formData.distributionId !== 'none' ? parseInt(formData.distributionId) : undefined,
+        amount: formData.amount,
+        paymentDate: formData.paymentDate.toISOString(),
+        paymentMode: formData.paymentMode,
+        referenceNo: formData.referenceNo || undefined,
+        notes: formData.notes || undefined,
+        receiptImage: undefined // Already handled
+      };
+
       await createPayment.mutateAsync(paymentData);
 
       toast({
@@ -410,6 +405,73 @@ export default function EnhancedPaymentForm({
       }
     } catch (error) {
       console.error('Error recording payment:', error);
+      toast({
+        title: "Failed to record payment",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle reminder confirmation
+  const handleReminderConfirm = async () => {
+    setShowReminderDialog(false);
+
+    const formData = form.getValues();
+
+    try {
+      // First, create the payment reminder
+      const reminderData = {
+        catererId: parseInt(formData.catererId),
+        distributionId: formData.distributionId && formData.distributionId !== 'none' ? parseInt(formData.distributionId) : undefined,
+        amount: remainingBalance,
+        originalDueDate: selectedDistribution?.dueDate || selectedDistribution?.distributionDate || new Date(),
+        reminderDate: reminderDate,
+        notes: `Reminder for remaining balance after partial payment of ₹${parseFloat(formData.amount).toLocaleString()}. Original due date: ${selectedDistribution?.dueDate ? new Date(selectedDistribution.dueDate).toLocaleDateString() : 'Not specified'}`
+      };
+
+      console.log("Creating payment reminder:", reminderData);
+
+      const reminderResponse = await fetch('/api/payment-reminders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(reminderData),
+      });
+
+      if (!reminderResponse.ok) {
+        throw new Error('Failed to create payment reminder');
+      }
+
+      // Continue with payment submission
+      const paymentData = {
+        catererId: parseInt(formData.catererId),
+        distributionId: formData.distributionId && formData.distributionId !== 'none' ? parseInt(formData.distributionId) : undefined,
+        amount: formData.amount,
+        paymentDate: formData.paymentDate.toISOString(),
+        paymentMode: formData.paymentMode,
+        referenceNo: formData.referenceNo || undefined,
+        notes: formData.notes || undefined,
+        receiptImage: undefined // Already handled
+      };
+
+      await createPayment.mutateAsync(paymentData);
+
+      toast({
+        title: "Payment recorded with reminder",
+        description: `Payment recorded successfully. Reminder set for ${format(reminderDate, 'PPP')} for remaining balance of ₹${remainingBalance.toLocaleString()}`,
+      });
+
+      if (onSuccess) {
+        onSuccess();
+      } else {
+        // Always redirect to billing history after payment
+        setLocation('/distributions');
+      }
+    } catch (error) {
+      console.error('Error recording payment or creating reminder:', error);
       toast({
         title: "Failed to record payment",
         description: error instanceof Error ? error.message : "An error occurred",
@@ -789,10 +851,32 @@ export default function EnhancedPaymentForm({
             </DialogTitle>
             <DialogDescription>
               You have a remaining balance of ₹{remainingBalance.toLocaleString()}.
-              Would you like to set a reminder for the next payment?
+              {selectedDistribution?.dueDate && (
+                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-md">
+                  <p className="text-sm text-red-700 font-medium">
+                    ⚠️ Original payment was due on {new Date(selectedDistribution.dueDate).toLocaleDateString()}
+                  </p>
+                </div>
+              )}
+              <div className="mt-2">
+                Would you like to set a reminder for the next payment?
+              </div>
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {selectedDistribution && (
+              <div className="p-4 bg-slate-50 rounded-lg">
+                <h4 className="font-medium text-slate-900 mb-2">Bill Details</h4>
+                <div className="text-sm text-slate-600 space-y-1">
+                  <p><span className="font-medium">Bill No:</span> {selectedDistribution.billNo}</p>
+                  <p><span className="font-medium">Bill Date:</span> {new Date(selectedDistribution.distributionDate).toLocaleDateString()}</p>
+                  <p><span className="font-medium">Total Amount:</span> ₹{parseFloat(selectedDistribution.grandTotal).toLocaleString()}</p>
+                  <p><span className="font-medium">Amount Paying Now:</span> ₹{parseFloat(form.getValues('amount')).toLocaleString()}</p>
+                  <p><span className="font-medium text-orange-600">Remaining Balance:</span> ₹{remainingBalance.toLocaleString()}</p>
+                  <p><span className="font-medium text-red-600">Payment Due:</span> {selectedDistribution.dueDate ? new Date(selectedDistribution.dueDate).toLocaleDateString() : 'Not specified'}</p>
+                </div>
+              </div>
+            )}
             <div>
               <Label>Next Payment Reminder Date</Label>
               <Popover>
@@ -811,13 +895,17 @@ export default function EnhancedPaymentForm({
                     selected={reminderDate}
                     onSelect={(date) => date && setReminderDate(date)}
                     initialFocus
+                    disabled={(date) => date < new Date()}
                   />
                 </PopoverContent>
               </Popover>
+              <p className="text-xs text-slate-500 mt-1">
+                Choose a future date when you want to be reminded about the remaining payment
+              </p>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowReminderDialog(false)}>
+            <Button variant="outline" onClick={handleSkipReminder}>
               Skip Reminder
             </Button>
             <Button onClick={handleReminderConfirm}>

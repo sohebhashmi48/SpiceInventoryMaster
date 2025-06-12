@@ -41,7 +41,7 @@ export default function MixCalculator({ products, onAddToCart, onClose }: MixCal
       setSelectedProducts(prev => prev.map(sp => ({
         ...sp,
         allocatedPrice: Math.round(pricePerProduct * 100) / 100,
-        calculatedQuantity: Math.round((pricePerProduct / parseFloat(sp.product.retailPrice)) * 1000) / 1000 // Round to 3 decimal places
+        calculatedQuantity: Math.round((pricePerProduct / parseFloat(sp.product.retailPrice)) * 100) / 100 // Round to 2 decimal places
       })));
     }
   }, [totalBudget, selectedProducts.length]);
@@ -170,7 +170,7 @@ export default function MixCalculator({ products, onAddToCart, onClose }: MixCal
                           <div className="mt-2 text-sm text-gray-600 space-y-1">
                             <div>Allocated Budget: {formatCurrency(sp.allocatedPrice)}</div>
                             <div className="font-medium text-primary">
-                              Quantity: {sp.calculatedQuantity} {sp.product.unit}
+                              Quantity: {Number(sp.calculatedQuantity).toFixed(2)} {sp.product.unit}
                             </div>
                           </div>
                         )}

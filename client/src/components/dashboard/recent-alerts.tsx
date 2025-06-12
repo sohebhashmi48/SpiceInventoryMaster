@@ -21,12 +21,30 @@ export default function RecentAlerts({ className }: RecentAlertsProps) {
   // Fetch inventory alerts
   const { data: lowStockItems, isLoading: lowStockLoading } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory/alerts/low-stock"],
+    queryFn: async () => {
+      const response = await fetch('/api/inventory/alerts/low-stock', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch low stock items');
+      }
+      return response.json();
+    },
     refetchInterval: 30000, // Refresh every 30 seconds
     refetchIntervalInBackground: true,
   });
 
   const { data: expiringItems, isLoading: expiringLoading } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory/alerts/expiring"],
+    queryFn: async () => {
+      const response = await fetch('/api/inventory/alerts/expiring', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch expiring items');
+      }
+      return response.json();
+    },
     refetchInterval: 30000, // Refresh every 30 seconds
     refetchIntervalInBackground: true,
   });
@@ -121,14 +139,19 @@ export default function RecentAlerts({ className }: RecentAlertsProps) {
   };
 
   return (
-    <Card className={cn("", className)}>
-      <CardContent className="p-4">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="font-heading font-semibold text-neutral-800">Recent Alerts</h2>
-          <a href="#" className="text-secondary text-sm font-medium">View All</a>
+    <div className={cn("h-full", className)}>
+      <div className="p-6 pb-4">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-xl shadow-lg">
+            <AlertTriangle className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900">Alerts & Monitoring</h2>
+            <p className="text-slate-600">System alerts and notifications</p>
+          </div>
         </div>
-        
-        <div className="space-y-4">
+
+        <div className="space-y-3 max-h-80 overflow-y-auto">
           {isLoading ? (
             Array(3).fill(0).map((_, i) => (
               <div key={i} className="flex items-start p-3 bg-neutral-50 rounded-md">
@@ -161,18 +184,18 @@ export default function RecentAlerts({ className }: RecentAlertsProps) {
               </div>
             ))
           ) : (
-            <div className="flex items-center justify-center p-6 text-center">
+            <div className="flex items-center justify-center p-4 text-center">
               <div>
                 <div className="flex justify-center mb-2">
-                  <div className="text-green-400 text-4xl">✅</div>
+                  <div className="text-green-400 text-2xl">✅</div>
                 </div>
-                <p className="text-neutral-500">No active alerts</p>
-                <p className="text-xs text-neutral-400 mt-1">All inventory items are well stocked</p>
+                <p className="text-slate-500 font-medium">No active alerts</p>
+                <p className="text-xs text-slate-400 mt-1">All inventory items are well stocked</p>
               </div>
             </div>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

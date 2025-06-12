@@ -33,7 +33,9 @@ export default function DailyProfit({ autoRefresh = true, refreshInterval = 3000
   const { data: profitData, isLoading, refetch } = useQuery<DailyProfitData>({
     queryKey: ['daily-profit'],
     queryFn: async () => {
-      const response = await fetch('/api/dashboard/daily-profit');
+      const response = await fetch('/api/dashboard/daily-profit', {
+        credentials: 'include',
+      });
       if (!response.ok) {
         throw new Error('Failed to fetch daily profit data');
       }

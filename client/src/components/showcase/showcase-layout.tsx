@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useLocation } from 'wouter';
+import { getBusinessEmail, getDisplayPhoneNumber, getFormattedAddress } from '@/config/business';
 
 interface ShowcaseLayoutProps {
   children: React.ReactNode;
@@ -45,25 +46,23 @@ export default function ShowcaseLayout({
       {/* Header */}
       <header className="bg-white shadow-lg sticky top-0 z-50">
         <div className="container mx-auto px-4">
-          {/* Top Bar with Contact Info - Mobile Responsive */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center py-2 text-xs sm:text-sm border-b border-gray-200 gap-2">
-            <div className="flex flex-wrap items-center gap-3 sm:gap-6 text-gray-600">
+          {/* Top Bar with Contact Info */}
+          <div className="hidden md:flex justify-between items-center py-2 text-sm border-b border-gray-200">
+            <div className="flex items-center space-x-6 text-gray-600">
               <div className="flex items-center">
-                <Phone className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 text-primary" />
-                <span className="hidden sm:inline">+91 97027 13157</span>
-                <span className="sm:hidden">Call</span>
+                <Phone className="h-4 w-4 mr-2 text-primary" />
+                <span>{getDisplayPhoneNumber()}</span>
               </div>
               <div className="flex items-center">
-                <Mail className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 text-primary" />
-                <span className="hidden sm:inline">orders@royalspicymasala.com</span>
-                <span className="sm:hidden">Email</span>
+                <Mail className="h-4 w-4 mr-2 text-primary" />
+                <span>{getBusinessEmail()}</span>
               </div>
               <div className="flex items-center">
-                <MapPin className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2 text-primary" />
+                <MapPin className="h-4 w-4 mr-2 text-primary" />
                 <span>Mumbai, Maharashtra</span>
               </div>
             </div>
-            <div className="text-primary font-medium text-xs sm:text-sm">
+            <div className="text-primary font-medium">
               ✨ Free Delivery on Orders Above ₹500
             </div>
           </div>
@@ -107,10 +106,11 @@ export default function ShowcaseLayout({
                   variant="outline"
                   size="sm"
                   onClick={onMixCalculatorClick}
-                  className="border-orange-500 text-orange-600 hover:bg-orange-500 hover:text-white"
+                  className="hidden sm:flex border-orange-500 text-orange-600 hover:bg-orange-500 hover:text-white"
                 >
                   <Calculator className="h-4 w-4 md:mr-2" />
-                  <span className="hidden md:inline">Mix Calculator</span>
+                  <span className="hidden lg:inline">Mix Calculator</span>
+                  <span className="lg:hidden">Mix</span>
                 </Button>
               )}
 
@@ -119,16 +119,16 @@ export default function ShowcaseLayout({
                 variant="outline"
                 size="sm"
                 onClick={onCartClick || (() => handleNavigation('/showcase/cart'))}
-                className="relative border-primary text-primary hover:bg-primary hover:text-white"
+                className="relative border-primary text-primary hover:bg-primary hover:text-white min-w-[3rem] h-9"
               >
                 <ShoppingCart className="h-4 w-4 md:mr-2" />
                 <span className="hidden md:inline">Cart</span>
                 {cartItemCount > 0 && (
                   <Badge
                     variant="destructive"
-                    className="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center p-0 text-xs"
+                    className="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center p-0 text-xs font-bold"
                   >
-                    {cartItemCount}
+                    {cartItemCount > 99 ? '99+' : cartItemCount}
                   </Badge>
                 )}
               </Button>
@@ -138,7 +138,7 @@ export default function ShowcaseLayout({
                 variant="ghost"
                 size="sm"
                 onClick={toggleMobileMenu}
-                className="md:hidden"
+                className="md:hidden h-9 w-9 p-0"
               >
                 {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
               </Button>
@@ -146,15 +146,15 @@ export default function ShowcaseLayout({
           </div>
 
           {/* Mobile Search Bar */}
-          <div className="md:hidden pb-3">
+          <div className="md:hidden pb-3 px-1">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
               <Input
                 type="text"
                 placeholder="Search spices, masalas..."
                 value={searchQuery}
                 onChange={handleSearchChange}
-                className="pl-10 pr-4 py-3 w-full border-gray-300 focus:border-primary focus:ring-primary text-base"
+                className="pl-11 pr-4 py-3 w-full border-gray-300 focus:border-primary focus:ring-primary text-base rounded-lg shadow-sm"
               />
             </div>
           </div>
@@ -162,7 +162,67 @@ export default function ShowcaseLayout({
 
         {/* Mobile Menu */}
         {isMobileMenuOpen && (
-          <div className="md:hidden bg-white border-t border-gray-200">
+          <div className="md:hidden bg-white border-t border-gray-200 shadow-lg">
+            <div className="container mx-auto px-4 py-4 space-y-4">
+              {/* Mix Calculator for Mobile */}
+              {onMixCalculatorClick && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    onMixCalculatorClick();
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="w-full justify-start border-orange-500 text-orange-600 hover:bg-orange-500 hover:text-white"
+                >
+                  <Calculator className="h-4 w-4 mr-3" />
+                  Mix Calculator
+                </Button>
+              )}
+
+              {/* Quick Links */}
+              <div className="space-y-2">
+                <h4 className="font-semibold text-gray-800 text-sm">Quick Links</h4>
+                <div className="space-y-2">
+                  <button
+                    onClick={() => handleNavigation('/showcase')}
+                    className="w-full text-left py-2 px-3 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+                  >
+                    🏠 Home
+                  </button>
+                  <button
+                    onClick={() => {
+                      onCartClick?.();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="w-full text-left py-2 px-3 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors flex items-center justify-between"
+                  >
+                    <span>🛒 Cart</span>
+                    {cartItemCount > 0 && (
+                      <Badge variant="destructive" className="text-xs">
+                        {cartItemCount}
+                      </Badge>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Contact Info */}
+              <div className="space-y-2 pt-2 border-t border-gray-100">
+                <h4 className="font-semibold text-gray-800 text-sm">Contact Us</h4>
+                <div className="space-y-2 text-sm text-gray-600">
+                  <div className="flex items-center">
+                    <Phone className="h-4 w-4 mr-2 text-primary" />
+                    <a href={`tel:${getDisplayPhoneNumber().replace(/\s/g, '')}`} className="hover:text-primary">{getDisplayPhoneNumber()}</a>
+                  </div>
+                  <div className="flex items-center">
+                    <Mail className="h-4 w-4 mr-2 text-primary" />
+                    <a href={`mailto:${getBusinessEmail()}`} className="hover:text-primary break-all">
+                      {getBusinessEmail()}
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </header>
@@ -191,15 +251,15 @@ export default function ShowcaseLayout({
               <div className="space-y-2 text-sm">
                 <div className="flex items-center">
                   <Phone className="h-4 w-4 mr-2 flex-shrink-0" />
-                  <span>+91 97027 13157</span>
+                  <span>{getDisplayPhoneNumber()}</span>
                 </div>
                 <div className="flex items-center">
                   <Mail className="h-4 w-4 mr-2 flex-shrink-0" />
-                  <span className="break-all">orders@royalspicymasala.com</span>
+                  <span className="break-all">{getBusinessEmail()}</span>
                 </div>
                 <div className="flex items-center">
                   <MapPin className="h-4 w-4 mr-2 flex-shrink-0" />
-                  <span>Mumbai, Maharashtra, India</span>
+                  <span>{getFormattedAddress()}</span>
                 </div>
               </div>
             </div>

@@ -313,9 +313,9 @@ export function formatQuantityWithUnit(
 
 
 export function formatQuantity(quantity: number): string {
-  // Round to 3 decimal places and remove trailing zeros
-  const rounded = Math.round(quantity * 1000) / 1000;
-  return rounded % 1 === 0 ? rounded.toString() : rounded.toFixed(3).replace(/\.?0+$/, '');
+  // Round to 2 decimal places and remove trailing zeros
+  const rounded = Math.round(quantity * 100) / 100;
+  return rounded % 1 === 0 ? rounded.toString() : rounded.toFixed(2).replace(/\.?0+$/, '');
 }
 
 export function formatDate(date: Date | string | null | undefined): string {

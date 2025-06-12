@@ -11,13 +11,13 @@ export const BUSINESS_CONFIG = {
 
   // Contact Information
   phone: '+91 97027 13157',
-  email: 'orders@royalspicymasala.com',
+  email: 'royalspicymasala786@gmail.com',
   address: {
-    street: '123 Spice Market Street',
-    area: 'Andheri West',
+    street: '',
+    area: 'Andheri(W)',
     city: 'Mumbai',
     state: 'Maharashtra',
-    pincode: '400058',
+    pincode: '400053',
     country: 'India'
   },
 
@@ -70,7 +70,15 @@ export const BUSINESS_CONFIG = {
 // Helper function to get formatted address
 export function getFormattedAddress(): string {
   const addr = BUSINESS_CONFIG.address;
-  return `${addr.street}, ${addr.area}, ${addr.city} - ${addr.pincode}, ${addr.state}, ${addr.country}`;
+  const parts = [
+    addr.street,
+    addr.area,
+    `${addr.city} ${addr.pincode}`,
+    addr.state,
+    addr.country
+  ].filter(part => part && part.trim() !== '');
+
+  return parts.join(', ');
 }
 
 // Helper function to get business WhatsApp number
@@ -81,4 +89,9 @@ export function getBusinessWhatsAppNumber(): string {
 // Helper function to get display phone number
 export function getDisplayPhoneNumber(): string {
   return BUSINESS_CONFIG.whatsapp.displayNumber;
+}
+
+// Helper function to get business email
+export function getBusinessEmail(): string {
+  return BUSINESS_CONFIG.email;
 }

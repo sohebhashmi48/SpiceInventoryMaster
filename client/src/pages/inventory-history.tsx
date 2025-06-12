@@ -161,19 +161,21 @@ export default function InventoryHistoryPage() {
   // Format change description
   const formatChangeDescription = (item: InventoryHistoryItem) => {
     if (item.quantityBefore !== undefined && item.quantityAfter !== undefined) {
-      const change = item.quantityAfter - item.quantityBefore;
-      const changeText = change > 0 ? `+${change}` : `${change}`;
-      return `Quantity: ${item.quantityBefore} → ${item.quantityAfter} (${changeText})`;
+      const quantityBefore = Number(item.quantityBefore).toFixed(2);
+      const quantityAfter = Number(item.quantityAfter).toFixed(2);
+      const change = Number(item.quantityAfter) - Number(item.quantityBefore);
+      const changeText = change > 0 ? `+${change.toFixed(2)}` : `${change.toFixed(2)}`;
+      return `Quantity: ${quantityBefore} → ${quantityAfter} (${changeText})`;
     }
-    
+
     if (item.fieldChanged && item.oldValue && item.newValue) {
       return `${item.fieldChanged}: ${item.oldValue} → ${item.newValue}`;
     }
-    
+
     if (item.reason) {
       return item.reason;
     }
-    
+
     return item.changeType.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase());
   };
 

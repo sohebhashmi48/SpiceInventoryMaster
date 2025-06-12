@@ -2,40 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Responsive mode detection and fixes */
-@media (max-width: 768px) {
-  body {
-    /* Add a class to detect mobile mode */
-    --mobile-mode: true;
-  }
-
-  /* Ensure images load properly on mobile */
-  img {
-    image-rendering: auto;
-    image-rendering: crisp-edges;
-    image-rendering: -webkit-optimize-contrast;
-  }
-}
-
-/* Force image loading for development */
-.dev-mode img {
-  image-rendering: auto !important;
-}
-
-/* Responsive grid improvements */
-@media (max-width: 640px) {
-  .responsive-grid {
-    grid-template-columns: repeat(2, 1fr) !important;
-    gap: 0.5rem !important;
-  }
-}
-
-@media (max-width: 480px) {
-  .responsive-grid {
-    grid-template-columns: 1fr !important;
-  }
-}
-
 :root {
   --background: 0 0% 100%;
   --foreground: 20 14.3% 4.1%;
@@ -301,5 +267,78 @@ body.no-scroll {
   .sidebar-expanded {
     transform: translateX(0);
     transition: transform 0.3s ease;
+  }
+}
+
+/* Mobile-specific improvements for showcase */
+@layer utilities {
+  /* Better touch targets for mobile */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Improved text readability on mobile */
+  .mobile-text {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Better scrolling on mobile */
+  .mobile-scroll {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+
+  /* Improved line clamping for better mobile text display */
+  .line-clamp-1 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .line-clamp-3 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+}
+
+/* Mobile-specific responsive improvements */
+@media (max-width: 640px) {
+  /* Ensure better spacing on mobile */
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  /* Better button sizing for mobile */
+  button {
+    min-height: 44px;
+  }
+
+  /* Improved input sizing for mobile */
+  input, textarea, select {
+    font-size: 16px; /* Prevents zoom on iOS */
+    min-height: 44px;
+  }
+
+  /* Better card spacing on mobile */
+  .card {
+    margin-bottom: 0.75rem;
+  }
+
+  /* Improved grid gaps on mobile */
+  .grid {
+    gap: 0.5rem;
   }
 }

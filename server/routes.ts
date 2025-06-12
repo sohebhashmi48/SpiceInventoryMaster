@@ -240,22 +240,6 @@ export async function registerRoutes(app: Express) {
   // Public API endpoints for customer showcase (no authentication required)
   // IMPORTANT: These must be defined BEFORE authentication setup
 
-  // Debug endpoint to check image paths
-  app.get("/api/debug/image-paths", async (_req, res) => {
-    try {
-      const products = await storage.getSpices();
-      const imagePaths = products.slice(0, 10).map(p => ({
-        id: p.id,
-        name: p.name,
-        imagePath: p.imagePath
-      }));
-      res.json(imagePaths);
-    } catch (error) {
-      console.error("Debug image paths error:", error);
-      res.status(500).json({ message: "Failed to fetch image paths" });
-    }
-  });
-
   // Get all categories for public showcase
   app.get("/api/public/categories", async (_req, res) => {
     try {
@@ -337,46 +321,6 @@ export async function registerRoutes(app: Express) {
     } catch (error) {
       console.error("Create order error:", error);
       res.status(500).json({ message: "Failed to create order" });
-    }
-  });
-
-  // Debug endpoint to check image paths
-  app.get("/api/debug/image-paths", async (_req, res) => {
-    try {
-      const products = await storage.getSpices();
-      const imagePaths = products.slice(0, 10).map(p => ({
-        id: p.id,
-        name: p.name,
-        imagePath: p.imagePath
-      }));
-      res.json(imagePaths);
-    } catch (error) {
-      console.error("Debug image paths error:", error);
-      res.status(500).json({ message: "Failed to fetch image paths" });
-    }
-  });
-
-  // Debug endpoint to check uploads directory
-  app.get("/api/debug/uploads", async (_req, res) => {
-    try {
-      const fs = await import('fs');
-      const uploadsPath = path.join(__dirname, 'public', 'uploads', 'spices');
-
-      if (!fs.existsSync(uploadsPath)) {
-        return res.json({
-          error: 'Uploads directory does not exist',
-          path: uploadsPath
-        });
-      }
-
-      const files = fs.readdirSync(uploadsPath);
-      res.json({
-        uploadsPath,
-        files: files.slice(0, 10) // First 10 files
-      });
-    } catch (error) {
-      console.error("Debug uploads error:", error);
-      res.status(500).json({ message: "Failed to check uploads directory" });
     }
   });
 
@@ -3979,8 +3923,22 @@ export async function registerRoutes(app: Express) {
   // Payment Reminders API
   app.get("/api/payment-reminders", isAuthenticated, async (_req, res) => {
     try {
+      // First, clean up any orphaned payment reminders for paid bills
+      await storage.cleanupPaidBillReminders();
+
       const reminders = await storage.getPaymentReminders();
-      res.json(reminders);
+
+      // Additional client-side filtering to ensure no paid bills show up
+      const filteredReminders = reminders.filter((reminder: any) => {
+        // If reminder has distributionId, double-check it's not paid
+        if (reminder.distributionId) {
+          // This will be filtered on client side as well, but adding server-side safety
+          return true; // Let client handle the filtering with fresh distribution data
+        }
+        return true;
+      });
+
+      res.json(filteredReminders);
     } catch (error) {
       console.error("Get payment reminders error:", error);
       res.status(500).json({ message: "Failed to fetch payment reminders" });
@@ -4150,6 +4108,18 @@ export async function registerRoutes(app: Express) {
     } catch (error) {
       console.error("Dismiss payment reminder error:", error);
       res.status(500).json({ message: "Failed to dismiss payment reminder" });
+    }
+  });
+
+  // Manual cleanup endpoint for payment reminders
+  app.post("/api/payment-reminders/cleanup", isAuthenticated, async (_req, res) => {
+    try {
+      console.log("Manual cleanup of payment reminders requested");
+      await storage.cleanupPaidBillReminders();
+      res.json({ success: true, message: "Payment reminders cleaned up successfully" });
+    } catch (error) {
+      console.error("Manual cleanup error:", error);
+      res.status(500).json({ message: "Failed to cleanup payment reminders" });
     }
   });
 

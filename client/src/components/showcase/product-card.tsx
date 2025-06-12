@@ -6,76 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { ShowcaseProduct } from '@/hooks/use-showcase';
 import { formatCurrency } from '@/lib/utils';
-import { getSpiceImageUrl } from '@/lib/image-utils';
-
-// Simplified Product Image Component
-interface ProductImageProps {
-  imagePath?: string;
-  productName: string;
-  className?: string;
-  showDebug?: boolean;
-}
-
-const ProductImage: React.FC<ProductImageProps> = ({
-  imagePath,
-  productName,
-  className,
-  showDebug = false
-}) => {
-  // Get the proper image URL using our utility function
-  const imageUrl = imagePath ? getSpiceImageUrl(imagePath) : null;
-
-  // Simple logging
-  React.useEffect(() => {
-    if (imageUrl) {
-      console.log(`🔍 Image URL for ${productName}:`, imageUrl);
-    }
-  }, [imageUrl, productName]);
-
-  return (
-    <div className="relative w-full h-full">
-      {imageUrl ? (
-        <img
-          src={imageUrl}
-          alt={productName}
-          className={className}
-          onError={(e) => {
-            console.error(`❌ Image failed: ${imageUrl}`);
-            // Hide the broken image and show fallback
-            e.currentTarget.style.display = 'none';
-            const fallback = e.currentTarget.nextElementSibling as HTMLElement;
-            if (fallback) fallback.style.display = 'flex';
-          }}
-          onLoad={() => {
-            console.log(`✅ Image loaded: ${imageUrl}`);
-          }}
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover'
-          }}
-        />
-      ) : null}
-
-      {/* Fallback - always present but hidden by default */}
-      <div
-        className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-100 to-amber-100"
-        style={{ display: imageUrl ? 'none' : 'flex' }}
-      >
-        <span className="text-3xl sm:text-4xl md:text-6xl">🌶️</span>
-      </div>
-
-      {/* Simple debug info */}
-      {process.env.NODE_ENV === 'development' && showDebug && (
-        <div className="absolute top-0 right-0 bg-black bg-opacity-75 text-white text-xs p-1 z-10">
-          <div className="text-xs">
-            {imageUrl ? '🖼️' : '❌'}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
 
 interface QuantityOption {
   value: number;
@@ -154,7 +84,7 @@ export default function ProductCard({
   const calculateQuantityFromPrice = (price: string): number => {
     const priceNum = parseFloat(price);
     if (isNaN(priceNum) || priceNum <= 0) return 0;
-    return Math.round((priceNum / Number(product.retailPrice)) * 1000) / 1000;
+    return Math.round((priceNum / Number(product.retailPrice)) * 100) / 100;
   };
 
   // Calculate price from quantity
@@ -214,15 +144,16 @@ export default function ProductCard({
       className={`group hover:shadow-lg transition-all duration-300 ${viewMode === 'list' ? 'flex' : 'flex flex-col h-full'}`}
     >
       {/* Product Image */}
-      <div className={`${viewMode === 'list' ? 'w-32 sm:w-48 flex-shrink-0' : 'w-full'} h-32 sm:h-40 md:h-48 bg-gradient-to-br from-orange-100 to-amber-100 rounded-t-lg ${viewMode === 'list' ? 'rounded-l-lg rounded-tr-none' : ''} flex items-center justify-center overflow-hidden relative`}>
-        <ProductImage
-          imagePath={product.imagePath}
-          productName={product.name}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-          showDebug={true}
-        />
-
-
+      <div className={`${viewMode === 'list' ? 'w-24 sm:w-32 md:w-48 flex-shrink-0' : 'w-full'} h-28 sm:h-32 md:h-36 lg:h-40 bg-gradient-to-br from-orange-100 to-amber-100 rounded-t-lg ${viewMode === 'list' ? 'rounded-l-lg rounded-tr-none' : ''} flex items-center justify-center overflow-hidden relative`}>
+        {product.imagePath ? (
+          <img
+            src={product.imagePath.startsWith('/api/') ? product.imagePath : `/api${product.imagePath}`}
+            alt={product.name}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+          />
+        ) : (
+          <span className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl">🌶️</span>
+        )}
 
         {/* Stock Status Badge - Only show if out of stock */}
         {product.stocksQty === 0 && (
@@ -237,21 +168,21 @@ export default function ProductCard({
 
       <CardContent className={`p-2 sm:p-3 md:p-4 ${viewMode === 'list' ? 'flex-1 flex flex-col justify-between' : 'flex-1 flex flex-col'}`}>
         <div>
-          <h3 className="font-semibold text-sm sm:text-base md:text-lg text-gray-800 mb-1 sm:mb-2 group-hover:text-primary transition-colors line-clamp-2">
+          <h3 className="font-semibold text-xs sm:text-sm md:text-base lg:text-lg text-gray-800 mb-1 sm:mb-2 group-hover:text-primary transition-colors line-clamp-2 leading-tight">
             {product.name}
           </h3>
           {product.description && (
-            <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3 line-clamp-2 hidden sm:block">
+            <p className="text-xs text-gray-600 mb-2 line-clamp-2 hidden md:block">
               {product.description}
             </p>
           )}
 
-          <div className="flex items-center justify-between mb-2 sm:mb-3 md:mb-4">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
             <div>
-              <span className="text-lg sm:text-xl md:text-2xl font-bold text-primary">
+              <span className="text-sm sm:text-base md:text-lg lg:text-xl font-bold text-primary">
                 {formatCurrency(Number(product.retailPrice))}
               </span>
-              <span className="text-xs sm:text-sm text-gray-500 ml-1">
+              <span className="text-xs text-gray-500 ml-1 block sm:inline">
                 per {product.unit}
               </span>
             </div>
@@ -355,7 +286,7 @@ export default function ProductCard({
         </div>
 
         {/* Add to Cart Controls */}
-        <div className="space-y-2 sm:space-y-3 mt-auto">
+        <div className="space-y-1 sm:space-y-2 mt-auto">
           {isInCart ? (
             <div className="space-y-1 sm:space-y-2">
               <div className="flex items-center gap-1 sm:gap-2">
@@ -364,11 +295,11 @@ export default function ProductCard({
                   size="sm"
                   onClick={() => handleQuantityChange(cartQuantity - 1)}
                   disabled={cartQuantity <= 1}
-                  className="h-6 w-6 sm:h-8 sm:w-8 p-0"
+                  className="h-7 w-7 sm:h-8 sm:w-8 p-0 flex-shrink-0"
                 >
                   <Minus className="h-3 w-3 sm:h-4 sm:w-4" />
                 </Button>
-                <span className="px-2 sm:px-3 py-1 bg-gray-100 rounded text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem] text-center">
+                <span className="px-2 sm:px-3 py-1 bg-gray-100 rounded text-xs sm:text-sm font-medium min-w-[2rem] sm:min-w-[3rem] text-center flex-shrink-0">
                   {cartQuantity}
                 </span>
                 <Button
@@ -376,20 +307,20 @@ export default function ProductCard({
                   size="sm"
                   onClick={() => handleQuantityChange(cartQuantity + 1)}
                   disabled={product.stocksQty > 0 && product.stocksQty <= cartQuantity}
-                  className="h-6 w-6 sm:h-8 sm:w-8 p-0"
+                  className="h-7 w-7 sm:h-8 sm:w-8 p-0 flex-shrink-0"
                 >
                   <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
                 </Button>
-                <span className="text-xs text-gray-500 ml-1 sm:ml-2">in cart</span>
+                <span className="text-xs text-gray-500 ml-1 truncate">in cart</span>
               </div>
               {onRemoveFromCart && (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => onRemoveFromCart(product.id)}
-                  className="w-full text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300 h-6 sm:h-8 text-xs sm:text-sm"
+                  className="w-full text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300 h-7 sm:h-8 text-xs"
                 >
-                  <Trash2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                  <Trash2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
                   <span className="hidden sm:inline">Remove from Cart</span>
                   <span className="sm:hidden">Remove</span>
                 </Button>
@@ -405,7 +336,7 @@ export default function ProductCard({
                       onAddToCart(product, 1);
                     }}
                     disabled={product.stocksQty === 0}
-                    className={`w-full h-7 sm:h-8 text-xs sm:text-sm ${product.stocksQty === 0 ? 'bg-gray-400 hover:bg-gray-400' : ''}`}
+                    className={`w-full h-8 sm:h-9 text-xs sm:text-sm ${product.stocksQty === 0 ? 'bg-gray-400 hover:bg-gray-400' : ''}`}
                     size="sm"
                   >
                     <ShoppingCart className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
@@ -423,7 +354,7 @@ export default function ProductCard({
                     variant="outline"
                     size="sm"
                     onClick={() => setShowAdvancedOptions(true)}
-                    className="w-full text-xs h-6 sm:h-8 sm:text-sm"
+                    className="w-full text-xs h-7 sm:h-8 sm:text-sm"
                   >
                     <Calculator className="h-3 w-3 mr-1" />
                     <span className="hidden sm:inline">Custom Quantity/Price</span>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -22,7 +22,8 @@ import {
 import { Calendar } from '@/components/ui/calendar';
 import {
   AlertTriangle, Calendar as CalendarIcon, Bell, Clock,
-  DollarSign, User, X, Plus, Check, CreditCard
+  DollarSign, User, X, Plus, Check, CreditCard, CheckCircle,
+  Users, FileText
 } from 'lucide-react';
 import { format, isToday, isBefore, addDays } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -51,6 +52,8 @@ interface EnhancedPaymentRemindersProps {
 }
 
 export default function EnhancedPaymentReminders({ className }: EnhancedPaymentRemindersProps) {
+  const queryClient = useQueryClient();
+
   // Fetch distributions with pending balances
   const { data: distributions, isLoading: distributionsLoading } = useQuery<Distribution[]>({
     queryKey: ['distributions'],
@@ -79,49 +82,62 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
     },
   });
 
+  // Fetch payment reminders using React Query
+  const { data: rawPaymentReminders, isLoading: remindersLoading } = useQuery<any[]>({
+    queryKey: ['payment-reminders'],
+    queryFn: async () => {
+      const response = await fetch('/api/payment-reminders', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch payment reminders');
+      }
+      return response.json();
+    },
+    enabled: !!caterers && !!distributions, // Only fetch when caterers and distributions are loaded
+  });
+
   // Get caterer name by ID
   const getCatererName = (catererId: number) => {
     const caterer = caterers?.find(c => c.id === catererId);
     return caterer ? caterer.name : 'Unknown Caterer';
   };
 
-  // State for custom reminders and notifications
-  const [customReminders, setCustomReminders] = useState<PaymentReminder[]>([]);
+  // State for notifications
   const [shownToasts, setShownToasts] = useState<Set<string>>(new Set());
 
-  // Fetch existing payment reminders from the server
-  useEffect(() => {
-    const fetchPaymentReminders = async () => {
-      try {
-        const response = await fetch('/api/payment-reminders', {
-          credentials: 'include',
-        });
-        if (response.ok) {
-          const reminders = await response.json();
-          // Map server reminders to include caterer names
-          const mappedReminders = reminders.map((reminder: any) => ({
-            ...reminder,
-            originalDueDate: new Date(reminder.originalDueDate),
-            reminderDate: new Date(reminder.reminderDate),
-            nextReminderDate: reminder.nextReminderDate ? new Date(reminder.nextReminderDate) : undefined,
-            acknowledgedAt: reminder.acknowledgedAt ? new Date(reminder.acknowledgedAt) : undefined,
-            catererName: getCatererName(reminder.catererId),
-            billNumber: reminder.notes?.includes('Bill') ?
-              reminder.notes.split(' ')[1] :
-              `R-${reminder.id.slice(0, 8)}`,
-            isAcknowledged: Boolean(reminder.isAcknowledged)
-          }));
-          setCustomReminders(mappedReminders);
-        }
-      } catch (error) {
-        console.error('Error fetching payment reminders:', error);
-      }
-    };
-
-    if (caterers && caterers.length > 0) {
-      fetchPaymentReminders();
-    }
-  }, [caterers]);
+  // Process payment reminders data
+  const customReminders = rawPaymentReminders
+    ? rawPaymentReminders
+        .map((reminder: any) => ({
+          ...reminder,
+          originalDueDate: new Date(reminder.originalDueDate),
+          reminderDate: new Date(reminder.reminderDate),
+          nextReminderDate: reminder.nextReminderDate ? new Date(reminder.nextReminderDate) : undefined,
+          acknowledgedAt: reminder.acknowledgedAt ? new Date(reminder.acknowledgedAt) : undefined,
+          catererName: getCatererName(reminder.catererId),
+          billNumber: reminder.notes?.includes('Bill') ?
+            reminder.notes.split(' ')[1] :
+            `R-${reminder.id.slice(0, 8)}`,
+          isAcknowledged: Boolean(reminder.isAcknowledged)
+        }))
+        .filter((reminder: any) => {
+          // If reminder has a distributionId, check if that distribution is still pending
+          if (reminder.distributionId && distributions) {
+            const distribution = distributions.find(d => d.id === reminder.distributionId);
+            if (distribution) {
+              const balanceDue = Number(distribution.balanceDue);
+              const status = distribution.status;
+              // Only keep reminder if the distribution still has a balance due
+              return balanceDue > 0 && status !== 'paid';
+            }
+            // If distribution not found, keep the reminder (might be a general reminder)
+            return true;
+          }
+          // Keep reminders without distributionId (general reminders)
+          return true;
+        })
+    : [];
 
   // Convert distributions to reminders format, but exclude those that already have payment reminders
   const remindersFromDistributions = distributions?.filter(
@@ -139,7 +155,7 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
       return !hasPaymentReminder;
     }
   ).map(dist => ({
-    id: dist.id.toString(),
+    id: `dist-${dist.id}`, // Prefix to avoid ID conflicts
     catererName: getCatererName(dist.catererId),
     amount: Number(dist.balanceDue),
     billNumber: dist.billNo,
@@ -153,8 +169,9 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
     notes: `Bill ${dist.billNo} - ${dist.status}`
   })) || [];
 
-  // Combine real data with custom reminders
-  const allReminders = [...remindersFromDistributions, ...customReminders];
+  // Only show custom reminders from database, not auto-generated ones
+  // This prevents duplicates and confusion
+  const allReminders = customReminders;
 
   const [newReminderOpen, setNewReminderOpen] = useState(false);
   const [newReminder, setNewReminder] = useState({
@@ -248,7 +265,7 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
     });
   }, [urgentNotifications]);
 
-  const handleAddReminder = () => {
+  const handleAddReminder = async () => {
     if (!newReminder.catererName || !newReminder.amount || !newReminder.billNumber) {
       toast({
         title: "Missing Information",
@@ -258,48 +275,111 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
       return;
     }
 
-    const reminder: PaymentReminder = {
-      id: Date.now().toString(),
-      catererName: newReminder.catererName,
-      amount: parseFloat(newReminder.amount),
-      billNumber: newReminder.billNumber,
-      originalDueDate: newReminder.originalDueDate,
-      reminderDate: newReminder.reminderDate,
-      status: calculateStatus(newReminder.reminderDate),
-      isRead: false,
-      isAcknowledged: false,
-      notes: newReminder.notes
-    };
+    try {
+      // Find the caterer ID from the name
+      const caterer = caterers?.find(c => c.name === newReminder.catererName);
 
-    setCustomReminders(prev => [...prev, reminder]);
-    setNewReminderOpen(false);
-    setNewReminder({
-      catererName: '',
-      amount: '',
-      billNumber: '',
-      originalDueDate: new Date(),
-      reminderDate: new Date(),
-      notes: ''
-    });
+      const reminderData = {
+        catererId: caterer?.id,
+        amount: parseFloat(newReminder.amount),
+        originalDueDate: newReminder.originalDueDate,
+        reminderDate: newReminder.reminderDate,
+        notes: `${newReminder.billNumber} - ${newReminder.notes}`.trim()
+      };
 
-    toast({
-      title: "Reminder Added",
-      description: "Payment reminder has been created successfully",
-    });
+      const response = await fetch('/api/payment-reminders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(reminderData),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create payment reminder');
+      }
+
+      // Invalidate the payment reminders query to refresh the data
+      queryClient.invalidateQueries({ queryKey: ['payment-reminders'] });
+
+      setNewReminderOpen(false);
+      setNewReminder({
+        catererName: '',
+        amount: '',
+        billNumber: '',
+        originalDueDate: new Date(),
+        reminderDate: new Date(),
+        notes: ''
+      });
+
+      toast({
+        title: "Reminder Added",
+        description: "Payment reminder has been created successfully",
+      });
+    } catch (error) {
+      console.error('Error creating reminder:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create payment reminder",
+        variant: "destructive",
+      });
+    }
   };
 
-  const markAsRead = (id: string) => {
-    setCustomReminders(prev => prev.map(reminder =>
-      reminder.id === id ? { ...reminder, isRead: true } : reminder
-    ));
+  const markAsRead = async (id: string) => {
+    try {
+      const response = await fetch(`/api/payment-reminders/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ isRead: true }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to mark reminder as read');
+      }
+
+      // Invalidate the payment reminders query to refresh the data
+      queryClient.invalidateQueries({ queryKey: ['payment-reminders'] });
+    } catch (error) {
+      console.error('Error marking reminder as read:', error);
+      toast({
+        title: "Error",
+        description: "Failed to mark reminder as read",
+        variant: "destructive",
+      });
+    }
   };
 
-  const deleteReminder = (id: string) => {
-    setCustomReminders(prev => prev.filter(reminder => reminder.id !== id));
-    toast({
-      title: "Reminder Deleted",
-      description: "Payment reminder has been removed",
-    });
+  const deleteReminder = async (id: string) => {
+    try {
+      const response = await fetch(`/api/payment-reminders/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete reminder');
+      }
+
+      // Invalidate the payment reminders query to refresh the data
+      queryClient.invalidateQueries({ queryKey: ['payment-reminders'] });
+
+      toast({
+        title: "Reminder Deleted",
+        description: "Payment reminder has been removed",
+      });
+    } catch (error) {
+      console.error('Error deleting reminder:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete reminder",
+        variant: "destructive",
+      });
+    }
   };
 
   const formatCurrency = (amount: number) => {
@@ -355,12 +435,8 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
 
         const newReminder = await response.json();
 
-        // Add to custom reminders
-        setCustomReminders(prev => [...prev, {
-          ...newReminder,
-          catererName: getCatererName(newReminder.catererId),
-          billNumber: distribution.billNo
-        }]);
+        // Invalidate the payment reminders query to refresh the data
+        queryClient.invalidateQueries({ queryKey: ['payment-reminders'] });
 
       } else {
         // For real payment reminders, update normally
@@ -377,12 +453,8 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
           throw new Error('Failed to update reminder');
         }
 
-        // Update local state
-        setCustomReminders(prev => prev.map(r =>
-          r.id === reminderId
-            ? { ...r, nextReminderDate: date }
-            : r
-        ));
+        // Invalidate the payment reminders query to refresh the data
+        queryClient.invalidateQueries({ queryKey: ['payment-reminders'] });
       }
 
       // Show success toast
@@ -401,7 +473,7 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
   };
 
   // Show loading state
-  if (distributionsLoading || caterersLoading) {
+  if (distributionsLoading || caterersLoading || remindersLoading) {
     return (
       <div className={cn("space-y-4", className)}>
         <div className="flex items-center space-x-2">
@@ -522,112 +594,213 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
       {/* Horizontal Reminders Display */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {activeReminders.length === 0 ? (
-          <Card className="col-span-full">
-            <CardContent className="py-8 text-center text-gray-500">
-              <Bell className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-              <p>No payment reminders</p>
-            </CardContent>
-          </Card>
+          <div className="col-span-full">
+            {/* Check if there are any pending distributions */}
+            {(distributions?.filter(dist => Number(dist.balanceDue) > 0).length || 0) === 0 ? (
+              // No pending bills at all
+              <Card className="border-green-200 bg-green-50">
+                <CardContent className="py-12 text-center">
+                  <div className="flex flex-col items-center space-y-4">
+                    <div className="p-4 bg-green-100 rounded-full">
+                      <CheckCircle className="h-12 w-12 text-green-600" />
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-xl font-semibold text-green-900">All Payments Up to Date! 🎉</h3>
+                      <p className="text-green-700 max-w-md">
+                        Excellent! All your caterers have paid their bills. No payment reminders needed right now.
+                      </p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                      <Button
+                        onClick={() => window.location.href = '/caterers'}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <Users className="h-4 w-4 mr-2" />
+                        View Caterers
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => window.location.href = '/distributions'}
+                        className="border-green-600 text-green-600 hover:bg-green-50"
+                      >
+                        <FileText className="h-4 w-4 mr-2" />
+                        View Bills
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              // There are pending bills but no custom reminders set
+              <Card className="border-orange-200 bg-orange-50">
+                <CardContent className="py-12 text-center">
+                  <div className="flex flex-col items-center space-y-4">
+                    <div className="p-4 bg-orange-100 rounded-full">
+                      <Bell className="h-12 w-12 text-orange-600" />
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-xl font-semibold text-orange-900">No Custom Reminders Set</h3>
+                      <p className="text-orange-700 max-w-md">
+                        You have {distributions?.filter(dist => Number(dist.balanceDue) > 0).length || 0} pending bill{(distributions?.filter(dist => Number(dist.balanceDue) > 0).length || 0) > 1 ? 's' : ''}, but no custom payment reminders are set up yet.
+                      </p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3 mt-6">
+                      <Button
+                        onClick={() => window.location.href = '/distributions'}
+                        className="bg-orange-600 hover:bg-orange-700"
+                      >
+                        <AlertTriangle className="h-4 w-4 mr-2" />
+                        View Pending Bills ({distributions?.filter(dist => Number(dist.balanceDue) > 0).length || 0})
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setNewReminderOpen(true)}
+                        className="border-orange-600 text-orange-600 hover:bg-orange-50"
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create Custom Reminder
+                      </Button>
+                    </div>
+                    <div className="mt-6 p-4 bg-white rounded-lg border border-orange-200 max-w-lg">
+                      <h4 className="font-medium text-orange-900 mb-2">💡 What are Payment Reminders?</h4>
+                      <p className="text-sm text-orange-700">
+                        Payment reminders help you track when to follow up on partial payments or set custom reminder dates for future collections.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         ) : (
           activeReminders.map((reminder) => (
             <Card key={reminder.id} className={cn(
               "transition-all duration-200 hover:shadow-md",
               !reminder.isRead && "ring-2 ring-primary/20"
             )}>
-              <CardContent className="p-4">
-                <div className="space-y-3">
-                  {/* Status Badge */}
-                  <div className="flex items-center justify-between">
-                    <Badge className={cn("text-xs", getUrgencyColor(reminder.status))}>
+              <CardContent className="p-0">
+                {/* Header Section */}
+                <div className="p-4 pb-3 border-b border-gray-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <Badge className={cn("text-xs font-medium", getUrgencyColor(reminder.status))}>
                       {getUrgencyIcon(reminder.status)}
                       <span className="ml-1 capitalize">{reminder.status.replace('_', ' ')}</span>
                     </Badge>
                     {!reminder.isRead && (
-                      <Badge variant="outline" className="text-xs">New</Badge>
+                      <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                        New
+                      </Badge>
                     )}
                   </div>
 
-                  {/* Caterer Info */}
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <User className="h-4 w-4 text-gray-500" />
-                      <span className="font-medium text-sm truncate">{reminder.catererName}</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <DollarSign className="h-4 w-4 text-gray-500" />
-                      <span className="text-lg font-semibold text-red-600">
-                        {formatCurrency(reminder.amount)}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-600">
-                      Bill #{reminder.billNumber}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      Due: {format(new Date(reminder.originalDueDate), "MMM dd, yyyy")}
-                    </div>
-
-                    {/* Next Reminder Date */}
-                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                      <div className="flex items-center space-x-2">
-                        <Bell className="h-4 w-4 text-gray-500" />
-                        <span className="text-xs text-gray-600">Next Reminder:</span>
-                      </div>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-xs px-2"
-                          >
-                            {reminder.nextReminderDate
-                              ? format(new Date(reminder.nextReminderDate), "MMM dd, yyyy")
-                              : "Set Reminder"}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="end">
-                          <Calendar
-                            mode="single"
-                            selected={reminder.nextReminderDate ? new Date(reminder.nextReminderDate) : undefined}
-                            onSelect={(date) => {
-                              if (!date) return;
-                              handleNextReminderUpdate(reminder.id, date);
-                            }}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
+                  {/* Caterer Name */}
+                  <div className="flex items-center space-x-2 mb-2">
+                    <User className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                    <span className="font-semibold text-gray-900 truncate">{reminder.catererName}</span>
                   </div>
 
-                  {/* Action Buttons */}
-                  <div className="flex items-center justify-between pt-2 border-t">
+                  {/* Amount - Prominent Display */}
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-500">₹</span>
+                    <span className="text-2xl font-bold text-red-600">
+                      {reminder.amount.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bill Details Section */}
+                <div className="p-4 py-3 bg-gray-50">
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="text-gray-500 block text-xs">Bill Number</span>
+                      <span className="font-medium text-gray-900">#{reminder.billNumber}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block text-xs">Due Date</span>
+                      <span className="font-medium text-gray-900">
+                        {format(new Date(reminder.originalDueDate), "MMM dd, yyyy")}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Next Reminder Section */}
+                <div className="p-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Bell className="h-4 w-4 text-orange-500" />
+                      <span className="text-sm font-medium text-gray-700">Next Reminder</span>
+                    </div>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs px-3 border-orange-200 hover:bg-orange-50"
+                        >
+                          {reminder.nextReminderDate
+                            ? format(new Date(reminder.nextReminderDate), "MMM dd, yyyy")
+                            : "Set Reminder"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="end">
+                        <Calendar
+                          mode="single"
+                          selected={reminder.nextReminderDate ? new Date(reminder.nextReminderDate) : undefined}
+                          onSelect={(date) => {
+                            if (!date) return;
+                            handleNextReminderUpdate(reminder.id, date);
+                          }}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+
+                {/* Action Buttons Section */}
+                <div className="p-4 pt-0">
+                  <div className="flex items-center justify-between space-x-2">
                     <Button
                       size="sm"
-                      variant="outline"
-                      className="text-xs px-2 py-1 h-7"
-                      onClick={() => window.location.href = `/caterer-payments/new?catererId=${reminder.catererName}&amount=${reminder.amount}&distributionId=${reminder.billNumber}`}
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => {
+                        // Get the caterer ID from the reminder
+                        const caterer = caterers?.find(c => c.name === reminder.catererName);
+                        const catererId = caterer?.id;
+
+                        if (catererId && reminder.distributionId) {
+                          window.location.href = `/caterer-payments/new?catererId=${catererId}&distributionId=${reminder.distributionId}&amount=${reminder.amount}`;
+                        } else if (catererId) {
+                          window.location.href = `/caterer-payments/new?catererId=${catererId}&amount=${reminder.amount}`;
+                        } else {
+                          window.location.href = `/caterer-payments/new?amount=${reminder.amount}`;
+                        }
+                      }}
                     >
-                      <CreditCard className="h-3 w-3 mr-1" />
+                      <CreditCard className="h-4 w-4 mr-2" />
                       Record Payment
                     </Button>
                     <div className="flex items-center space-x-1">
                       {!reminder.isRead && (
                         <Button
                           size="sm"
-                          variant="ghost"
-                          className="h-7 w-7 p-0"
+                          variant="outline"
+                          className="h-8 w-8 p-0 border-green-200 hover:bg-green-50"
                           onClick={() => markAsRead(reminder.id)}
+                          title="Mark as read"
                         >
-                          <Check className="h-3 w-3" />
+                          <Check className="h-4 w-4 text-green-600" />
                         </Button>
                       )}
                       <Button
                         size="sm"
-                        variant="ghost"
-                        className="h-7 w-7 p-0 text-red-500 hover:text-red-700"
+                        variant="outline"
+                        className="h-8 w-8 p-0 border-red-200 hover:bg-red-50"
                         onClick={() => deleteReminder(reminder.id)}
+                        title="Delete reminder"
                       >
-                        <X className="h-3 w-3" />
+                        <X className="h-4 w-4 text-red-600" />
                       </Button>
                     </div>
                   </div>

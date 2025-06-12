@@ -15,6 +15,7 @@ import {
   Printer
 } from "lucide-react";
 import { formatDate, formatCurrency } from "@/lib/utils";
+import { getDisplayPhoneNumber, getFormattedAddress } from "@/config/business";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface CustomerBillItem {
@@ -248,8 +249,8 @@ export default function CustomerTransactionHistory({
               <h1>🌶️ RoyalSpicyMasala</h1>
               <div class="company-tagline">Premium Quality Spices & Masalas</div>
               <div style="font-size: 11px; margin-top: 8px;">
-                📍 123 Spice Market, Trade Center, Mumbai - 400001<br/>
-                📞 +91-9876543210 | ✉️ info@royalspicymasala.com
+                📍 ${getFormattedAddress()}<br/>
+                📞 ${getDisplayPhoneNumber()} | ✉️ royalspicymasala786@gmail.com
               </div>
             </div>
 
@@ -346,7 +347,7 @@ export default function CustomerTransactionHistory({
               <div class="footer-message">🙏 Thank you for shopping with us! 🙏</div>
               <div class="footer-branding">RoyalSpicyMasala - Your Trusted Spice Partner</div>
               <div style="font-size: 10px; color: #666; margin-top: 8px;">
-                For queries: +91-9876543210 | Visit: www.royalspicymasala.com<br/>
+                For queries: ${getDisplayPhoneNumber()} | Visit: www.royalspicymasala.com<br/>
                 Follow us: @RoyalSpicyMasala | Quality Guaranteed Since 1995
               </div>
             </div>

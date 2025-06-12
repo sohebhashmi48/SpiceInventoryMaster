@@ -27,7 +27,9 @@ export default function SalesChart({ className }: SalesChartProps) {
   const { data: salesTrends, isLoading, error } = useQuery<SalesTrend[]>({
     queryKey: ["/api/dashboard/sales-trends", timeRange],
     queryFn: async () => {
-      const response = await fetch(`/api/dashboard/sales-trends?timeRange=${timeRange}`);
+      const response = await fetch(`/api/dashboard/sales-trends?timeRange=${timeRange}`, {
+        credentials: 'include',
+      });
       if (!response.ok) {
         throw new Error('Failed to fetch sales trends');
       }

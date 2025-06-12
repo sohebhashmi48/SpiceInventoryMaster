@@ -155,8 +155,8 @@ export default function PaymentReminders({ className }: PaymentRemindersProps) {
                         preselectedDistributionId={distribution.id.toString()}
                         preselectedAmount={distribution.balanceDue.toString()}
                         onSuccess={() => {
-                          // Redirect to billing history
-                          navigate('/distributions');
+                          // Redirect to pending bills
+                          navigate('/caterers/pending-bills');
                         }}
                       >
                         <Button
@@ -178,7 +178,7 @@ export default function PaymentReminders({ className }: PaymentRemindersProps) {
                   <div className="p-3 text-center">
                     <Button
                       variant="link"
-                      onClick={() => navigate('/distributions')}
+                      onClick={() => navigate('/caterers/pending-bills')}
                       className="text-primary"
                     >
                       View all {sortedPendingDistributions.length} pending payments
@@ -243,8 +243,8 @@ export default function PaymentReminders({ className }: PaymentRemindersProps) {
                     preselectedDistributionId={distribution.id.toString()}
                     preselectedAmount={distribution.balanceDue.toString()}
                     onSuccess={() => {
-                      // Redirect to billing history
-                      navigate('/distributions');
+                      // Redirect to pending bills
+                      navigate('/caterers/pending-bills');
                     }}
                   >
                     <Button
@@ -266,7 +266,7 @@ export default function PaymentReminders({ className }: PaymentRemindersProps) {
               <div className="p-3 text-center">
                 <Button
                   variant="link"
-                  onClick={() => navigate('/distributions')}
+                  onClick={() => navigate('/caterers/pending-bills')}
                   className="text-primary"
                 >
                   View all {sortedPendingDistributions.length} pending payments

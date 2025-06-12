@@ -217,6 +217,9 @@ export default function PurchaseEntryForm() {
       queryClient.invalidateQueries({ queryKey: ["/api/purchases"] });
       queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      // Invalidate inventory history since new inventory was created
+      queryClient.invalidateQueries({ queryKey: ["inventory-history"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-history-all"] });
 
       // Reset the form
       resetForm();

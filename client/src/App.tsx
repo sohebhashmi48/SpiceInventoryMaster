@@ -26,14 +26,15 @@ import CaterersPage from "./pages/caterers";
 import NewCatererPage from "./pages/caterers/new";
 import CatererDetailsPage from "./pages/caterers/[id]";
 import DistributionsPage from "./pages/distributions";
-import NewDistributionPage from "./pages/distributions/new";
+
 import DistributionDetailsPage from "./pages/distributions/[id]";
 import CatererBillingPage from "./pages/caterer-billing-page";
 import CatererPaymentsPage from "./pages/caterer-payments";
 import NewCatererPaymentPage from "./pages/caterer-payments/new";
 import CatererPaymentFormRedirect from "./pages/caterer-payment-form";
 import CatererReportsPage from "./pages/caterer-reports-page";
-import PaymentRemindersPage from "./pages/caterers/payment-reminders";
+
+import PendingBillsPage from "./pages/caterers/pending-bills";
 import NotificationsPage from "./pages/notifications";
 import CustomerBillingPage from "./pages/customer-billing";
 import CustomerTransactionHistoryPage from "./pages/customer-transaction-history";
@@ -71,11 +72,11 @@ function Router() {
       </Route>
       <ProtectedRoute path="/caterers" component={CaterersPage} />
       <ProtectedRoute path="/caterers/new" component={NewCatererPage} />
-      <ProtectedRoute path="/caterers/payment-reminders" component={PaymentRemindersPage} />
+
+      <ProtectedRoute path="/caterers/pending-bills" component={PendingBillsPage} />
       <ProtectedRoute path="/caterers/:id" component={CatererDetailsPage} />
       <ProtectedRoute path="/notifications" component={NotificationsPage} />
       <ProtectedRoute path="/distributions" component={DistributionsPage} />
-      <ProtectedRoute path="/distributions/new" component={NewDistributionPage} />
       <ProtectedRoute path="/distributions/:id" component={DistributionDetailsPage} />
       <ProtectedRoute path="/caterer-billing" component={CatererBillingPage} />
       <ProtectedRoute path="/caterer-payments" component={CatererPaymentsPage} />

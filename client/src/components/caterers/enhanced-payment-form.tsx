@@ -22,7 +22,11 @@ import {
   Dialog, DialogContent, DialogDescription,
   DialogHeader, DialogTitle, DialogFooter
 } from '@/components/ui/dialog';
-import { CalendarIcon, ArrowLeft, Save, Upload, Trash2, Image, AlertTriangle } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle
+} from '@/components/ui/alert-dialog';
+import { CalendarIcon, ArrowLeft, Save, Upload, Trash2, Image, AlertTriangle, CheckCircle, DollarSign } from 'lucide-react';
 import { useCaterers } from '@/hooks/use-caterers';
 import { useDistributionsByCaterer } from '@/hooks/use-distributions';
 import { useCreateCatererPayment } from '@/hooks/use-caterer-payments';
@@ -32,9 +36,15 @@ import { cn } from '@/lib/utils';
 // Define the schema for the form
 const paymentFormSchema = z.object({
   catererId: z.string().min(1, { message: "Caterer is required" }),
-  distributionId: z.string().optional(),
+  distributionId: z.string().min(1, { message: "Please select a bill to pay" }).refine(
+    (val) => val !== 'none',
+    { message: "Please select a bill to pay" }
+  ),
   paymentType: z.enum(['full', 'custom'], { required_error: "Payment type is required" }),
-  amount: z.string().min(1, { message: "Amount is required" }),
+  amount: z.string().min(1, { message: "Amount is required" }).refine(
+    (val) => !isNaN(parseFloat(val)) && parseFloat(val) > 0,
+    { message: "Amount must be a positive number" }
+  ),
   paymentDate: z.date({
     required_error: "Payment date is required",
   }),
@@ -74,6 +84,11 @@ export default function EnhancedPaymentForm({
   const [showReminderDialog, setShowReminderDialog] = useState(false);
   const [reminderDate, setReminderDate] = useState<Date>(addDays(new Date(), 7));
   const [remainingBalance, setRemainingBalance] = useState<number>(0);
+
+  // State for confirmation dialog and sequential processing
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [pendingFormData, setPendingFormData] = useState<PaymentFormValues | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Fetch caterers for dropdown
   const { data: caterers, isLoading: caterersLoading } = useCaterers();
@@ -160,26 +175,44 @@ export default function EnhancedPaymentForm({
         console.log('Setting distribution ID:', preselectedDistributionId);
         form.setValue('distributionId', preselectedDistributionId);
       }
+    } else if (!preselectedDistributionId && distributions && distributions.length > 0 && watchedCatererId) {
+      // Auto-select first available bill if no specific bill is preselected
+      const currentDistributionId = form.getValues('distributionId');
+      if (!currentDistributionId || currentDistributionId === '') {
+        console.log('Auto-selecting first available bill:', distributions[0].id);
+        form.setValue('distributionId', distributions[0].id.toString());
+      }
     }
 
-    // Set amount if preselected
-    if (preselectedAmount && form.getValues('amount') !== preselectedAmount) {
+    // Set amount if preselected, but only if the field is empty (don't override user input)
+    const currentAmount = form.getValues('amount');
+    if (preselectedAmount && (!currentAmount || currentAmount === '')) {
       console.log('Setting amount:', preselectedAmount);
       form.setValue('amount', preselectedAmount);
       form.setValue('paymentType', 'custom'); // Set to custom when amount is preselected
     }
-  }, [preselectedCatererId, preselectedDistributionId, preselectedAmount, caterers, distributions]);
+  }, [preselectedCatererId, preselectedDistributionId, preselectedAmount, caterers, distributions, watchedCatererId]);
 
   // Auto-fill amount when distribution is selected or payment type changes
-  useEffect(() => {
-    if (selectedDistribution) {
-      if (watchedPaymentType === 'full') {
-        form.setValue('amount', selectedDistribution.balanceDue.toString());
-      } else if (watchedPaymentType === 'custom' && !preselectedAmount) {
-        form.setValue('amount', '');
-      }
+ useEffect(() => {
+  if (selectedDistribution) {
+    // Auto-fill full amount when 'full' payment type is selected
+    if (watchedPaymentType === 'full') {
+      const balanceDue = parseFloat(selectedDistribution.balanceDue.toString());
+      console.log('Auto-filling full amount:', balanceDue);
+      
+      // Set the amount value to the full balance due and trigger validation
+      form.setValue('amount', balanceDue.toString());
+      form.trigger('amount');
+    } 
+    // Clear amount if custom payment type is selected and no preselected amount is set
+    else if (watchedPaymentType === 'custom' && !preselectedAmount) {
+      form.setValue('amount', '');
+      form.trigger('amount');
     }
-  }, [watchedDistributionId, watchedPaymentType, selectedDistribution, preselectedAmount]);
+  }
+}, [selectedDistribution, watchedPaymentType, preselectedAmount, form]);
+
 
   // Handle receipt image upload
   const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -259,10 +292,13 @@ export default function EnhancedPaymentForm({
     }
   };
 
-  // Check if reminder is needed
+  // Check if reminder is needed for any partial payment (cascading reminders)
   const checkReminderNeeded = (paymentAmount: number, totalBalance: number) => {
     const remaining = totalBalance - paymentAmount;
-    if (remaining > 0 && watchedPaymentType === 'custom') {
+
+    // Trigger reminder for ANY partial payment, regardless of payment type
+    // This enables cascading reminders for multiple successive partial payments
+    if (remaining > 0) {
       setRemainingBalance(remaining);
       setShowReminderDialog(true);
       return true;
@@ -270,9 +306,17 @@ export default function EnhancedPaymentForm({
     return false;
   };
 
-  // Handle form submission
+  // Handle form submission - show confirmation dialog first
   const onSubmit = async (data: PaymentFormValues) => {
-    console.log("Form submission started", data);
+    console.log("🔍 Form submission started", data);
+    console.log("🔍 Raw form data.amount:", data.amount, typeof data.amount);
+    console.log("🔍 Parsed amount:", parseFloat(data.amount));
+
+    // Prevent multiple submissions
+    if (isProcessing) {
+      console.log("🔍 Already processing, ignoring submission");
+      return;
+    }
 
     // Additional validation: Check if trying to pay against a fully paid bill
     if (data.distributionId && data.distributionId !== 'none') {
@@ -304,6 +348,17 @@ export default function EnhancedPaymentForm({
       }
     }
 
+    // Show confirmation dialog instead of proceeding directly
+    setPendingFormData(data);
+    setShowConfirmDialog(true);
+  };
+
+  // Handle confirmed payment submission
+  const handleConfirmedSubmit = async () => {
+    if (!pendingFormData || isProcessing) return;
+
+    setIsProcessing(true);
+    setShowConfirmDialog(false);
     setIsUploading(true);
     try {
       // Upload receipt image if one is selected
@@ -317,32 +372,35 @@ export default function EnhancedPaymentForm({
         if (!receiptFilename) {
           console.error("Receipt upload failed, stopping submission");
           setIsUploading(false);
+          setIsProcessing(false);
           return;
         }
       }
 
-      const paymentAmount = parseFloat(data.amount);
+      const paymentAmount = parseFloat(pendingFormData.amount);
       const totalBalance = selectedDistribution ? parseFloat(selectedDistribution.balanceDue.toString()) : 0;
 
       // Check if reminder is needed for partial payments
       if (checkReminderNeeded(paymentAmount, totalBalance)) {
         setIsUploading(false); // Reset loading state
+        setIsProcessing(false);
         return; // Wait for reminder dialog completion
       }
 
       // Prepare payment data
       const paymentData = {
-        catererId: parseInt(data.catererId),
-        distributionId: data.distributionId && data.distributionId !== 'none' ? parseInt(data.distributionId) : undefined,
-        amount: data.amount,
-        paymentDate: data.paymentDate.toISOString(),
-        paymentMode: data.paymentMode,
-        referenceNo: data.referenceNo || undefined,
-        notes: data.notes || undefined,
+        catererId: parseInt(pendingFormData.catererId),
+        distributionId: pendingFormData.distributionId && pendingFormData.distributionId !== 'none' ? parseInt(pendingFormData.distributionId) : undefined,
+        amount: parseFloat(pendingFormData.amount),
+        paymentDate: pendingFormData.paymentDate.toISOString(),
+        paymentMode: pendingFormData.paymentMode,
+        referenceNo: pendingFormData.referenceNo || undefined,
+        notes: pendingFormData.notes || undefined,
         receiptImage: receiptFilename || undefined
       };
 
-      console.log("Submitting payment data:", paymentData);
+      console.log("🔍 Final payment data being sent:", paymentData);
+      console.log("🔍 Payment amount in final data:", paymentData.amount, typeof paymentData.amount);
 
       // Create the payment
       await createPayment.mutateAsync(paymentData);
@@ -368,6 +426,8 @@ export default function EnhancedPaymentForm({
       });
     } finally {
       setIsUploading(false);
+      setIsProcessing(false);
+      setPendingFormData(null);
     }
   };
 
@@ -376,13 +436,15 @@ export default function EnhancedPaymentForm({
     setShowReminderDialog(false);
 
     const formData = form.getValues();
+    console.log("🔍 Skip reminder - form data:", formData);
+    console.log("🔍 Skip reminder - amount:", formData.amount, typeof formData.amount);
 
     try {
       // Continue with payment submission without creating reminder
       const paymentData = {
         catererId: parseInt(formData.catererId),
         distributionId: formData.distributionId && formData.distributionId !== 'none' ? parseInt(formData.distributionId) : undefined,
-        amount: formData.amount,
+        amount: parseFloat(formData.amount),
         paymentDate: formData.paymentDate.toISOString(),
         paymentMode: formData.paymentMode,
         referenceNo: formData.referenceNo || undefined,
@@ -418,6 +480,8 @@ export default function EnhancedPaymentForm({
     setShowReminderDialog(false);
 
     const formData = form.getValues();
+    console.log("🔍 Reminder confirm - form data:", formData);
+    console.log("🔍 Reminder confirm - amount:", formData.amount, typeof formData.amount);
 
     try {
       // First, create the payment reminder
@@ -425,9 +489,9 @@ export default function EnhancedPaymentForm({
         catererId: parseInt(formData.catererId),
         distributionId: formData.distributionId && formData.distributionId !== 'none' ? parseInt(formData.distributionId) : undefined,
         amount: remainingBalance,
-        originalDueDate: selectedDistribution?.dueDate || selectedDistribution?.distributionDate || new Date(),
+        originalDueDate: selectedDistribution?.distributionDate || new Date(),
         reminderDate: reminderDate,
-        notes: `Reminder for remaining balance after partial payment of ₹${parseFloat(formData.amount).toLocaleString()}. Original due date: ${selectedDistribution?.dueDate ? new Date(selectedDistribution.dueDate).toLocaleDateString() : 'Not specified'}`
+        notes: `Reminder for remaining balance after partial payment of ₹${parseFloat(formData.amount).toLocaleString()}. Bill: ${selectedDistribution?.billNo}. Total paid so far: ₹${(parseFloat(selectedDistribution?.amountPaid || '0') + parseFloat(formData.amount)).toLocaleString()}`
       };
 
       console.log("Creating payment reminder:", reminderData);
@@ -449,7 +513,7 @@ export default function EnhancedPaymentForm({
       const paymentData = {
         catererId: parseInt(formData.catererId),
         distributionId: formData.distributionId && formData.distributionId !== 'none' ? parseInt(formData.distributionId) : undefined,
-        amount: formData.amount,
+        amount: parseFloat(formData.amount),
         paymentDate: formData.paymentDate.toISOString(),
         paymentMode: formData.paymentMode,
         referenceNo: formData.referenceNo || undefined,
@@ -523,7 +587,7 @@ export default function EnhancedPaymentForm({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="distributionId">Related Bill (Optional)</Label>
+                <Label htmlFor="distributionId">Select Bill to Pay *</Label>
                 <Controller
                   control={form.control}
                   name="distributionId"
@@ -541,11 +605,10 @@ export default function EnhancedPaymentForm({
                               ? "Loading bills..."
                               : distributions.length === 0
                                 ? "No bills with pending balance"
-                                : "Select a bill (optional)"
+                                : "Select a bill to pay"
                         } />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">No specific bill</SelectItem>
                         {distributions.length === 0 && watchedCatererId && !distributionsLoading ? (
                           <SelectItem value="no-bills" disabled>
                             No bills with pending balance found
@@ -576,9 +639,12 @@ export default function EnhancedPaymentForm({
                     </Select>
                   )}
                 />
+                {form.formState.errors.distributionId && (
+                  <p className="text-sm text-red-500">{form.formState.errors.distributionId.message}</p>
+                )}
                 {distributions.length === 0 && watchedCatererId && !distributionsLoading && (
-                  <p className="text-sm text-muted-foreground">
-                    All bills for this caterer are fully paid. You can still record a general payment by selecting "No specific bill".
+                  <p className="text-sm text-orange-600 bg-orange-50 p-2 rounded border border-orange-200">
+                    ⚠️ No bills with pending balance found for this caterer. Please create a new bill first or select a different caterer.
                   </p>
                 )}
               </div>
@@ -822,13 +888,13 @@ export default function EnhancedPaymentForm({
             </Button>
             <Button
               type="submit"
-              disabled={isUploading || createPayment.isPending}
+              disabled={isUploading || createPayment.isPending || isProcessing}
               className="min-w-[150px]"
             >
-              {(isUploading || createPayment.isPending) ? (
+              {(isUploading || createPayment.isPending || isProcessing) ? (
                 <div className="flex items-center">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Saving...
+                  {isProcessing ? 'Processing...' : 'Saving...'}
                 </div>
               ) : (
                 <>
@@ -841,6 +907,97 @@ export default function EnhancedPaymentForm({
         )}
       </form>
 
+      {/* Payment Confirmation Dialog */}
+      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-green-600" />
+              Confirm Payment
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <div className="text-base">
+                Please confirm the payment details:
+              </div>
+              {pendingFormData && (
+                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                  <div className="flex justify-between">
+                    <span className="font-medium">Caterer:</span>
+                    <span>{caterers?.find(c => c.id.toString() === pendingFormData.catererId)?.name}</span>
+                  </div>
+                  {pendingFormData.distributionId && pendingFormData.distributionId !== 'none' && (
+                    <div className="flex justify-between">
+                      <span className="font-medium">Bill:</span>
+                      <span>{selectedDistribution?.billNo}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="font-medium">Payment Amount:</span>
+                    <span className="text-lg font-bold text-green-600">
+                      ₹{parseFloat(pendingFormData.amount).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium">Payment Mode:</span>
+                    <span className="capitalize">{pendingFormData.paymentMode}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium">Date:</span>
+                    <span>{format(pendingFormData.paymentDate, 'PPP')}</span>
+                  </div>
+                  {selectedDistribution && (
+                    <div className="border-t pt-2 mt-2">
+                      <div className="flex justify-between text-sm">
+                        <span>Bill Total:</span>
+                        <span>₹{parseFloat(selectedDistribution.grandTotal).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Already Paid:</span>
+                        <span>₹{parseFloat(selectedDistribution.amountPaid).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-sm font-medium">
+                        <span>Remaining After Payment:</span>
+                        <span className={parseFloat(selectedDistribution.balanceDue) - parseFloat(pendingFormData.amount) <= 0 ? 'text-green-600' : 'text-orange-600'}>
+                          ₹{(parseFloat(selectedDistribution.balanceDue) - parseFloat(pendingFormData.amount)).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setShowConfirmDialog(false);
+                setPendingFormData(null);
+              }}
+              disabled={isProcessing}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmedSubmit}
+              disabled={isProcessing || isUploading}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {isProcessing || isUploading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <DollarSign className="h-4 w-4 mr-2" />
+                  Confirm Payment
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Reminder Dialog */}
       <Dialog open={showReminderDialog} onOpenChange={setShowReminderDialog}>
         <DialogContent>
@@ -851,10 +1008,11 @@ export default function EnhancedPaymentForm({
             </DialogTitle>
             <DialogDescription>
               You have a remaining balance of ₹{remainingBalance.toLocaleString()}.
-              {selectedDistribution?.dueDate && (
-                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-md">
-                  <p className="text-sm text-red-700 font-medium">
-                    ⚠️ Original payment was due on {new Date(selectedDistribution.dueDate).toLocaleDateString()}
+              {selectedDistribution && (
+                <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                  <p className="text-sm text-blue-700">
+                    💡 This is a partial payment. Total paid so far: ₹{(parseFloat(selectedDistribution.amountPaid) + parseFloat(form.getValues('amount'))).toLocaleString()}
+                    of ₹{parseFloat(selectedDistribution.grandTotal).toLocaleString()}
                   </p>
                 </div>
               )}
@@ -871,9 +1029,10 @@ export default function EnhancedPaymentForm({
                   <p><span className="font-medium">Bill No:</span> {selectedDistribution.billNo}</p>
                   <p><span className="font-medium">Bill Date:</span> {new Date(selectedDistribution.distributionDate).toLocaleDateString()}</p>
                   <p><span className="font-medium">Total Amount:</span> ₹{parseFloat(selectedDistribution.grandTotal).toLocaleString()}</p>
-                  <p><span className="font-medium">Amount Paying Now:</span> ₹{parseFloat(form.getValues('amount')).toLocaleString()}</p>
+                  <p><span className="font-medium">Previously Paid:</span> ₹{parseFloat(selectedDistribution.amountPaid).toLocaleString()}</p>
+                  <p><span className="font-medium text-green-600">Amount Paying Now:</span> ₹{parseFloat(form.getValues('amount')).toLocaleString()}</p>
+                  <p><span className="font-medium text-blue-600">Total After This Payment:</span> ₹{(parseFloat(selectedDistribution.amountPaid) + parseFloat(form.getValues('amount'))).toLocaleString()}</p>
                   <p><span className="font-medium text-orange-600">Remaining Balance:</span> ₹{remainingBalance.toLocaleString()}</p>
-                  <p><span className="font-medium text-red-600">Payment Due:</span> {selectedDistribution.dueDate ? new Date(selectedDistribution.dueDate).toLocaleDateString() : 'Not specified'}</p>
                 </div>
               </div>
             )}

@@ -4,10 +4,20 @@ import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DollarSign, ChevronDown, ChevronRight, Calendar, CreditCard } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { DollarSign, ChevronDown, ChevronRight, Calendar, CreditCard, Filter, ChevronLeft } from "lucide-react";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 // Define a custom interface for payment history items
 interface PaymentHistoryItem {
@@ -20,6 +30,16 @@ interface PaymentHistoryItem {
   notes?: string;
 }
 
+interface PaymentHistoryResponse {
+  data: PaymentHistoryItem[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
 interface SupplierPaymentHistoryProps {
   supplierId: number;
 }
@@ -27,18 +47,45 @@ interface SupplierPaymentHistoryProps {
 export default function SupplierPaymentHistory({ supplierId }: SupplierPaymentHistoryProps) {
   const [, setLocation] = useLocation();
   const [openPaymentId, setOpenPaymentId] = useState<number | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+
+  const limit = 10;
 
   // Toggle payment details
   const togglePayment = (paymentId: number) => {
     setOpenPaymentId(openPaymentId === paymentId ? null : paymentId);
   };
 
+  // Reset filters
+  const resetFilters = () => {
+    setStartDate("");
+    setEndDate("");
+    setCurrentPage(1);
+  };
+
+  // Build query parameters
+  const buildQueryParams = () => {
+    const params = new URLSearchParams({
+      page: currentPage.toString(),
+      limit: limit.toString(),
+    });
+
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+
+    return params.toString();
+  };
+
   // Fetch payment history for this supplier
-  const { data: payments, isLoading } = useQuery<PaymentHistoryItem[]>({
-    queryKey: [`/api/vendors/${supplierId}/payments`],
+  const { data: paymentResponse, isLoading } = useQuery<PaymentHistoryResponse>({
+    queryKey: [`/api/vendors/${supplierId}/payments`, currentPage, startDate, endDate],
     queryFn: async () => {
       console.log(`Fetching payment history for supplier ID: ${supplierId}`);
-      const response = await fetch(`/api/vendors/${supplierId}/payments`, {
+      const queryParams = buildQueryParams();
+      const response = await fetch(`/api/vendors/${supplierId}/payments?${queryParams}`, {
         credentials: "include",
       });
       if (!response.ok) {
@@ -52,10 +99,14 @@ export default function SupplierPaymentHistory({ supplierId }: SupplierPaymentHi
     enabled: !!supplierId,
   });
 
+  // Extract data from response
+  const payments = paymentResponse?.data || [];
+  const pagination = paymentResponse?.pagination;
+
   // Calculate total payment amount
-  const totalPaymentAmount = payments?.reduce((total, payment) => {
+  const totalPaymentAmount = payments.reduce((total, payment) => {
     return total + parseFloat(payment.amount);
-  }, 0) || 0;
+  }, 0);
 
   return (
     <Card className="mt-6">
@@ -65,10 +116,64 @@ export default function SupplierPaymentHistory({ supplierId }: SupplierPaymentHi
             <DollarSign className="h-5 w-5 mr-2 text-green-600" />
             Payment History
           </div>
-          <div className="text-sm font-normal text-gray-500">
-            Total Paid: {formatCurrency(totalPaymentAmount)}
+          <div className="flex items-center gap-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-2"
+            >
+              <Filter className="h-4 w-4" />
+              Filters
+            </Button>
+            <div className="text-sm font-normal text-gray-500">
+              Total Paid: {formatCurrency(totalPaymentAmount)}
+            </div>
           </div>
         </CardTitle>
+
+        {/* Date Filters */}
+        {showFilters && (
+          <div className="mt-4 p-4 bg-gray-50 rounded-lg border">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="startDate">From Date</Label>
+                <Input
+                  id="startDate"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label htmlFor="endDate">To Date</Label>
+                <Input
+                  id="endDate"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => {
+                    setEndDate(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="mt-1"
+                />
+              </div>
+              <div className="flex items-end">
+                <Button
+                  variant="outline"
+                  onClick={resetFilters}
+                  className="w-full"
+                >
+                  Reset Filters
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -79,7 +184,10 @@ export default function SupplierPaymentHistory({ supplierId }: SupplierPaymentHi
           </div>
         ) : !payments || payments.length === 0 ? (
           <div className="text-center py-8 text-gray-500 border border-dashed rounded-md">
-            No payment history found for this supplier.
+            {startDate || endDate ?
+              "No payment history found for the selected date range." :
+              "No payment history found for this supplier."
+            }
           </div>
         ) : (
           <div className="space-y-4">
@@ -157,6 +265,48 @@ export default function SupplierPaymentHistory({ supplierId }: SupplierPaymentHi
                 </CollapsibleContent>
               </Collapsible>
             ))}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {pagination && pagination.totalPages > 1 && (
+          <div className="mt-6 flex justify-center">
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                    className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+
+                {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      onClick={() => setCurrentPage(page)}
+                      isActive={currentPage === page}
+                      className="cursor-pointer"
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => setCurrentPage(Math.min(pagination.totalPages, currentPage + 1))}
+                    className={currentPage === pagination.totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        )}
+
+        {/* Pagination Info */}
+        {pagination && (
+          <div className="mt-4 text-center text-sm text-gray-500">
+            Showing {((currentPage - 1) * limit) + 1} to {Math.min(currentPage * limit, pagination.total)} of {pagination.total} payments
           </div>
         )}
       </CardContent>

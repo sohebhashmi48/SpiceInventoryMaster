@@ -431,6 +431,9 @@ export default function SupplierPurchaseForm({ supplierId }: SupplierPurchaseFor
       queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/vendors"] });
+      // Invalidate inventory history since new inventory was created
+      queryClient.invalidateQueries({ queryKey: ["inventory-history"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory-history-all"] });
 
       // Redirect to inventory page after a short delay to allow queries to invalidate
       setTimeout(() => {

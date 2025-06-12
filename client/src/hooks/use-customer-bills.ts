@@ -115,6 +115,10 @@ export function useCreateCustomerBill() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customer-bills'] });
+      // Invalidate inventory-related queries since inventory was deducted
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory-history'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory-history-all'] });
       toast({
         title: 'Bill created',
         description: 'The customer bill has been created successfully.',

@@ -157,13 +157,18 @@ router.get('/:id/balance', async (req, res) => {
       return sum + (isNaN(amount) ? 0 : amount);
     }, 0);
 
+    // Use distribution-based balance calculation for accuracy
+    const balanceDue = distributions.reduce((sum, dist) => {
+      const balance = parseFloat(dist.balanceDue || '0');
+      console.log(`Distribution ${dist.id}: balanceDue="${dist.balanceDue}" -> parsed=${balance}`);
+      return sum + (isNaN(balance) ? 0 : balance);
+    }, 0);
+
     const totalPaid = payments.reduce((sum, payment) => {
       const amount = parseFloat(payment.amount || '0');
       console.log(`Payment ${payment.id}: amount="${payment.amount}" -> parsed=${amount}`);
       return sum + (isNaN(amount) ? 0 : amount);
     }, 0);
-
-    const balanceDue = Math.max(0, totalBilled - totalPaid);
     const totalOrders = distributions.length;
 
     console.log(`Calculated values: totalBilled=${totalBilled}, totalPaid=${totalPaid}, balanceDue=${balanceDue}`);
@@ -181,6 +186,167 @@ router.get('/:id/balance', async (req, res) => {
   } catch (error) {
     console.error('Error fetching caterer balance:', error);
     res.status(500).json({ error: 'Failed to fetch caterer balance' });
+  }
+});
+
+// Sync caterer balance (fix discrepancies)
+router.post('/:id/sync-balance', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid caterer ID' });
+    }
+
+    const caterer = await storage.getCaterer(id);
+    if (!caterer) {
+      return res.status(404).json({ error: 'Caterer not found' });
+    }
+
+    // Calculate real-time balance from distributions and payments
+    const distributions = await storage.getDistributionsByCaterer(id);
+    const payments = await storage.getCatererPaymentsByCaterer(id);
+
+    const totalBilled = distributions.reduce((sum, dist) => {
+      const amount = parseFloat(dist.grandTotal || '0');
+      return sum + (isNaN(amount) ? 0 : amount);
+    }, 0);
+
+    // Use distribution-based balance calculation for accuracy
+    const balanceDue = distributions.reduce((sum, dist) => {
+      const balance = parseFloat(dist.balanceDue || '0');
+      return sum + (isNaN(balance) ? 0 : balance);
+    }, 0);
+
+    const totalPaid = payments.reduce((sum, payment) => {
+      const amount = parseFloat(payment.amount || '0');
+      return sum + (isNaN(amount) ? 0 : amount);
+    }, 0);
+    const totalOrders = distributions.length;
+
+    // Update the caterer record with correct values
+    const updatedCaterer = await storage.updateCaterer(id, {
+      totalBilled: totalBilled.toString(),
+      totalPaid: totalPaid.toString(),
+      balanceDue: balanceDue.toString(),
+      totalOrders: totalOrders
+    });
+
+    console.log(`Synced balance for caterer ${id}: totalBilled=${totalBilled}, totalPaid=${totalPaid}, balanceDue=${balanceDue}`);
+
+    res.json({
+      success: true,
+      message: 'Balance synced successfully',
+      oldBalance: {
+        totalBilled: caterer.totalBilled,
+        totalPaid: caterer.totalPaid,
+        balanceDue: caterer.balanceDue,
+        totalOrders: caterer.totalOrders
+      },
+      newBalance: {
+        totalBilled: totalBilled,
+        totalPaid: totalPaid,
+        balanceDue: balanceDue,
+        totalOrders: totalOrders
+      },
+      caterer: updatedCaterer
+    });
+  } catch (error) {
+    console.error('Error syncing caterer balance:', error);
+    res.status(500).json({ error: 'Failed to sync caterer balance' });
+  }
+});
+
+// Sync all caterer balances (fix discrepancies for all caterers)
+router.post('/sync-all-balances', async (req, res) => {
+  try {
+    const caterers = await storage.getCaterers();
+    const results = [];
+
+    for (const caterer of caterers) {
+      try {
+        // Calculate real-time balance from distributions and payments
+        const distributions = await storage.getDistributionsByCaterer(caterer.id);
+        const payments = await storage.getCatererPaymentsByCaterer(caterer.id);
+
+        const totalBilled = distributions.reduce((sum, dist) => {
+          const amount = parseFloat(dist.grandTotal || '0');
+          return sum + (isNaN(amount) ? 0 : amount);
+        }, 0);
+
+        // Use distribution-based balance calculation for accuracy
+        const balanceDue = distributions.reduce((sum, dist) => {
+          const balance = parseFloat(dist.balanceDue || '0');
+          return sum + (isNaN(balance) ? 0 : balance);
+        }, 0);
+
+        const totalPaid = payments.reduce((sum, payment) => {
+          const amount = parseFloat(payment.amount || '0');
+          return sum + (isNaN(amount) ? 0 : amount);
+        }, 0);
+
+        const totalOrders = distributions.length;
+
+        // Check if sync is needed
+        const oldTotalBilled = parseFloat(caterer.totalBilled?.toString() || '0');
+        const oldTotalPaid = parseFloat(caterer.totalPaid?.toString() || '0');
+        const oldBalanceDue = parseFloat(caterer.balanceDue?.toString() || '0');
+        const oldTotalOrders = caterer.totalOrders || 0;
+
+        const needsSync =
+          Math.abs(oldTotalBilled - totalBilled) > 0.01 ||
+          Math.abs(oldTotalPaid - totalPaid) > 0.01 ||
+          Math.abs(oldBalanceDue - balanceDue) > 0.01 ||
+          oldTotalOrders !== totalOrders;
+
+        if (needsSync) {
+          // Update the caterer record with correct values
+          await storage.updateCaterer(caterer.id, {
+            totalBilled: totalBilled.toString(),
+            totalPaid: totalPaid.toString(),
+            balanceDue: balanceDue.toString(),
+            totalOrders: totalOrders
+          });
+
+          results.push({
+            catererId: caterer.id,
+            catererName: caterer.name,
+            synced: true,
+            changes: {
+              totalBilled: { old: oldTotalBilled, new: totalBilled },
+              totalPaid: { old: oldTotalPaid, new: totalPaid },
+              balanceDue: { old: oldBalanceDue, new: balanceDue },
+              totalOrders: { old: oldTotalOrders, new: totalOrders }
+            }
+          });
+        } else {
+          results.push({
+            catererId: caterer.id,
+            catererName: caterer.name,
+            synced: false,
+            message: 'No sync needed'
+          });
+        }
+      } catch (error) {
+        results.push({
+          catererId: caterer.id,
+          catererName: caterer.name,
+          synced: false,
+          error: error.message
+        });
+      }
+    }
+
+    const syncedCount = results.filter(r => r.synced).length;
+    const totalCount = results.length;
+
+    res.json({
+      success: true,
+      message: `Synced ${syncedCount} out of ${totalCount} caterers`,
+      results: results
+    });
+  } catch (error) {
+    console.error('Error syncing all caterer balances:', error);
+    res.status(500).json({ error: 'Failed to sync all caterer balances' });
   }
 });
 

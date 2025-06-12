@@ -23,11 +23,11 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
-  History, 
-  Search, 
-  Filter, 
-  Download, 
+import {
+  History,
+  Search,
+  Filter,
+  Download,
   Calendar,
   Package,
   User,
@@ -37,7 +37,8 @@ import {
   Plus,
   Minus,
   Edit,
-  Trash2
+  Trash2,
+  RefreshCw
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -69,19 +70,27 @@ export default function InventoryHistoryPage() {
   const [dateRange, setDateRange] = useState<string>("all");
 
   // Fetch inventory history
-  const { data: historyData, isLoading, error } = useQuery<InventoryHistoryItem[]>({
+  const { data: historyData, isLoading, error, refetch } = useQuery<InventoryHistoryItem[]>({
     queryKey: ["inventory-history-all"],
     queryFn: async () => {
-      const response = await fetch("/api/inventory/history", {
+      // Fetch all records without limit
+      const response = await fetch("/api/inventory/history?limit=1000", {
         credentials: "include",
       });
-      
+
       if (!response.ok) {
         throw new Error("Failed to fetch inventory history");
       }
-      
-      return response.json();
+
+      const data = await response.json();
+      console.log(`Fetched ${data.length} inventory history records`);
+      return data;
     },
+    staleTime: 0, // Always fetch fresh data
+    cacheTime: 1000 * 60 * 5, // Cache for 5 minutes
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
+    refetchInterval: 30000, // Refresh every 30 seconds
   });
 
   // Get unique values for filters
@@ -322,8 +331,20 @@ export default function InventoryHistoryPage() {
                 <History className="h-5 w-5" />
                 Inventory History
               </div>
-              <div className="text-sm text-muted-foreground">
-                {filteredHistory.length} of {historyData?.length || 0} records
+              <div className="flex items-center gap-4">
+                <div className="text-sm text-muted-foreground">
+                  {filteredHistory.length} of {historyData?.length || 0} records
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => refetch()}
+                  disabled={isLoading}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
               </div>
             </CardTitle>
           </CardHeader>

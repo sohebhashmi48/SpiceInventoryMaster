@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation } from 'wouter';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Separator } from '@/components/ui/separator';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Plus, Trash2, Save, ArrowLeft, Calculator, ChefHat, FileText, Package, Image, Upload, AlertTriangle } from 'lucide-react';
+import { CalendarIcon, Plus, Trash2, Save, ArrowLeft, Calculator, ChefHat, FileText, Package, Image, Upload, AlertTriangle, X, Search } from 'lucide-react';
 import { formatCurrency, formatQuantityWithUnit, UnitType, convertUnit, cn } from '@/lib/utils';
 import UnitSelector from '@/components/ui/unit-selector';
 import InventoryBatchSelector from './inventory-batch-selector';
@@ -84,7 +84,7 @@ export default function ModernCatererBillingUI() {
   const [location, navigate] = useLocation();
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedBatches, setSelectedBatches] = useState<Record<number, { batchIds: number[], quantities: number[] }>>({});
-  const [paymentOption, setPaymentOption] = useState<string>('custom');
+  const [paymentOption, setPaymentOption] = useState<string>('full');
   const [receiptImage, setReceiptImage] = useState<File | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -92,7 +92,18 @@ export default function ModernCatererBillingUI() {
   // State for reminder dialog
   const [showReminderDialog, setShowReminderDialog] = useState(false);
   const [reminderDate, setReminderDate] = useState<Date>(addDays(new Date(), 7));
+  const [paymentDueDate, setPaymentDueDate] = useState<Date>(addDays(new Date(), 15));
   const [remainingBalance, setRemainingBalance] = useState<number>(0);
+
+  // Mix Calculator state
+  const [showMixCalculator, setShowMixCalculator] = useState(false);
+  const [mixBudget, setMixBudget] = useState<string>('');
+  const [mixSelectedProducts, setMixSelectedProducts] = useState<{id: number, name: string, price: number, allocatedPrice: number, calculatedQuantity: number}[]>([]);
+  const [mixSearchQuery, setMixSearchQuery] = useState('');
+  const [mixCalculationMode, setMixCalculationMode] = useState<'price' | 'quantity'>('price');
+
+  // Current toast reference for immediate replacement
+  const currentToastRef = useRef<{id: string, dismiss: () => void} | null>(null);
   const { data: caterers, isLoading: caterersLoading } = useCaterers();
   const { data: products, isLoading: productsLoading } = useProducts();
   const { data: categories, isLoading: categoriesLoading } = useCategories();
@@ -198,6 +209,157 @@ export default function ModernCatererBillingUI() {
       calculateTotals();
     }, 100);
   };
+
+  // Mix Calculator functions
+  const handleMixCalculatorOpen = () => {
+    setShowMixCalculator(true);
+  };
+
+  const handleMixCalculatorClose = () => {
+    setShowMixCalculator(false);
+    setMixBudget('');
+    setMixSelectedProducts([]);
+    setMixSearchQuery('');
+    setMixCalculationMode('price');
+  };
+
+  const addProductToMix = (product: any) => {
+    const newProduct = {
+      id: product.id,
+      name: product.name,
+      price: Number(product.catererPrice || product.price || 0),
+      allocatedPrice: 0,
+      calculatedQuantity: 0
+    };
+    setMixSelectedProducts(prev => [...prev, newProduct]);
+    setMixSearchQuery('');
+  };
+
+  const removeProductFromMix = (productId: number) => {
+    setMixSelectedProducts(prev => prev.filter(p => p.id !== productId));
+  };
+
+  // Calculate mix quantities when budget or products change
+  useEffect(() => {
+    if (mixBudget && mixSelectedProducts.length > 0) {
+      const inputValue = parseFloat(mixBudget);
+
+      if (mixCalculationMode === 'price') {
+        // Calculate by price - divide budget equally among products
+        const pricePerProduct = inputValue / mixSelectedProducts.length;
+
+        setMixSelectedProducts(prev => prev.map(p => ({
+          ...p,
+          allocatedPrice: Math.round(pricePerProduct * 100) / 100,
+          calculatedQuantity: Math.round((pricePerProduct / p.price) * 100) / 100
+        })));
+      } else {
+        // Calculate by quantity - divide quantity equally among products
+        const quantityPerProduct = inputValue / mixSelectedProducts.length;
+
+        setMixSelectedProducts(prev => prev.map(p => ({
+          ...p,
+          calculatedQuantity: Math.round(quantityPerProduct * 100) / 100,
+          allocatedPrice: Math.round((quantityPerProduct * p.price) * 100) / 100
+        })));
+      }
+    }
+  }, [mixBudget, mixSelectedProducts.length, mixCalculationMode]);
+
+  const addMixToCart = () => {
+    mixSelectedProducts.forEach((mixProduct, mixIndex) => {
+      if (mixProduct.calculatedQuantity > 0) {
+        const product = products?.find(p => p.id === mixProduct.id);
+        if (product) {
+          // Check if product already exists in the bill
+          const existingItemIndex = fields.findIndex(field => field.productId === product.id);
+
+          if (existingItemIndex !== -1) {
+            // Update existing item quantity
+            const currentQuantity = form.getValues(`items.${existingItemIndex}.quantity`) || 0;
+            const newQuantity = currentQuantity + mixProduct.calculatedQuantity;
+
+            form.setValue(`items.${existingItemIndex}.quantity`, newQuantity, {
+              shouldDirty: true,
+              shouldTouch: true,
+              shouldValidate: true
+            });
+
+            // Update productBatchQuantities state
+            setProductBatchQuantities(prev => ({
+              ...prev,
+              [product.id]: newQuantity
+            }));
+
+            // Update amount
+            const rate = form.getValues(`items.${existingItemIndex}.rate`) || 0;
+            const unit = form.getValues(`items.${existingItemIndex}.unit`) || 'kg';
+            form.setValue(`items.${existingItemIndex}.amount`, calculateItemAmount(newQuantity, unit, rate), {
+              shouldDirty: true
+            });
+          } else {
+            // Add new product to bill first
+            append({
+              productId: product.id,
+              productName: product.name,
+              quantity: mixProduct.calculatedQuantity,
+              unit: product.unit,
+              rate: Number(product.catererPrice || product.price || 0),
+              gstPercentage: 5,
+              amount: calculateItemAmount(mixProduct.calculatedQuantity, product.unit, Number(product.catererPrice || product.price || 0)),
+            });
+
+            // Update productBatchQuantities state immediately
+            setProductBatchQuantities(prev => ({
+              ...prev,
+              [product.id]: mixProduct.calculatedQuantity
+            }));
+          }
+        }
+      }
+    });
+
+    handleMixCalculatorClose();
+    showImmediateToast('Success', 'Mix products added to bill successfully!');
+
+    // Trigger calculation
+    setTimeout(() => {
+      calculateTotals();
+    }, 100);
+  };
+
+  // Filter products for mix calculator
+  const filteredMixProducts = products?.filter(product =>
+    product.name.toLowerCase().includes(mixSearchQuery.toLowerCase()) &&
+    !mixSelectedProducts.some(mp => mp.id === product.id)
+  ) || [];
+
+  // Immediate replacement toast function
+  const showImmediateToast = (title: string, description: string, variant: 'default' | 'destructive' = 'default') => {
+    // Dismiss any existing toast immediately
+    if (currentToastRef.current) {
+      currentToastRef.current.dismiss();
+    }
+
+    // Show new toast and store reference
+    const newToast = toast({
+      title,
+      description,
+      variant,
+    });
+
+    currentToastRef.current = newToast;
+
+    // Auto-dismiss after 500ms
+    setTimeout(() => {
+      if (currentToastRef.current && currentToastRef.current.id === newToast.id) {
+        currentToastRef.current.dismiss();
+        currentToastRef.current = null;
+      }
+    }, 500);
+  };
+
+
 
   // State to track batch-selected quantities for each product
   const [productBatchQuantities, setProductBatchQuantities] = useState<Record<number, number>>({});
@@ -608,11 +770,19 @@ export default function ModernCatererBillingUI() {
         break;
       case 'half':
         // Set amount paid to 50% of grand total
-        form.setValue('amountPaid', calculatedTotals.grandTotal / 2, {
+        const halfAmount = calculatedTotals.grandTotal / 2;
+        form.setValue('amountPaid', halfAmount, {
           shouldDirty: true,
           shouldTouch: true,
           shouldValidate: true
         });
+        // Trigger reminder dialog immediately for partial payment
+        setTimeout(() => {
+          const balanceDue = calculatedTotals.grandTotal - halfAmount;
+          setRemainingBalance(balanceDue);
+          setPaymentDueDate(form.getValues('dueDate')); // Initialize with form's due date
+          setShowReminderDialog(true);
+        }, 100);
         break;
       case 'later':
         // Set amount paid to 0
@@ -621,6 +791,12 @@ export default function ModernCatererBillingUI() {
           shouldTouch: true,
           shouldValidate: true
         });
+        // Trigger reminder dialog immediately for pay later
+        setTimeout(() => {
+          setRemainingBalance(calculatedTotals.grandTotal);
+          setPaymentDueDate(form.getValues('dueDate')); // Initialize with form's due date
+          setShowReminderDialog(true);
+        }, 100);
         break;
       case 'custom':
         // Keep current value or set to 0 if not set
@@ -710,6 +886,24 @@ export default function ModernCatererBillingUI() {
 
     // Set loading state immediately
     setIsUploading(true);
+
+    // Validate that items exist
+    if (!data.items || data.items.length === 0) {
+      showImmediateToast('Error', 'Please add at least one product to the bill before saving.', 'destructive');
+      setIsUploading(false);
+      return;
+    }
+
+    // Validate that all items have required fields
+    const invalidItems = data.items.filter(item =>
+      !item.productId || !item.productName || !item.quantity || item.quantity <= 0 || !item.rate || item.rate <= 0
+    );
+
+    if (invalidItems.length > 0) {
+      showImmediateToast('Error', 'Please ensure all products have valid quantities and rates.', 'destructive');
+      setIsUploading(false);
+      return;
+    }
 
     try {
       // Validate required fields first
@@ -842,9 +1036,11 @@ export default function ModernCatererBillingUI() {
       // Determine status based on payment
       const status = balanceDue <= 0 ? 'paid' : 'partial';
 
-      // Check if reminder is needed for partial payments
-      if (balanceDue > 0 && amountPaid > 0 && paymentOption !== 'later') {
+      // Check if reminder is needed when amount paid is less than grand total
+      // Show reminder for any payment that's not full payment and not 'pay later'
+      if (balanceDue > 0 && paymentOption !== 'later') {
         setRemainingBalance(balanceDue);
+        setPaymentDueDate(data.dueDate); // Initialize with form's due date
         setShowReminderDialog(true);
         setIsUploading(false); // Reset loading state
         return; // Wait for reminder dialog completion
@@ -855,7 +1051,6 @@ export default function ModernCatererBillingUI() {
         billNo: data.billNo,
         catererId: data.catererId,
         distributionDate: format(data.billDate, 'yyyy-MM-dd'),
-        // dueDate is not in the database schema, so we'll remove it
         totalAmount: totalAmount.toString(),
         totalGstAmount: totalGstAmount.toString(),
         grandTotal: grandTotal.toString(),
@@ -866,9 +1061,16 @@ export default function ModernCatererBillingUI() {
         notes: data.notes || '',
         receiptImage: receiptFilename, // Add receipt image filename
         items: items, // Use the items array directly, already formatted correctly
+        // Add reminder dates if there's a balance due (will be set after reminder dialog)
+        nextPaymentDate: balanceDue > 0 ? format(reminderDate, 'yyyy-MM-dd') : null,
+        reminderDate: balanceDue > 0 ? format(reminderDate, 'yyyy-MM-dd') : null,
       };
 
       // Log the data we're sending
+      console.log("=== DISTRIBUTION SUBMISSION DEBUG ===");
+      console.log("Form data items:", data.items);
+      console.log("Processed items:", items);
+      console.log("Items count:", items.length);
       console.log("Submitting distribution data:", JSON.stringify(distributionData, null, 2));
 
       try {
@@ -992,50 +1194,13 @@ export default function ModernCatererBillingUI() {
   const handleReminderConfirm = async () => {
     setShowReminderDialog(false);
 
-    const formData = form.getValues();
+    toast({
+      title: "Reminder Set",
+      description: `Payment due on ${format(paymentDueDate, 'PPP')}. Reminder set for ${format(reminderDate, 'PPP')} for remaining balance of ₹${remainingBalance.toLocaleString()}`,
+    });
 
-    try {
-      // First, create the payment reminder
-      const reminderData = {
-        catererId: formData.catererId,
-        amount: remainingBalance,
-        originalDueDate: formData.dueDate,
-        reminderDate: reminderDate,
-        notes: `Reminder for remaining balance after partial payment of ₹${(formData.amountPaid || 0).toLocaleString()}. Original due date: ${format(formData.dueDate, 'PPP')}`
-      };
-
-      console.log("Creating payment reminder:", reminderData);
-
-      const reminderResponse = await fetch('/api/payment-reminders', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify(reminderData),
-      });
-
-      if (!reminderResponse.ok) {
-        throw new Error('Failed to create payment reminder');
-      }
-
-      toast({
-        title: "Reminder Set",
-        description: `Payment reminder set for ${format(reminderDate, 'PPP')} for remaining balance of ₹${remainingBalance.toLocaleString()}`,
-      });
-
-      // Continue with bill creation
-      await proceedWithBillCreation();
-    } catch (error) {
-      console.error('Error creating reminder:', error);
-      toast({
-        title: "Failed to create reminder",
-        description: error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive",
-      });
-      // Still proceed with bill creation even if reminder fails
-      await proceedWithBillCreation();
-    }
+    // Continue with bill creation (reminder will be saved with the distribution)
+    await proceedWithBillCreation();
   };
 
   // Proceed with bill creation (extracted from onSubmit)
@@ -1085,6 +1250,9 @@ export default function ModernCatererBillingUI() {
         notes: data.notes || '',
         receiptImage: null, // Will be handled separately
         items: items,
+        // Add reminder dates if balance due > 0
+        nextPaymentDate: balanceDue > 0 ? format(paymentDueDate, 'yyyy-MM-dd') : null,
+        reminderDate: balanceDue > 0 ? format(reminderDate, 'yyyy-MM-dd') : null,
       };
 
       // Submit the distribution
@@ -1181,7 +1349,7 @@ export default function ModernCatererBillingUI() {
         <Button
           onClick={form.handleSubmit(onSubmit)}
           className="bg-secondary hover:bg-secondary/80 text-white flex items-center"
-          disabled={createDistribution.isPending}
+          disabled={createDistribution.isPending || !form.watch('items')?.length}
         >
           <Save className="h-4 w-4 mr-2" />
           Save Bill
@@ -1309,9 +1477,9 @@ export default function ModernCatererBillingUI() {
       </div>
 
       {/* Products and Selection Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-10 gap-6 mb-6">
         {/* Left Column - Add Product Section */}
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-3">
           <Card className="h-full">
             <CardHeader className="bg-secondary/10 pb-3">
               <CardTitle className="text-lg flex items-center">
@@ -1368,13 +1536,25 @@ export default function ModernCatererBillingUI() {
                   </Select>
                 </div>
               </div>
+
+              {/* Mix Calculator Button */}
+              <div className="mt-6">
+                <Button
+                  type="button"
+                  onClick={handleMixCalculatorOpen}
+                  className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  <Calculator className="h-4 w-4 mr-2" />
+                  Mix Calculator
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
 
         {/* Right Column - Selected Products Section */}
-        <div className="lg:col-span-2">
-          <Card className="h-full">
+        <div className="lg:col-span-7">
+          <Card className="h-full w-full">
             <CardHeader className="bg-green-50 pb-3 border-b border-green-100">
               <CardTitle className="text-lg flex items-center text-green-700">
                 <ChefHat className="h-5 w-5 mr-2" />
@@ -1382,15 +1562,16 @@ export default function ModernCatererBillingUI() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="font-semibold w-[35%]">Product</TableHead>
-                  <TableHead className="text-center font-semibold w-[20%]">Quantity</TableHead>
-                  <TableHead className="text-right font-semibold w-[15%]">Rate</TableHead>
-                  <TableHead className="text-center font-semibold w-[10%]">GST %</TableHead>
-                  <TableHead className="text-right font-semibold w-[15%]">Amount</TableHead>
-                  <TableHead className="w-[5%]"></TableHead>
+                  <TableHead className="font-semibold text-xs w-[30%] min-w-[200px]">Product</TableHead>
+                  <TableHead className="text-center font-semibold text-xs w-[25%] min-w-[120px]">Quantity</TableHead>
+                  <TableHead className="text-right font-semibold text-xs w-[15%] min-w-[80px]">Rate</TableHead>
+                  <TableHead className="text-center font-semibold text-xs w-[10%] min-w-[60px]">GST %</TableHead>
+                  <TableHead className="text-right font-semibold text-xs w-[15%] min-w-[80px]">Amount</TableHead>
+                  <TableHead className="w-[5%] min-w-[40px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1405,9 +1586,9 @@ export default function ModernCatererBillingUI() {
                     .filter(field => field.productName && field.productName.trim() !== '') // Only show rows with valid product names
                     .map((field, index) => (
                     <TableRow key={field.id}>
-                      <TableCell className="py-4">
+                      <TableCell className="py-2">
                         <div className="flex flex-col">
-                          <span className="font-medium">{field.productName}</span>
+                          <span className="font-medium text-sm">{field.productName}</span>
                           <div className="mt-4">
                             <InventoryBatchSelector
                               productId={field.productId}
@@ -1430,14 +1611,14 @@ export default function ModernCatererBillingUI() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="text-center py-4">
-                        <div className="flex flex-col items-center space-y-3">
-                          <div className="flex items-center gap-2">
+                      <TableCell className="text-center py-2">
+                        <div className="flex flex-col items-center space-y-2">
+                          <div className="flex items-center gap-1">
                             <Input
                               type="number"
                               min="0.01"
                               step="0.01"
-                              className="w-20 text-center"
+                              className="w-16 text-center text-xs"
                               value={form.watch(`items.${index}.quantity`) || ''}
                               onChange={(e) => {
                                 const value = e.target.value;
@@ -1502,12 +1683,12 @@ export default function ModernCatererBillingUI() {
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right py-4">
+                      <TableCell className="text-right py-2">
                         <Input
                           type="number"
                           min="0"
                           step="0.01"
-                          className="w-20 text-right"
+                          className="w-16 text-right text-xs"
                           value={form.watch(`items.${index}.rate`) || ''}
                           onChange={(e) => {
                             const value = e.target.value;
@@ -1546,13 +1727,13 @@ export default function ModernCatererBillingUI() {
                           placeholder="0.00"
                         />
                       </TableCell>
-                      <TableCell className="text-center py-4">
+                      <TableCell className="text-center py-2">
                         <Input
                           type="number"
                           min="0"
                           max="100"
                           step="0.01"
-                          className="w-14 text-center"
+                          className="w-12 text-center text-xs"
                           value={form.watch(`items.${index}.gstPercentage`) || ''}
                           onChange={(e) => {
                             const value = e.target.value;
@@ -1585,8 +1766,8 @@ export default function ModernCatererBillingUI() {
                           placeholder="5"
                         />
                       </TableCell>
-                      <TableCell className="text-right py-4">
-                        <div className="font-medium text-lg">
+                      <TableCell className="text-right py-2">
+                        <div className="font-medium text-sm">
                           {formatCurrency(calculateItemAmount(
                             form.watch(`items.${index}.quantity`) || 0,
                             form.watch(`items.${index}.unit`) || 'kg',
@@ -1594,7 +1775,7 @@ export default function ModernCatererBillingUI() {
                           ))}
                         </div>
                       </TableCell>
-                      <TableCell className="py-4">
+                      <TableCell className="py-2">
                         <Button
                           type="button"
                           variant="ghost"
@@ -1620,6 +1801,7 @@ export default function ModernCatererBillingUI() {
                 )}
               </TableBody>
             </Table>
+            </div>
 
             {fields.length > 0 && (
               <div className="p-4 border-t">
@@ -1638,29 +1820,7 @@ export default function ModernCatererBillingUI() {
                       <span className="font-medium">Grand Total:</span>
                       <span className="font-bold text-lg">{formatCurrency(calculatedTotals.grandTotal)}</span>
                     </div>
-                    <div className="flex justify-center mt-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          console.log('Manual recalculation triggered');
-                          const items = form.getValues('items');
-                          console.log('Current form items:', items);
-                          console.log('Current calculated totals:', calculatedTotals);
-                          calculateTotals();
-                        }}
-                        className="text-xs"
-                      >
-                        <Calculator className="h-3 w-3 mr-1" />
-                        Recalculate
-                      </Button>
-                    </div>
-                    {/* Debug info - remove in production */}
-                    <div className="mt-2 text-xs text-gray-500 space-y-1">
-                      <div>Items count: {form.getValues('items')?.length || 0}</div>
-                      <div>Calc state: {JSON.stringify(calculatedTotals)}</div>
-                    </div>
+
                   </div>
                 </div>
               </div>
@@ -1741,6 +1901,16 @@ export default function ModernCatererBillingUI() {
                           calculateTotals();
                           // Set payment option to custom if manually changed
                           setPaymentOption('custom');
+
+                          // Check if custom amount is less than full amount and trigger reminder
+                          if (value > 0 && value < calculatedTotals.grandTotal) {
+                            setTimeout(() => {
+                              const balanceDue = calculatedTotals.grandTotal - value;
+                              setRemainingBalance(balanceDue);
+                              setPaymentDueDate(form.getValues('dueDate')); // Initialize with form's due date
+                              setShowReminderDialog(true);
+                            }, 500); // Delay to allow calculation to complete
+                          }
                         }}
                         disabled={paymentOption !== 'custom' && paymentOption !== 'full' && paymentOption !== 'half'}
                         className={cn(
@@ -2034,10 +2204,10 @@ export default function ModernCatererBillingUI() {
             }
           }}
           className="bg-primary hover:bg-primary/90 text-white flex items-center py-6 px-8 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled={createDistribution.isPending || isUploading}
+          disabled={createDistribution.isPending || isUploading || !form.watch('items')?.length}
         >
           <Save className="h-5 w-5 mr-3" />
-          {isUploading ? "Saving Bill..." : createDistribution.isPending ? "Processing..." : "Save Bill"}
+          {isUploading ? "Saving Bill..." : createDistribution.isPending ? "Processing..." : !form.watch('items')?.length ? "Add Products First" : "Save Bill"}
           {(createDistribution.isPending || isUploading) && (
             <span className="ml-2">
               <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -2059,13 +2229,11 @@ export default function ModernCatererBillingUI() {
             </DialogTitle>
             <DialogDescription>
               You have a remaining balance of ₹{remainingBalance.toLocaleString()}.
-              <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-md">
-                <p className="text-sm text-red-700 font-medium">
-                  ⚠️ Payment is due on {format(form.getValues('dueDate'), 'PPP')}
-                </p>
-              </div>
               <div className="mt-2">
-                Would you like to set a reminder for the next payment?
+                {form.getValues('amountPaid') > 0
+                  ? "Set the payment due date and reminder date for the remaining payment."
+                  : "Set the payment due date and reminder date for the payment."
+                }
               </div>
             </DialogDescription>
           </DialogHeader>
@@ -2078,11 +2246,38 @@ export default function ModernCatererBillingUI() {
                 <p><span className="font-medium">Total Amount:</span> ₹{calculatedTotals.grandTotal.toLocaleString()}</p>
                 <p><span className="font-medium">Amount Paying Now:</span> ₹{(form.getValues('amountPaid') || 0).toLocaleString()}</p>
                 <p><span className="font-medium text-orange-600">Remaining Balance:</span> ₹{remainingBalance.toLocaleString()}</p>
-                <p><span className="font-medium text-red-600">Payment Due:</span> {format(form.getValues('dueDate'), 'PPP')}</p>
               </div>
             </div>
+
             <div>
-              <Label>Next Payment Reminder Date</Label>
+              <Label>Payment Due Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start text-left font-normal"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {format(paymentDueDate, "PPP")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={paymentDueDate}
+                    onSelect={(date) => date && setPaymentDueDate(date)}
+                    initialFocus
+                    disabled={(date) => date < new Date()}
+                  />
+                </PopoverContent>
+              </Popover>
+              <p className="text-xs text-slate-500 mt-1">
+                When is the remaining payment due?
+              </p>
+            </div>
+
+            <div>
+              <Label>Reminder Date</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -2104,7 +2299,7 @@ export default function ModernCatererBillingUI() {
                 </PopoverContent>
               </Popover>
               <p className="text-xs text-slate-500 mt-1">
-                Choose a future date when you want to be reminded about the remaining payment
+                When do you want to be reminded about this payment?
               </p>
             </div>
           </div>
@@ -2116,6 +2311,308 @@ export default function ModernCatererBillingUI() {
               Set Reminder
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Mix Calculator Modal */}
+      <Dialog open={showMixCalculator} onOpenChange={setShowMixCalculator}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center text-purple-700">
+              <Calculator className="h-5 w-5 mr-2" />
+              Mix Calculator
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Budget Input */}
+            <div className="space-y-2">
+              <Label htmlFor="mixBudget">Total Budget (₹)</Label>
+              <Input
+                id="mixBudget"
+                type="number"
+                placeholder="Enter your total budget"
+                value={mixBudget}
+                onChange={(e) => setMixBudget(e.target.value)}
+                className="text-lg"
+              />
+            </div>
+
+            {/* Product Search */}
+            <div className="space-y-2">
+              <Label>Add Products to Mix</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Input
+                  placeholder="Search products..."
+                  value={mixSearchQuery}
+                  onChange={(e) => setMixSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+
+              {/* Search Results */}
+              {mixSearchQuery && (
+                <div className="border rounded-lg max-h-40 overflow-y-auto">
+                  {filteredMixProducts.map((product) => (
+                    <div
+                      key={product.id}
+                      className="p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0"
+                      onClick={() => addProductToMix(product)}
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">{product.name}</span>
+                        <span className="text-sm text-gray-600">
+                          {formatCurrency(product.catererPrice || product.price || 0)}/{product.unit}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {filteredMixProducts.length === 0 && (
+                    <div className="p-3 text-center text-gray-500">
+                      No products found
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Selected Products */}
+            {mixSelectedProducts.length > 0 && (
+              <div className="space-y-3">
+                <Label>Selected Products</Label>
+                <div className="border rounded-lg">
+                  <div className="grid grid-cols-5 gap-4 p-3 bg-gray-50 font-medium text-sm">
+                    <div>Product</div>
+                    <div>Price/Unit</div>
+                    <div>Allocated Budget</div>
+                    <div>Calculated Qty</div>
+                    <div>Action</div>
+                  </div>
+                  {mixSelectedProducts.map((product) => (
+                    <div key={product.id} className="grid grid-cols-5 gap-4 p-3 border-t">
+                      <div className="font-medium">{product.name}</div>
+                      <div>{formatCurrency(product.price)}</div>
+                      <div>{formatCurrency(product.allocatedPrice)}</div>
+                      <div>{product.calculatedQuantity.toFixed(2)} kg</div>
+                      <div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeProductFromMix(product.id)}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Summary */}
+                {mixBudget && (
+                  <div className="bg-green-50 p-4 rounded-lg">
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium">Total Budget:</span>
+                      <span className="text-lg font-bold text-green-700">
+                        {formatCurrency(parseFloat(mixBudget) || 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center mt-2">
+                      <span>Products Selected:</span>
+                      <span>{mixSelectedProducts.length}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <Button variant="outline" onClick={handleMixCalculatorClose}>
+              Cancel
+            </Button>
+            <Button
+              onClick={addMixToCart}
+              disabled={!mixBudget || mixSelectedProducts.length === 0}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              Add Mix to Bill
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Mix Calculator Modal */}
+      <Dialog open={showMixCalculator} onOpenChange={setShowMixCalculator}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center text-purple-700">
+              <Calculator className="h-5 w-5 mr-2" />
+              Mix Calculator
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Calculation Mode Toggle */}
+            <div className="space-y-2">
+              <Label>Calculation Mode</Label>
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="price-mode"
+                    name="calculation-mode"
+                    checked={mixCalculationMode === 'price'}
+                    onChange={() => setMixCalculationMode('price')}
+                    className="w-4 h-4 text-purple-600"
+                  />
+                  <Label htmlFor="price-mode" className="text-sm font-normal">By Price</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="quantity-mode"
+                    name="calculation-mode"
+                    checked={mixCalculationMode === 'quantity'}
+                    onChange={() => setMixCalculationMode('quantity')}
+                    className="w-4 h-4 text-purple-600"
+                  />
+                  <Label htmlFor="quantity-mode" className="text-sm font-normal">By Quantity</Label>
+                </div>
+              </div>
+            </div>
+
+            {/* Budget/Quantity Input */}
+            <div className="space-y-2">
+              <Label htmlFor="mixBudget">
+                {mixCalculationMode === 'price' ? 'Total Budget (₹)' : 'Total Quantity (kg)'}
+              </Label>
+              <Input
+                id="mixBudget"
+                type="number"
+                placeholder={mixCalculationMode === 'price' ? 'Enter your total budget' : 'Enter total quantity'}
+                value={mixBudget}
+                onChange={(e) => setMixBudget(e.target.value)}
+                className="text-lg"
+              />
+            </div>
+
+            {/* Product Search */}
+            <div className="space-y-2">
+              <Label>Add Products to Mix</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Input
+                  placeholder="Search products..."
+                  value={mixSearchQuery}
+                  onChange={(e) => setMixSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+
+              {/* Search Results */}
+              {mixSearchQuery && (
+                <div className="border rounded-lg max-h-40 overflow-y-auto">
+                  {filteredMixProducts.map((product) => (
+                    <div
+                      key={product.id}
+                      className="p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0"
+                      onClick={() => addProductToMix(product)}
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">{product.name}</span>
+                        <span className="text-sm text-gray-600">
+                          {formatCurrency(product.catererPrice || product.price || 0)}/{product.unit}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {filteredMixProducts.length === 0 && (
+                    <div className="p-3 text-center text-gray-500">
+                      No products found
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Selected Products */}
+            {mixSelectedProducts.length > 0 && (
+              <div className="space-y-3">
+                <Label>Selected Products</Label>
+                <div className="border rounded-lg">
+                  <div className="grid grid-cols-5 gap-4 p-3 bg-gray-50 font-medium text-sm">
+                    <div>Product</div>
+                    <div>Price/Unit</div>
+                    <div>{mixCalculationMode === 'price' ? 'Allocated Budget' : 'Total Cost'}</div>
+                    <div>Calculated Qty</div>
+                    <div>Action</div>
+                  </div>
+                  {mixSelectedProducts.map((product) => (
+                    <div key={product.id} className="grid grid-cols-5 gap-4 p-3 border-t">
+                      <div className="font-medium">{product.name}</div>
+                      <div>{formatCurrency(product.price)}</div>
+                      <div>{formatCurrency(product.allocatedPrice)}</div>
+                      <div>{product.calculatedQuantity.toFixed(2)} kg</div>
+                      <div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeProductFromMix(product.id)}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Summary */}
+                {mixBudget && (
+                  <div className="bg-green-50 p-4 rounded-lg">
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium">
+                        {mixCalculationMode === 'price' ? 'Total Budget:' : 'Total Quantity:'}
+                      </span>
+                      <span className="text-lg font-bold text-green-700">
+                        {mixCalculationMode === 'price'
+                          ? formatCurrency(parseFloat(mixBudget) || 0)
+                          : `${parseFloat(mixBudget) || 0} kg`
+                        }
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center mt-2">
+                      <span>Products Selected:</span>
+                      <span>{mixSelectedProducts.length}</span>
+                    </div>
+                    {mixCalculationMode === 'quantity' && (
+                      <div className="flex justify-between items-center mt-2">
+                        <span>Total Cost:</span>
+                        <span className="font-bold text-green-700">
+                          {formatCurrency(mixSelectedProducts.reduce((sum, p) => sum + p.allocatedPrice, 0))}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <Button variant="outline" onClick={handleMixCalculatorClose}>
+              Cancel
+            </Button>
+            <Button
+              onClick={addMixToCart}
+              disabled={!mixBudget || mixSelectedProducts.length === 0}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              Add Mix to Bill
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

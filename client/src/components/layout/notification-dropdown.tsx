@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
-import { Bell, AlertCircle, Clock, CheckCircle, X, ShoppingBag, CreditCard, ChefHat } from 'lucide-react';
+import { Bell, AlertCircle, Clock, CheckCircle, X, ShoppingBag, CreditCard, ChefHat, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -15,16 +15,19 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { formatDistanceToNow } from 'date-fns';
 import { formatCurrency } from '@/lib/utils';
+import { useNotifications } from '@/hooks/useNotifications';
 
 interface Notification {
   id: number;
-  type: 'payment_due' | 'low_stock' | 'new_order' | 'payment_received' | 'system';
+  type: 'payment_due' | 'payment_reminder' | 'low_stock' | 'new_order' | 'payment_received' | 'system';
   title: string;
   message: string;
   timestamp: string;
   read: boolean;
   link?: string;
   relatedId?: number;
+  priority?: 'high' | 'medium' | 'low';
+  isOverdue?: boolean;
 }
 
 export default function NotificationDropdown() {
@@ -34,9 +37,12 @@ export default function NotificationDropdown() {
   // State to manage notifications locally
   const [localNotifications, setLocalNotifications] = useState<Notification[]>([]);
 
+  // Fetch payment reminder notifications
+  const { data: notificationsData } = useNotifications();
+
   // Fetch notifications
   const { data: fetchedNotifications = [], refetch } = useQuery<Notification[]>({
-    queryKey: ['notifications'],
+    queryKey: ['legacy-notifications'],
     queryFn: async () => {
       try {
         // Try to fetch real notifications from the API
@@ -45,7 +51,15 @@ export default function NotificationDropdown() {
         });
 
         if (response.ok) {
-          return await response.json();
+          const result = await response.json();
+          // Handle both array and object responses
+          if (Array.isArray(result)) {
+            return result;
+          } else if (result.data && Array.isArray(result.data)) {
+            return result.data;
+          } else {
+            return [];
+          }
         }
 
         // If API endpoint doesn't exist or fails, return empty array
@@ -59,10 +73,47 @@ export default function NotificationDropdown() {
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 
-  // Update local notifications when fetched notifications change
+  // Update local notifications when fetched notifications or payment reminders change
   useEffect(() => {
-    setLocalNotifications(fetchedNotifications);
-  }, [fetchedNotifications]);
+    // Ensure fetchedNotifications is an array
+    const existingNotifications = Array.isArray(fetchedNotifications) ? fetchedNotifications : [];
+    const allNotifications: Notification[] = [...existingNotifications];
+
+    // Add payment reminder notifications
+    if (notificationsData?.data) {
+      const paymentNotifications: Notification[] = notificationsData.data.map(notification => ({
+        id: parseInt(notification.id.replace('payment-', '')),
+        type: 'payment_reminder' as const,
+        title: notification.title,
+        message: notification.message,
+        timestamp: notification.createdAt,
+        read: false,
+        link: `/caterer-billing`,
+        relatedId: notification.data.distributionId,
+        priority: notification.priority,
+        isOverdue: notification.isOverdue
+      }));
+
+      allNotifications.push(...paymentNotifications);
+    }
+
+    // Sort by priority and timestamp (high priority and recent first)
+    allNotifications.sort((a, b) => {
+      // First sort by priority
+      const priorityOrder = { high: 3, medium: 2, low: 1 };
+      const aPriority = priorityOrder[a.priority || 'low'];
+      const bPriority = priorityOrder[b.priority || 'low'];
+
+      if (aPriority !== bPriority) {
+        return bPriority - aPriority;
+      }
+
+      // Then sort by timestamp (newest first)
+      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+    });
+
+    setLocalNotifications(allNotifications);
+  }, [fetchedNotifications, notificationsData]);
 
   const unreadCount = localNotifications.filter(n => !n.read).length;
 
@@ -127,10 +178,14 @@ export default function NotificationDropdown() {
     }
   };
 
-  const getNotificationIcon = (type: string) => {
+  const getNotificationIcon = (type: string, isOverdue?: boolean) => {
     switch (type) {
       case 'payment_due':
         return <AlertCircle className="h-4 w-4 text-red-500" />;
+      case 'payment_reminder':
+        return isOverdue
+          ? <AlertCircle className="h-4 w-4 text-red-500" />
+          : <Calendar className="h-4 w-4 text-orange-500" />;
       case 'low_stock':
         return <ShoppingBag className="h-4 w-4 text-orange-500" />;
       case 'payment_received':
@@ -186,7 +241,7 @@ export default function NotificationDropdown() {
               >
                 <div className="flex gap-3">
                   <div className="flex-shrink-0 mt-0.5">
-                    {getNotificationIcon(notification.type)}
+                    {getNotificationIcon(notification.type, notification.isOverdue)}
                   </div>
                   <div className="flex-1 space-y-1">
                     <div className="flex justify-between items-start">

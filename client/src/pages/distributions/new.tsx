@@ -32,7 +32,7 @@ const distributionFormSchema = z.object({
   amountPaid: z.string().default("0"),
   notes: z.string().optional(),
   items: z.array(z.object({
-    spiceId: z.string().min(1, { message: "Product is required" }),
+    productId: z.string().min(1, { message: "Product is required" }),
     itemName: z.string().min(1, { message: "Item name is required" }),
     quantity: z.string().min(1, { message: "Quantity is required" }),
     unit: z.string().min(1, { message: "Unit is required" }),
@@ -89,7 +89,7 @@ export default function NewDistributionPage() {
       notes: '',
       items: [
         {
-          spiceId: '',
+          productId: '',
           itemName: '',
           quantity: "1",
           unit: "kg",
@@ -188,7 +188,7 @@ export default function NewDistributionPage() {
       catererId: parseInt(data.catererId),
       items: data.items.map(item => ({
         ...item,
-        spiceId: parseInt(item.spiceId),
+        productId: parseInt(item.productId),
       })),
     };
 
@@ -304,7 +304,7 @@ export default function NewDistributionPage() {
                         <TableCell>
                           <Select
                             onValueChange={(value) => handleProductChange(index, value)}
-                            defaultValue={field.spiceId.toString() || undefined}
+                            defaultValue={field.productId.toString() || undefined}
                           >
                             <SelectTrigger>
                               <SelectValue placeholder="Select a product" />
@@ -441,7 +441,7 @@ export default function NewDistributionPage() {
                 size="sm"
                 onClick={() => {
                   append({
-                    spiceId: '',
+                    productId: '',
                     itemName: '',
                     quantity: "1",
                     unit: "kg",

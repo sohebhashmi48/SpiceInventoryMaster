@@ -5,7 +5,7 @@ import { toast } from '../components/ui/use-toast';
 export interface DistributionItem {
   id?: number;
   distributionId?: number;
-  spiceId: number;
+  productId: number;
   itemName: string;
   quantity: string;
   unit: string;

@@ -14,5 +14,6 @@
             "username": "root",
             "askForPassword": true
         }
-    ]
+    ],
+    "zencoder.enableRepoIndexing": true
 }

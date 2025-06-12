@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
-import { Caterer, useCaterers, useDeleteCaterer, RelatedRecordsError, DeleteCatererOptions } from '@/hooks/use-caterers';
+import { Caterer, useCaterers, useDeleteCaterer, RelatedRecordsError, DeleteCatererOptions, useSyncAllCatererBalances } from '@/hooks/use-caterers';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
-  ChefHat, Plus, Search, Filter, Grid, List, AlertCircle
+  ChefHat, Plus, Search, Filter, Grid, List, AlertCircle, RefreshCw
 } from 'lucide-react';
 import CatererDeleteDialog from '@/components/caterers/caterer-delete-dialog';
 import CatererCardModal from '@/components/caterers/caterer-card-modal';
@@ -22,6 +22,7 @@ export default function CaterersPage() {
   const [, setLocation] = useLocation();
   const { data: caterers, isLoading } = useCaterers();
   const deleteCatererMutation = useDeleteCaterer();
+  const syncAllBalances = useSyncAllCatererBalances();
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchTerm);
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -31,6 +32,7 @@ export default function CaterersPage() {
   const [catererToDelete, setCatererToDelete] = useState<Caterer | null>(null);
   const [catererCardToView, setCatererCardToView] = useState<Caterer | null>(null);
   const [relatedRecords, setRelatedRecords] = useState<RelatedRecordsError['relatedRecords'] | undefined>(undefined);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
 
   // Helper function to navigate
   const navigate = (path: string) => setLocation(path);
@@ -122,6 +124,17 @@ export default function CaterersPage() {
     setCatererCardToView(caterer);
   }, []);
 
+  const handleSyncAllBalances = async () => {
+    setIsSyncingAll(true);
+    try {
+      await syncAllBalances.mutateAsync();
+    } catch (error) {
+      // Error is handled by the mutation
+    } finally {
+      setIsSyncingAll(false);
+    }
+  };
+
   return (
     <CatererLayout title="Caterer Management" description="View and manage your caterers">
       <div className="space-y-6">
@@ -170,10 +183,21 @@ export default function CaterersPage() {
               </div>
             </div>
 
-            <Button onClick={() => navigate('/caterers/new')}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Caterer
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={handleSyncAllBalances}
+                disabled={isSyncingAll}
+                className="text-orange-600 hover:text-orange-800 hover:bg-orange-50 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isSyncingAll ? 'animate-spin' : ''}`} />
+                {isSyncingAll ? 'Syncing...' : 'Sync All Balances'}
+              </Button>
+              <Button onClick={() => navigate('/caterers/new')}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Caterer
+              </Button>
+            </div>
           </div>
 
           {/* Filter Options */}

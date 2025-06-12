@@ -84,6 +84,86 @@ export default function DashboardPage() {
     refetchIntervalInBackground: true,
   });
 
+  // Fetch today's profit data for Quick Stats
+  const { data: profitData } = useQuery({
+    queryKey: ['daily-profit'],
+    queryFn: async () => {
+      const response = await fetch('/api/dashboard/daily-profit', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch daily profit data');
+      }
+      return response.json();
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchIntervalInBackground: true,
+  });
+
+  // Fetch distributions for caterer profit calculation
+  const { data: distributions } = useQuery({
+    queryKey: ['distributions'],
+    queryFn: async () => {
+      const response = await fetch('/api/distributions', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch distributions');
+      }
+      return response.json();
+    },
+    refetchInterval: 30000,
+    refetchIntervalInBackground: true,
+  });
+
+  // Fetch customer bills for customer profit calculation
+  const { data: customerBills } = useQuery({
+    queryKey: ['customer-bills'],
+    queryFn: async () => {
+      const response = await fetch('/api/customer-bills', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch customer bills');
+      }
+      return response.json();
+    },
+    refetchInterval: 30000,
+    refetchIntervalInBackground: true,
+  });
+
+  // Calculate separate profit metrics
+  const calculateProfitMetrics = () => {
+    const today = new Date().toDateString();
+
+    // Caterer profit (30% margin on today's caterer sales)
+    const todaysCatererRevenue = distributions
+      ?.filter(dist => new Date(dist.distributionDate).toDateString() === today)
+      .reduce((sum, dist) => {
+        const amount = parseFloat(dist.grandTotal || '0');
+        return sum + (isNaN(amount) ? 0 : amount);
+      }, 0) || 0;
+    const catererProfit = todaysCatererRevenue * 0.3;
+
+    // Customer billing profit (25% margin on today's customer bills)
+    const todaysCustomerRevenue = customerBills?.data
+      ?.filter(bill => new Date(bill.billDate).toDateString() === today)
+      .reduce((sum, bill) => sum + (bill.totalAmount || 0), 0) || 0;
+    const customerProfit = todaysCustomerRevenue * 0.25;
+
+    // Order profit from API (showcase orders)
+    const orderProfit = profitData?.totalProfit || 0;
+
+    return {
+      catererProfit,
+      customerProfit,
+      orderProfit,
+      totalProfit: catererProfit + customerProfit + orderProfit,
+    };
+  };
+
+  const profitMetrics = calculateProfitMetrics();
+
   // Calculate out of stock items from low stock data
   const outOfStockItemsLocal = lowStockItems?.filter(item => Number(item.quantity) === 0) || [];
   const lowStockOnlyItems = lowStockItems?.filter(item => Number(item.quantity) > 0) || [];
@@ -383,8 +463,8 @@ export default function DashboardPage() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl">
                   <div>
-                    <p className="text-sm text-slate-600">Today's Revenue</p>
-                    <p className="text-2xl font-bold text-slate-900">{formatCurrencyAmount(stats?.todayRevenue || 0)}</p>
+                    <p className="text-sm text-slate-600">Caterer Profit</p>
+                    <p className="text-2xl font-bold text-slate-900">{formatCurrencyAmount(profitMetrics.catererProfit)}</p>
                   </div>
                   <div className="p-2 bg-green-100 rounded-xl">
                     <TrendingUp className="h-5 w-5 text-green-600" />
@@ -392,20 +472,29 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl">
                   <div>
-                    <p className="text-sm text-slate-600">Active Suppliers</p>
-                    <p className="text-2xl font-bold text-slate-900">{stats?.activeSuppliers || 0}</p>
+                    <p className="text-sm text-slate-600">Customer Profit</p>
+                    <p className="text-2xl font-bold text-slate-900">{formatCurrencyAmount(profitMetrics.customerProfit)}</p>
                   </div>
                   <div className="p-2 bg-blue-100 rounded-xl">
-                    <Users className="h-5 w-5 text-blue-600" />
+                    <DollarSign className="h-5 w-5 text-blue-600" />
                   </div>
                 </div>
                 <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl">
                   <div>
-                    <p className="text-sm text-slate-600">Orders This Week</p>
-                    <p className="text-2xl font-bold text-slate-900">{stats?.weeklyOrders || 0}</p>
+                    <p className="text-sm text-slate-600">Order Profit</p>
+                    <p className="text-2xl font-bold text-slate-900">{formatCurrencyAmount(profitMetrics.orderProfit)}</p>
                   </div>
                   <div className="p-2 bg-purple-100 rounded-xl">
-                    <ShoppingCart className="h-5 w-5 text-purple-600" />
+                    <Users className="h-5 w-5 text-purple-600" />
+                  </div>
+                </div>
+                <div className="flex justify-between items-center p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl border border-green-200">
+                  <div>
+                    <p className="text-sm text-green-700 font-medium">Total Profit</p>
+                    <p className="text-2xl font-bold text-green-800">{formatCurrencyAmount(profitMetrics.totalProfit)}</p>
+                  </div>
+                  <div className="p-2 bg-green-200 rounded-xl">
+                    <TrendingUp className="h-5 w-5 text-green-700" />
                   </div>
                 </div>
               </div>

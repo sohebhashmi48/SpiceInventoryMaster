@@ -69,6 +69,34 @@ export default function InventoryBatchSelector({
   const isInitializedRef = useRef(false);
 
   const { toast } = useToast();
+
+  // Current toast reference for immediate replacement
+  const currentToastRef = useRef<{id: string, dismiss: () => void} | null>(null);
+
+  // Immediate replacement toast function
+  const showImmediateToast = (title: string, description: string, variant: 'default' | 'destructive' = 'default') => {
+    // Dismiss any existing toast immediately
+    if (currentToastRef.current) {
+      currentToastRef.current.dismiss();
+    }
+
+    // Show new toast and store reference
+    const newToast = toast({
+      title,
+      description,
+      variant,
+    });
+
+    currentToastRef.current = newToast;
+
+    // Auto-dismiss after 500ms
+    setTimeout(() => {
+      if (currentToastRef.current && currentToastRef.current.id === newToast.id) {
+        currentToastRef.current.dismiss();
+        currentToastRef.current = null;
+      }
+    }, 500);
+  };
   const { data: inventoryBatches, isLoading } = useInventoryByProduct(productId);
 
   // Memoize available batches with better comparison
@@ -214,11 +242,7 @@ export default function InventoryBatchSelector({
         [batchId]: maxQuantity
       }));
       
-      toast({
-        title: "Quantity Adjusted",
-        description: `Maximum available quantity set for this batch.`,
-        variant: "destructive"
-      });
+      showImmediateToast("Quantity Adjusted", "Maximum available quantity set for this batch.", "destructive");
     } else {
       setSelectedBatches(prev => ({
         ...prev,
@@ -240,11 +264,7 @@ export default function InventoryBatchSelector({
         return newBatches;
       });
     } else if (newValue > maxQuantity) {
-      toast({
-        title: "Maximum Reached",
-        description: "Cannot exceed available quantity.",
-        variant: "destructive"
-      });
+      showImmediateToast("Maximum Reached", "Cannot exceed available quantity.", "destructive");
     } else {
       setSelectedBatches(prev => ({
         ...prev,
@@ -291,10 +311,7 @@ export default function InventoryBatchSelector({
     onBatchSelect(batchIds, quantities, totalSelected, currentUnit);
     setIsOpen(false);
     
-    toast({
-      title: "Batches Selected",
-      description: `Selected ${batchIds.length} batches with total quantity ${totalSelected} ${currentUnit}`,
-    });
+    showImmediateToast("Batches Selected", `Selected ${batchIds.length} batches with total quantity ${totalSelected} ${currentUnit}`);
   }, [calculatedTotals, currentUnit, onBatchSelect, onRequiredQuantityChange, toast]);
 
   const isQuantityMet = calculatedTotals.totalSelected >= localQuantity;

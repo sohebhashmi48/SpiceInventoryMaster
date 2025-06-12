@@ -241,6 +241,7 @@ export const caterers = pgTable("caterers", {
   isActive: boolean("is_active").notNull().default(true),
   creditLimit: numeric("credit_limit").default("0"),
   balanceDue: numeric("balance_due").default("0"),
+  pendingAmount: numeric("pending_amount").default("0"),
   totalPaid: numeric("total_paid").default("0"),
   totalBilled: numeric("total_billed").default("0"),
   totalOrders: integer("total_orders").default(0),
@@ -263,6 +264,8 @@ export const distributions = pgTable("distributions", {
   paymentMode: text("payment_mode"),
   paymentDate: timestamp("payment_date"),
   balanceDue: numeric("balance_due").notNull().default("0"),
+  nextPaymentDate: timestamp("next_payment_date"),
+  reminderDate: timestamp("reminder_date"),
   notes: text("notes"),
   status: text("status").notNull().default("active"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -467,8 +470,10 @@ export const insertCatererPaymentSchema = createInsertSchema(catererPayments)
   .extend({
     // Allow both string and number for amount to support form submissions
     amount: z.union([
-      z.string().transform(val => val === '' ? 0 : parseFloat(val)),
-      z.number()
+      z.string().refine(val => val !== '' && !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
+        message: "Amount must be a positive number"
+      }).transform(val => parseFloat(val)),
+      z.number().min(0.01, "Amount must be greater than 0")
     ]),
     // Allow both string and Date for paymentDate to support form submissions
     paymentDate: z.union([
@@ -551,6 +556,24 @@ export const distributionWithItemsSchema = insertDistributionSchema.extend({
     }),
     z.date()
   ]),
+  // Allow both string and Date for nextPaymentDate to support form submissions
+  nextPaymentDate: z.union([
+    z.string().refine(val => !isNaN(Date.parse(val)), {
+      message: "Invalid date format"
+    }),
+    z.date(),
+    z.null(),
+    z.undefined()
+  ]).optional(),
+  // Allow both string and Date for reminderDate to support form submissions
+  reminderDate: z.union([
+    z.string().refine(val => !isNaN(Date.parse(val)), {
+      message: "Invalid date format"
+    }),
+    z.date(),
+    z.null(),
+    z.undefined()
+  ]).optional(),
   // Receipt image
   receiptImage: z.string().nullable().optional(),
   items: z.array(insertDistributionItemSchema.omit({ distributionId: true }))

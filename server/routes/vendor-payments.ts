@@ -90,7 +90,18 @@ router.get("/vendors/:id/payments", async (req, res) => {
       return res.status(400).json({ error: "Invalid supplier ID" });
     }
 
-    const payments = await storage.getTransactionsBySupplier(supplierId, "payment");
+    const { page = '1', limit = '10', startDate, endDate } = req.query;
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+
+    const payments = await storage.getTransactionsBySupplier(supplierId, {
+      type: "payment",
+      page: pageNum,
+      limit: limitNum,
+      startDate: startDate as string,
+      endDate: endDate as string,
+    });
+
     res.status(200).json(payments);
   } catch (error) {
     console.error("Error fetching supplier payments:", error);

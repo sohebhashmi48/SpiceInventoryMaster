@@ -1020,18 +1020,18 @@ export default function ProductShowcasePage() {
                 <Button
                   type="submit"
                   disabled={isSubmitting || cart.length === 0}
-                  className="w-full bg-green-600 hover:bg-green-700 h-12 sm:h-auto"
+                  className="w-full bg-green-600 hover:bg-green-700 hover:scale-[1.02] transition-all duration-300 shadow-lg hover:shadow-xl h-14 sm:h-16 md:h-18 text-base sm:text-lg md:text-xl font-semibold"
                   size="lg"
                 >
                   {isSubmitting ? (
                     <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-b-2 border-white mr-3"></div>
                       <span className="hidden sm:inline">Placing Order...</span>
                       <span className="sm:hidden">Placing...</span>
                     </>
                   ) : (
                     <>
-                      <MessageCircle className="h-4 w-4 mr-2" />
+                      <MessageCircle className="h-5 w-5 sm:h-6 sm:w-6 mr-3" />
                       <span className="hidden sm:inline">Place Order via WhatsApp</span>
                       <span className="sm:hidden">Place Order</span>
                     </>

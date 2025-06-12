@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Loader2, History, Search, Filter, X } from "lucide-react";
+import { Loader2, History, Search, Filter, X, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
 
 interface InventoryHistoryItem {
@@ -60,24 +60,32 @@ export default function InventoryHistoryModal({
   const [changeTypeFilter, setChangeTypeFilter] = useState<string>("all");
 
   // Fetch inventory history
-  const { data: historyData, isLoading, error } = useQuery<InventoryHistoryItem[]>({
+  const { data: historyData, isLoading, error, refetch } = useQuery<InventoryHistoryItem[]>({
     queryKey: ["inventory-history", inventoryId, productId],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (inventoryId) params.append("inventoryId", inventoryId.toString());
       if (productId) params.append("productId", productId.toString());
-      
+      // Fetch up to 500 records for modal
+      params.append("limit", "500");
+
       const response = await fetch(`/api/inventory/history?${params.toString()}`, {
         credentials: "include",
       });
-      
+
       if (!response.ok) {
         throw new Error("Failed to fetch inventory history");
       }
-      
-      return response.json();
+
+      const data = await response.json();
+      console.log(`Fetched ${data.length} inventory history records for modal`);
+      return data;
     },
     enabled: isOpen,
+    staleTime: 0, // Always fetch fresh data
+    cacheTime: 1000 * 60 * 5, // Cache for 5 minutes
+    refetchOnWindowFocus: true,
+    refetchOnMount: true,
   });
 
   // Filter history data based on search and filters
@@ -138,13 +146,27 @@ export default function InventoryHistoryModal({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-6xl max-h-[80vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <History className="h-5 w-5" />
-            {title}
-          </DialogTitle>
-          <DialogDescription>
-            View the complete history of changes for this inventory item or product.
-          </DialogDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <DialogTitle className="flex items-center gap-2">
+                <History className="h-5 w-5" />
+                {title}
+              </DialogTitle>
+              <DialogDescription>
+                View the complete history of changes for this inventory item or product.
+              </DialogDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={isLoading}
+              className="flex items-center gap-2"
+            >
+              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
         </DialogHeader>
 
         {/* Filters */}

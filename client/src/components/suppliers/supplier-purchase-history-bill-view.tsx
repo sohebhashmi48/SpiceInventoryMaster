@@ -110,67 +110,9 @@ export default function SupplierPurchaseHistoryBillView({ supplierId, onPaymentC
       new Date(b.date).getTime() - new Date(a.date).getTime()
     );
 
-    // Determine payment status for each bill
-    bills.forEach(bill => {
-      // Debug logging
-      console.log(`Processing bill ${bill.billNo} (Purchase ID: ${bill.purchaseId})`);
-      console.log('Available payments:', payments);
-
-      // Check if this purchase has any direct payments (from purchase creation)
-      const directPayments = payments?.filter(payment => {
-        const notes = payment.notes?.toLowerCase() || '';
-        const billNoLower = bill.billNo.toLowerCase();
-
-        const matchesPurchaseId = notes.includes(`purchase #${bill.purchaseId}`);
-        const matchesBillNo = notes.includes(billNoLower);
-        const hasDirectPurchaseId = payment.purchaseId === bill.purchaseId;
-
-        console.log(`Payment ${payment.id}: notes="${payment.notes}", matches purchase ID: ${matchesPurchaseId}, matches bill no: ${matchesBillNo}, direct purchase ID: ${hasDirectPurchaseId}`);
-
-        return matchesPurchaseId || matchesBillNo || hasDirectPurchaseId;
-      }) || [];
-
-      console.log(`Found ${directPayments.length} direct payments for bill ${bill.billNo}:`, directPayments);
-
-      // Calculate total direct payments for this bill
-      const totalDirectPayments = directPayments.reduce((sum, payment) =>
-        sum + parseFloat(payment.amount?.toString() || '0'), 0
-      );
-
-      console.log(`Total direct payments: ${totalDirectPayments}, Bill amount: ${bill.totalAmount}`);
-
-      // If direct payments cover the bill amount, mark as paid
-      if (totalDirectPayments >= bill.totalAmount) {
-        bill.status = 'paid';
-        console.log(`Bill ${bill.billNo} marked as PAID (direct payments cover amount)`);
-      } else {
-        // For bills without direct payments, use a heuristic based on supplier balance
-        // If supplier has no outstanding balance and this is an older bill, likely paid
-        const supplierBalanceDue = parseFloat(supplier?.balanceDue?.toString() || '0');
-        const billDate = new Date(bill.date);
-        const daysSinceBill = Math.floor((Date.now() - billDate.getTime()) / (1000 * 60 * 60 * 24));
-
-        console.log(`Supplier balance due: ${supplierBalanceDue}, Days since bill: ${daysSinceBill}`);
-
-        // If supplier has no balance due and bill is older than 7 days, consider it paid
-        // This handles cases where payments were made but not specifically linked to bills
-        if (supplierBalanceDue === 0 && daysSinceBill > 7) {
-          bill.status = 'paid';
-          console.log(`Bill ${bill.billNo} marked as PAID (no supplier balance + old bill)`);
-        } else if (totalDirectPayments > 0) {
-          // If there are some payments but not enough, mark as partially paid
-          bill.status = 'partial';
-          console.log(`Bill ${bill.billNo} marked as PARTIAL`);
-        } else {
-          bill.status = 'unpaid';
-          console.log(`Bill ${bill.billNo} marked as UNPAID`);
-        }
-      }
-    });
-
-    console.log('Final bills with status:', bills);
+    console.log('Final bills:', bills);
     return bills;
-  }, [purchaseItems, payments, supplier?.balanceDue]);
+  }, [purchaseItems]);
 
   // Toggle bill expansion
   const toggleBill = (purchaseId: number) => {

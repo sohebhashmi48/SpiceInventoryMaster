@@ -20,7 +20,21 @@ export default function PaymentRemindersPage() {
     },
   });
 
-  // Fetch distributions for pending bills count
+  // Fetch caterers for pending amounts count
+  const { data: caterers } = useQuery<any[]>({
+    queryKey: ['caterers'],
+    queryFn: async () => {
+      const response = await fetch('/api/caterers', {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch caterers');
+      }
+      return response.json();
+    },
+  });
+
+  // Fetch distributions for paid this month count
   const { data: distributions } = useQuery<Distribution[]>({
     queryKey: ['distributions'],
     queryFn: async () => {
@@ -36,7 +50,7 @@ export default function PaymentRemindersPage() {
 
   // Calculate stats
   const activeRemindersCount = paymentReminders?.length || 0;
-  const pendingBillsCount = distributions?.filter(dist => Number(dist.balanceDue) > 0).length || 0;
+  const caterersWithPendingCount = caterers?.filter(caterer => Number(caterer.pendingAmount || 0) > 0).length || 0;
   const paidThisMonthCount = distributions?.filter(dist => {
     const distributionDate = new Date(dist.distributionDate);
     const currentMonth = new Date().getMonth();
@@ -77,9 +91,9 @@ export default function PaymentRemindersPage() {
             <div className="bg-gradient-to-r from-orange-50 to-orange-100 p-4 rounded-lg border border-orange-200">
               <div className="flex items-center space-x-2">
                 <AlertTriangle className="h-5 w-5 text-orange-600" />
-                <span className="text-sm font-medium text-orange-900">Pending Bills</span>
+                <span className="text-sm font-medium text-orange-900">Caterers with Pending</span>
               </div>
-              <p className="text-2xl font-bold text-orange-700 mt-1">{pendingBillsCount}</p>
+              <p className="text-2xl font-bold text-orange-700 mt-1">{caterersWithPendingCount}</p>
             </div>
             <div className="bg-gradient-to-r from-green-50 to-green-100 p-4 rounded-lg border border-green-200">
               <div className="flex items-center space-x-2">

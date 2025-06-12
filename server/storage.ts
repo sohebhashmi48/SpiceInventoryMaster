@@ -113,7 +113,7 @@ export interface IStorage {
   getInventoryAnalytics(): Promise<any>;
 
   // Inventory history management
-  getInventoryHistory(inventoryId?: number, productId?: number): Promise<any[]>;
+  getInventoryHistory(inventoryId?: number, productId?: number, limit?: number, offset?: number): Promise<any[]>;
   createInventoryHistoryEntry(entry: any): Promise<any>;
 
   // Invoice management
@@ -131,7 +131,13 @@ export interface IStorage {
   getTransaction(id: number): Promise<Transaction | undefined>;
   getTransactions(): Promise<Transaction[]>;
   createTransaction(transaction: InsertTransaction): Promise<Transaction>;
-  getTransactionsBySupplier(supplierId: number, type?: string): Promise<Transaction[]>;
+  getTransactionsBySupplier(supplierId: number, options?: {
+    type?: string;
+    page?: number;
+    limit?: number;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{ data: Transaction[]; pagination: any }>;
 
   // Alerts
   getAlert(id: number): Promise<Alert | undefined>;
@@ -145,6 +151,16 @@ export interface IStorage {
   getPurchases(): Promise<Purchase[]>;
   createPurchase(purchase: PurchaseWithItems): Promise<Purchase>;
   deletePurchase(id: number): Promise<boolean>;
+  getAllPurchaseHistory(options?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    supplierId?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{ data: any[]; pagination: any }>;
+  getSupplierPurchaseHistory(supplierId: number): Promise<any[]>;
+  getProductPurchaseHistory(supplierId: number, productName: string): Promise<any[]>;
 
   // Caterer management
   getCaterer(id: number): Promise<Caterer | undefined>;
@@ -157,6 +173,7 @@ export interface IStorage {
   getDistribution(id: number): Promise<Distribution | undefined>;
   getDistributions(): Promise<Distribution[]>;
   createDistribution(distribution: DistributionWithItems): Promise<Distribution>;
+  updateDistribution(id: number, updates: Partial<Distribution>): Promise<Distribution | undefined>;
   updateDistributionStatus(id: number, status: string): Promise<Distribution | undefined>;
   getDistributionsByCaterer(catererId: number): Promise<Distribution[]>;
   deleteDistribution(id: number): Promise<boolean>;
@@ -1321,9 +1338,53 @@ export class MemStorage implements IStorage {
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
 
-            // Execute all inserts
+            // Execute all inserts and create history entries
             for (const params of inventoryInserts) {
-              await inventoryStmt.execute(params);
+              const result = await inventoryStmt.execute(params);
+              console.log(`Inventory insert result:`, result);
+
+              // Handle different result structures
+              let inventoryId;
+              if (result && typeof result === 'object') {
+                if (Array.isArray(result) && result.length > 0) {
+                  inventoryId = result[0].insertId;
+                } else if (result.insertId) {
+                  inventoryId = result.insertId;
+                } else if ((result as any).insertId) {
+                  inventoryId = (result as any).insertId;
+                }
+              }
+
+              console.log(`Extracted inventory ID: ${inventoryId}`);
+
+              // Only create history if we have a valid inventory ID
+              if (inventoryId) {
+                try {
+                  console.log(`Attempting to create inventory history entry for inventory ID ${inventoryId}`);
+
+                  // Create history entry using the same connection to avoid transaction issues
+                  const historyResult = await conn.execute(
+                    `INSERT INTO inventory_history (
+                      inventory_id, product_id, supplier_id, change_type,
+                      quantity_before, quantity_after, reason, user_name, created_at
+                    ) VALUES (?, ?, ?, 'created', ?, ?, ?, 'system', NOW())`,
+                    [
+                      inventoryId,
+                      params[0], // product_id
+                      params[1], // supplier_id
+                      0, // quantity_before
+                      params[3], // quantity_after
+                      `Inventory created from purchase #${purchaseId}`
+                    ]
+                  );
+                  console.log(`✅ Successfully created inventory history entry for inventory ID ${inventoryId}`);
+                } catch (historyError) {
+                  console.error(`❌ Failed to create inventory history entry for inventory ID ${inventoryId}:`, historyError);
+                }
+              } else {
+                console.error(`❌ Could not extract inventory ID from result, skipping history entry`);
+                console.error(`Result structure:`, JSON.stringify(result, null, 2));
+              }
             }
 
             // Close the prepared statement
@@ -2054,6 +2115,8 @@ export class MemStorage implements IStorage {
           paymentMode: dist.payment_mode,
           paymentDate: dist.payment_date,
           balanceDue: dist.balance_due,
+          nextPaymentDate: dist.next_payment_date,
+          reminderDate: dist.reminder_date,
           notes: dist.notes,
           status: dist.status,
           createdAt: dist.created_at,
@@ -2119,6 +2182,8 @@ export class MemStorage implements IStorage {
         paymentMode: dist.payment_mode,
         paymentDate: dist.payment_date,
         balanceDue: dist.balance_due,
+        nextPaymentDate: dist.next_payment_date,
+        reminderDate: dist.reminder_date,
         notes: dist.notes,
         status: dist.status,
         createdAt: dist.created_at,
@@ -2237,6 +2302,8 @@ export class MemStorage implements IStorage {
           paymentMode: dist.payment_mode,
           paymentDate: dist.payment_date,
           balanceDue: dist.balance_due,
+          nextPaymentDate: dist.next_payment_date,
+          reminderDate: dist.reminder_date,
           notes: dist.notes,
           status: dist.status,
           createdAt: dist.created_at,
@@ -2280,18 +2347,33 @@ export class MemStorage implements IStorage {
               payment_mode VARCHAR(50),
               payment_date TIMESTAMP NULL,
               balance_due DECIMAL(10,2) NOT NULL DEFAULT 0,
+              next_payment_date TIMESTAMP NULL,
+              reminder_date TIMESTAMP NULL,
               notes TEXT,
               status VARCHAR(50) NOT NULL DEFAULT 'active',
               created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
           `);
           console.log("Distributions table created successfully");
+        } else {
+          // Check if next_payment_date and reminder_date columns exist
+          const [nextPaymentCol] = await conn.execute(`SHOW COLUMNS FROM distributions LIKE 'next_payment_date'`);
+          if ((nextPaymentCol as any[]).length === 0) {
+            console.log("Adding next_payment_date column to distributions table");
+            await conn.execute(`ALTER TABLE distributions ADD COLUMN next_payment_date TIMESTAMP NULL`);
+          }
+
+          const [reminderCol] = await conn.execute(`SHOW COLUMNS FROM distributions LIKE 'reminder_date'`);
+          if ((reminderCol as any[]).length === 0) {
+            console.log("Adding reminder_date column to distributions table");
+            await conn.execute(`ALTER TABLE distributions ADD COLUMN reminder_date TIMESTAMP NULL`);
+          }
         }
 
-        // Check if distribution_items table exists
+        // Check if distribution_items table exists and create it if it doesn't
         const [itemTables] = await conn.execute(`SHOW TABLES LIKE 'distribution_items'`);
         if ((itemTables as any[]).length === 0) {
-          console.log("Distribution_items table doesn't exist, creating it...");
+          console.log("Creating distribution_items table with correct schema...");
           await conn.execute(`
             CREATE TABLE distribution_items (
               id INT AUTO_INCREMENT PRIMARY KEY,
@@ -2327,6 +2409,68 @@ export class MemStorage implements IStorage {
             )
           `);
           console.log("Caterer_payments table created successfully");
+        }
+
+        // Check if payment_reminders table exists and recreate with correct schema
+        const [reminderTables] = await conn.execute(`SHOW TABLES LIKE 'payment_reminders'`);
+        if ((reminderTables as any[]).length > 0) {
+          console.log("Payment_reminders table exists, checking schema...");
+
+          // Check if required columns exist
+          const [columns] = await conn.execute(`DESCRIBE payment_reminders`);
+          const columnNames = (columns as any[]).map(col => col.Field);
+
+          const requiredColumns = ['original_due_date', 'notes', 'is_read', 'is_acknowledged'];
+          const missingColumns = requiredColumns.filter(col => !columnNames.includes(col));
+
+          if (missingColumns.length > 0) {
+            console.log(`Payment_reminders table missing columns: ${missingColumns.join(', ')}`);
+            console.log("Dropping and recreating payment_reminders table with correct schema...");
+            await conn.execute(`DROP TABLE payment_reminders`);
+
+            await conn.execute(`
+              CREATE TABLE payment_reminders (
+                id VARCHAR(36) PRIMARY KEY,
+                caterer_id INT NOT NULL,
+                distribution_id INT,
+                amount DECIMAL(10,2) NOT NULL,
+                original_due_date TIMESTAMP NOT NULL,
+                reminder_date TIMESTAMP NOT NULL,
+                next_reminder_date TIMESTAMP,
+                status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                is_read BOOLEAN NOT NULL DEFAULT FALSE,
+                is_acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
+                acknowledged_at TIMESTAMP NULL,
+                notes TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+              )
+            `);
+            console.log("Payment_reminders table recreated with correct schema");
+          } else {
+            console.log("Payment_reminders table has correct schema");
+          }
+        } else {
+          console.log("Payment_reminders table doesn't exist, creating it...");
+          await conn.execute(`
+            CREATE TABLE payment_reminders (
+              id VARCHAR(36) PRIMARY KEY,
+              caterer_id INT NOT NULL,
+              distribution_id INT,
+              amount DECIMAL(10,2) NOT NULL,
+              original_due_date TIMESTAMP NOT NULL,
+              reminder_date TIMESTAMP NOT NULL,
+              next_reminder_date TIMESTAMP,
+              status VARCHAR(50) NOT NULL DEFAULT 'pending',
+              is_read BOOLEAN NOT NULL DEFAULT FALSE,
+              is_acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
+              acknowledged_at TIMESTAMP NULL,
+              notes TEXT,
+              created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+          `);
+          console.log("Payment_reminders table created successfully");
         }
 
         // Sanitize and validate the bill number
@@ -2365,6 +2509,8 @@ export class MemStorage implements IStorage {
         const balanceDue = distribution.balanceDue ? parseFloat(distribution.balanceDue) : 0;
         const status = distribution.status || 'active';
         const notes = distribution.notes || null;
+        const nextPaymentDate = distribution.nextPaymentDate ? new Date(distribution.nextPaymentDate) : null;
+        const reminderDate = distribution.reminderDate ? new Date(distribution.reminderDate) : null;
 
         console.log("Sanitized parameters:", {
           billNo,
@@ -2377,7 +2523,9 @@ export class MemStorage implements IStorage {
           paymentMode,
           balanceDue,
           status,
-          notes
+          notes,
+          nextPaymentDate,
+          reminderDate
         });
 
         // Check if the distributions table has a receipt_image column
@@ -2415,8 +2563,10 @@ export class MemStorage implements IStorage {
                 balance_due,
                 status,
                 notes,
+                next_payment_date,
+                reminder_date,
                 receipt_image
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `
             : `
               INSERT INTO distributions (
@@ -2430,8 +2580,10 @@ export class MemStorage implements IStorage {
                 payment_mode,
                 balance_due,
                 status,
-                notes
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                notes,
+                next_payment_date,
+                reminder_date
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
           hasReceiptImageColumn
             ? [
@@ -2446,6 +2598,8 @@ export class MemStorage implements IStorage {
                 balanceDue,
                 status,
                 notes,
+                nextPaymentDate,
+                reminderDate,
                 receiptImage
               ]
             : [
@@ -2459,7 +2613,9 @@ export class MemStorage implements IStorage {
                 paymentMode,
                 balanceDue,
                 status,
-                notes
+                notes,
+                nextPaymentDate,
+                reminderDate
               ]
         );
 
@@ -2475,7 +2631,9 @@ export class MemStorage implements IStorage {
 
         // Insert distribution items
         if (distribution.items && Array.isArray(distribution.items)) {
+          console.log(`=== DISTRIBUTION ITEMS DEBUG ===`);
           console.log(`Processing ${distribution.items.length} distribution items`);
+          console.log(`Items received:`, JSON.stringify(distribution.items, null, 2));
 
           for (const item of distribution.items) {
             console.log("Processing item:", item);
@@ -2655,6 +2813,8 @@ export class MemStorage implements IStorage {
           paymentMode: dbDistribution.payment_mode,
           paymentDate: dbDistribution.payment_date,
           balanceDue: dbDistribution.balance_due,
+          nextPaymentDate: dbDistribution.next_payment_date,
+          reminderDate: dbDistribution.reminder_date,
           notes: dbDistribution.notes,
           status: dbDistribution.status,
           createdAt: dbDistribution.created_at,
@@ -2680,6 +2840,63 @@ export class MemStorage implements IStorage {
           throw new Error(`Failed to create distribution: Unknown error`);
         }
       }
+    } finally {
+      conn.release();
+    }
+  }
+
+  async updateDistribution(id: number, updates: Partial<Distribution>): Promise<Distribution | undefined> {
+    const conn = await pool.getConnection();
+    try {
+      console.log(`Updating distribution ${id} with:`, updates);
+
+      // Check if distributions table exists
+      const [tables] = await conn.execute(`SHOW TABLES LIKE 'distributions'`);
+      if ((tables as any[]).length === 0) {
+        console.log("Distributions table doesn't exist yet");
+        return undefined;
+      }
+
+      // Build dynamic update query
+      const updateFields = [];
+      const updateValues = [];
+
+      if (updates.amountPaid !== undefined) {
+        updateFields.push('amount_paid = ?');
+        updateValues.push(parseFloat(updates.amountPaid.toString()));
+      }
+      if (updates.balanceDue !== undefined) {
+        updateFields.push('balance_due = ?');
+        updateValues.push(parseFloat(updates.balanceDue.toString()));
+      }
+      if (updates.status !== undefined) {
+        updateFields.push('status = ?');
+        updateValues.push(updates.status);
+      }
+      if (updates.paymentMode !== undefined) {
+        updateFields.push('payment_mode = ?');
+        updateValues.push(updates.paymentMode);
+      }
+      if (updates.notes !== undefined) {
+        updateFields.push('notes = ?');
+        updateValues.push(updates.notes);
+      }
+
+      if (updateFields.length === 0) {
+        console.log("No fields to update");
+        return this.getDistribution(id);
+      }
+
+      updateValues.push(id);
+
+      const query = `UPDATE distributions SET ${updateFields.join(', ')} WHERE id = ?`;
+      await conn.execute(query, updateValues);
+
+      // Get the updated distribution
+      return this.getDistribution(id);
+    } catch (error) {
+      console.error(`Error updating distribution with ID ${id}:`, error);
+      return undefined;
     } finally {
       conn.release();
     }
@@ -3030,12 +3247,17 @@ export class MemStorage implements IStorage {
         // Validate and sanitize all parameters
         const catererId = payment.catererId;
         const distributionId = payment.distributionId || null;
-        const amount = payment.amount.toString();
+        const amount = parseFloat(payment.amount.toString());
         const paymentDate = payment.paymentDate ? new Date(payment.paymentDate) : new Date();
         const paymentMode = payment.paymentMode;
         const referenceNo = payment.referenceNo || null;
         const notes = payment.notes || null;
         const receiptImage = payment.receiptImage || null;
+
+        // Validate amount is a valid number
+        if (isNaN(amount) || amount <= 0) {
+          throw new Error(`Invalid payment amount: ${payment.amount}`);
+        }
 
         // Insert the payment
         const [result] = await conn.execute(`
@@ -3071,32 +3293,58 @@ export class MemStorage implements IStorage {
           WHERE id = ?
         `, [amount, amount, catererId]);
 
-        // If this payment is for a distribution, update the distribution's amount_paid and balance_due
+        // Manually update distribution balance and status to ensure consistency
         if (distributionId) {
-          // Get the current distribution
-          const [distributionRows] = await conn.execute(`
-            SELECT * FROM distributions WHERE id = ?
+          console.log(`Payment recorded for distribution ${distributionId}. Updating balance and status...`);
+
+          // Get current distribution data BEFORE calculating payments
+          const [distRows] = await conn.execute(`
+            SELECT grand_total, amount_paid, balance_due, status, bill_no
+            FROM distributions
+            WHERE id = ?
           `, [distributionId]);
 
-          const distribution = (distributionRows as any[])[0];
+          if ((distRows as any[]).length > 0) {
+            const distribution = (distRows as any[])[0];
 
-          if (distribution) {
-            const currentAmountPaid = parseFloat(distribution.amount_paid) || 0;
-            const grandTotal = parseFloat(distribution.grand_total) || 0;
-            const newAmountPaid = parseFloat(currentAmountPaid) + parseFloat(amount);
-            const newBalanceDue = Math.max(0, grandTotal - newAmountPaid);
-            const newStatus = newBalanceDue <= 0 ? 'paid' : 'partial';
+            // Calculate total payments for this distribution INCLUDING the current payment
+            const [paymentRows] = await conn.execute(`
+              SELECT COALESCE(SUM(amount), 0) as total_paid, COUNT(*) as payment_count
+              FROM caterer_payments
+              WHERE distribution_id = ?
+            `, [distributionId]);
 
-            console.log(`Updating distribution ${distributionId}:`, {
-              currentAmountPaid,
+            const totalPaid = parseFloat((paymentRows as any[])[0].total_paid || '0');
+            const paymentCount = parseInt((paymentRows as any[])[0].payment_count || '0');
+            const grandTotal = parseFloat(distribution.grand_total || '0');
+            const newBalanceDue = Math.max(0, grandTotal - totalPaid);
+
+            // Determine new status
+            let newStatus = 'active';
+            if (newBalanceDue <= 0) {
+              newStatus = 'paid';
+            } else if (totalPaid > 0) {
+              newStatus = 'partial';
+            }
+
+            console.log(`Distribution ${distributionId} (${distribution.bill_no}) payment calculation:`, {
               grandTotal,
-              paymentAmount: amount,
-              newAmountPaid,
+              totalPaid,
               newBalanceDue,
-              newStatus
+              newStatus,
+              oldStatus: distribution.status,
+              paymentCount,
+              currentPaymentAmount: amount,
+              oldAmountPaid: parseFloat(distribution.amount_paid || '0'),
+              oldBalanceDue: parseFloat(distribution.balance_due || '0')
             });
 
-            // Update the distribution
+            // Verify the calculation is correct
+            if (totalPaid > grandTotal) {
+              console.error(`ERROR: Total paid (${totalPaid}) exceeds grand total (${grandTotal}) for distribution ${distributionId}`);
+            }
+
+            // Update the distribution with correct values
             await conn.execute(`
               UPDATE distributions
               SET
@@ -3104,30 +3352,34 @@ export class MemStorage implements IStorage {
                 balance_due = ?,
                 status = ?
               WHERE id = ?
-            `, [
-              newAmountPaid,
-              newBalanceDue,
-              newStatus,
-              distributionId
-            ]);
+            `, [totalPaid, newBalanceDue, newStatus, distributionId]);
 
-            // Always check and remove payment reminders for distributions that are paid or have no balance
-            if (newStatus === 'paid' || newBalanceDue <= 0) {
-              console.log(`Distribution ${distributionId} is now fully paid (status: ${newStatus}, balance: ${newBalanceDue}), removing payment reminders`);
-              const deleteResult = await conn.execute(`
+            // Verify the update was successful
+            const [verifyRows] = await conn.execute(`
+              SELECT amount_paid, balance_due, status
+              FROM distributions
+              WHERE id = ?
+            `, [distributionId]);
+
+            if ((verifyRows as any[]).length > 0) {
+              const updated = (verifyRows as any[])[0];
+              console.log(`Distribution ${distributionId} updated successfully:`, {
+                updatedAmountPaid: parseFloat(updated.amount_paid || '0'),
+                updatedBalanceDue: parseFloat(updated.balance_due || '0'),
+                updatedStatus: updated.status
+              });
+            }
+
+            // If the bill is now fully paid, remove any existing payment reminders
+            if (newBalanceDue <= 0) {
+              console.log(`Distribution ${distributionId} is now fully paid, removing payment reminders`);
+              await conn.execute(`
                 DELETE FROM payment_reminders
                 WHERE distribution_id = ?
               `, [distributionId]);
-              console.log(`Deleted ${(deleteResult as any)[0].affectedRows} payment reminders for distribution ${distributionId}`);
+            } else {
+              console.log(`Distribution ${distributionId} still has balance due: ${newBalanceDue}, keeping reminders`);
             }
-
-            // Also clean up any orphaned reminders for this distribution
-            await conn.execute(`
-              DELETE FROM payment_reminders
-              WHERE distribution_id = ? AND (
-                SELECT status FROM distributions WHERE id = ?
-              ) = 'paid'
-            `, [distributionId, distributionId]);
           }
         }
 
@@ -3459,27 +3711,87 @@ export class MemStorage implements IStorage {
     }
   }
 
-  async getAllPurchaseHistory(): Promise<any[]> {
+  async getAllPurchaseHistory(options: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    supplierId?: string;
+    startDate?: string;
+    endDate?: string;
+  } = {}): Promise<{ data: any[]; pagination: any }> {
     const conn = await pool.getConnection();
     try {
-      console.log("Getting all purchase history");
+      const { page = 1, limit = 10, search, supplierId, startDate, endDate } = options;
+
+      // Ensure page and limit are proper numbers
+      const pageNum = typeof page === 'number' ? page : parseInt(String(page)) || 1;
+      const limitNum = typeof limit === 'number' ? limit : parseInt(String(limit)) || 10;
+      const offset = (pageNum - 1) * limitNum;
+
+      console.log("Pagination params:", { page, limit, pageNum, limitNum, offset });
+      console.log("Pagination param types:", {
+        pageType: typeof pageNum,
+        limitType: typeof limitNum,
+        offsetType: typeof offset
+      });
+
+      console.log("Getting all purchase history with options:", { pageNum, limitNum, offset, search, supplierId, startDate, endDate });
 
       // First, check if the purchases table exists
       try {
         const [tables] = await conn.execute(`SHOW TABLES LIKE 'purchases'`);
         if ((tables as any[]).length === 0) {
           console.log("Purchases table doesn't exist yet");
-          return [];
+          return { data: [], pagination: { page: pageNum, limit: limitNum, total: 0, totalPages: 0 } };
         }
 
         // Check if purchase_items table exists
         const [itemTables] = await conn.execute(`SHOW TABLES LIKE 'purchase_items'`);
         if ((itemTables as any[]).length === 0) {
           console.log("Purchase_items table doesn't exist yet");
-          return [];
+          return { data: [], pagination: { page: pageNum, limit: limitNum, total: 0, totalPages: 0 } };
         }
 
-        // Get all purchases with detailed information
+        // Build WHERE clause for filtering
+        let whereClause = 'WHERE 1=1';
+        const params: any[] = [];
+
+        if (supplierId && supplierId !== 'all') {
+          whereClause += ' AND p.supplier_id = ?';
+          params.push(parseInt(supplierId));
+        }
+
+        if (startDate) {
+          whereClause += ' AND DATE(p.purchase_date) >= ?';
+          params.push(startDate);
+        }
+
+        if (endDate) {
+          whereClause += ' AND DATE(p.purchase_date) <= ?';
+          params.push(endDate);
+        }
+
+        if (search) {
+          whereClause += ' AND (s.name LIKE ? OR p.bill_no LIKE ? OR pi.item_name LIKE ?)';
+          const searchPattern = `%${search}%`;
+          params.push(searchPattern, searchPattern, searchPattern);
+        }
+
+        // Get total count for pagination
+        const countQuery = `
+          SELECT COUNT(DISTINCT p.id) as total
+          FROM purchases p
+          JOIN purchase_items pi ON p.id = pi.purchase_id
+          LEFT JOIN suppliers s ON p.supplier_id = s.id
+          ${whereClause}
+        `;
+
+        const [countRows] = await conn.execute(countQuery, params);
+        const total = (countRows as any[])[0].total;
+
+        // Get purchases with detailed information and pagination
+        // Use string interpolation for LIMIT and OFFSET since they are safe integers
+        // This avoids mysql2 prepared statement parameter issues
         const query = `
           SELECT
             p.id as purchaseId,
@@ -3511,11 +3823,15 @@ export class MemStorage implements IStorage {
           FROM purchases p
           JOIN purchase_items pi ON p.id = pi.purchase_id
           LEFT JOIN suppliers s ON p.supplier_id = s.id
+          ${whereClause}
           ORDER BY p.purchase_date DESC, p.id DESC
+          LIMIT ${limitNum} OFFSET ${offset}
         `;
 
         console.log("Executing query:", query);
-        const [rows] = await conn.execute(query);
+        console.log("Query parameters:", params);
+        console.log("Parameter types:", params.map(p => typeof p));
+        const [rows] = await conn.execute(query, params);
 
         // Transform the data to include proper types
         const result = (rows as any[]).map(row => ({
@@ -3547,8 +3863,17 @@ export class MemStorage implements IStorage {
           totalAmount: parseFloat(row.totalAmount)
         }));
 
-        console.log(`Retrieved ${result.length} purchase history records`);
-        return result;
+        console.log(`Retrieved ${result.length} purchase history records out of ${total} total`);
+
+        return {
+          data: result,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total,
+            totalPages: Math.ceil(total / limitNum),
+          }
+        };
       } catch (error) {
         console.error("Error in getAllPurchaseHistory:", error);
         throw error;
@@ -4874,20 +5199,52 @@ export class MemStorage implements IStorage {
     }
   }
 
-  async getTransactionsBySupplier(supplierId: number, type?: string): Promise<Transaction[]> {
+  async getTransactionsBySupplier(supplierId: number, options: {
+    type?: string;
+    page?: number;
+    limit?: number;
+    startDate?: string;
+    endDate?: string;
+  } = {}): Promise<{ data: Transaction[]; pagination: any }> {
     const conn = await pool.getConnection();
     try {
-      let query = `SELECT * FROM transactions WHERE supplier_id = ?`;
+      const { type, page = 1, limit = 10, startDate, endDate } = options;
+
+      // Ensure page and limit are proper numbers
+      const pageNum = typeof page === 'number' ? page : parseInt(String(page)) || 1;
+      const limitNum = typeof limit === 'number' ? limit : parseInt(String(limit)) || 10;
+      const offset = (pageNum - 1) * limitNum;
+
+      let whereClause = `WHERE supplier_id = ?`;
       const params = [supplierId];
 
       if (type) {
-        query += ` AND type = ?`;
+        whereClause += ` AND type = ?`;
         params.push(type as any);
       }
 
-      query += ` ORDER BY transaction_date DESC`;
+      if (startDate) {
+        whereClause += ` AND DATE(transaction_date) >= ?`;
+        params.push(startDate);
+      }
 
-      const [rows] = await conn.execute(query, params);
+      if (endDate) {
+        whereClause += ` AND DATE(transaction_date) <= ?`;
+        params.push(endDate);
+      }
+
+      // Get total count for pagination
+      const [countRows] = await conn.execute(
+        `SELECT COUNT(*) as total FROM transactions ${whereClause}`,
+        params
+      );
+      const total = (countRows as any[])[0].total;
+
+      // Get transactions with pagination
+      const [rows] = await conn.execute(
+        `SELECT * FROM transactions ${whereClause} ORDER BY transaction_date DESC LIMIT ? OFFSET ?`,
+        [...params, limitNum, offset]
+      );
 
       // Map database fields to camelCase for the client
       const transactions = (rows as any[]).map(transaction => {
@@ -4902,7 +5259,15 @@ export class MemStorage implements IStorage {
         };
       });
 
-      return transactions as Transaction[];
+      return {
+        data: transactions as Transaction[],
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum),
+        }
+      };
     } finally {
       conn.release();
     }
@@ -4912,6 +5277,44 @@ export class MemStorage implements IStorage {
   async getPaymentReminders(): Promise<PaymentReminder[]> {
     const conn = await this.getConnection();
     try {
+      // First, do an aggressive cleanup before fetching
+      console.log("Performing aggressive cleanup of payment reminders...");
+
+      // Delete reminders for paid distributions
+      const cleanupResult1 = await conn.execute(`
+        DELETE pr FROM payment_reminders pr
+        LEFT JOIN distributions d ON pr.distribution_id = d.id
+        WHERE pr.distribution_id IS NOT NULL
+        AND (
+          d.id IS NULL
+          OR d.status = 'paid'
+          OR d.balance_due <= 0
+          OR d.balance_due = '0.00'
+          OR d.balance_due = '0'
+          OR CAST(d.balance_due AS DECIMAL(10,2)) = 0.00
+        )
+      `);
+
+      // Delete general reminders for caterers with no pending bills
+      const cleanupResult2 = await conn.execute(`
+        DELETE pr FROM payment_reminders pr
+        WHERE pr.distribution_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM distributions d
+          WHERE d.caterer_id = pr.caterer_id
+          AND d.balance_due > 0
+          AND d.balance_due != '0.00'
+          AND d.status IN ('partial', 'pending', 'active')
+        )
+      `);
+
+      const cleaned1 = (cleanupResult1 as any)[0].affectedRows;
+      const cleaned2 = (cleanupResult2 as any)[0].affectedRows;
+
+      if (cleaned1 > 0 || cleaned2 > 0) {
+        console.log(`Aggressive cleanup removed ${cleaned1 + cleaned2} payment reminders`);
+      }
+
       const [rows] = await conn.execute(`
         SELECT * FROM payment_reminders
         ORDER BY reminder_date ASC
@@ -5078,27 +5481,85 @@ export class MemStorage implements IStorage {
     try {
       console.log("Cleaning up payment reminders for paid bills...");
 
-      // First, let's see what reminders exist and their associated distributions
-      const [existingReminders] = await conn.execute(`
-        SELECT pr.id, pr.distribution_id, d.status, d.balance_due, d.bill_no
-        FROM payment_reminders pr
-        INNER JOIN distributions d ON pr.distribution_id = d.id
-      `);
+      // First, let's see what reminders exist and their associated distributions (handle missing columns gracefully)
+      let existingReminders = [];
+      try {
+        const [reminders] = await conn.execute(`
+          SELECT pr.id, pr.distribution_id, pr.caterer_id, d.status, d.balance_due, d.bill_no
+          FROM payment_reminders pr
+          LEFT JOIN distributions d ON pr.distribution_id = d.id
+        `);
+        existingReminders = reminders;
+      } catch (error) {
+        console.warn("Error querying existing reminders (table may not exist or have wrong schema):", error.message);
+        existingReminders = [];
+      }
 
       console.log("Existing payment reminders with distribution status:", existingReminders);
 
+      // Also check for reminders without distribution_id (handle missing columns gracefully)
+      let generalReminders = [];
+      try {
+        const [reminders] = await conn.execute(`
+          SELECT pr.id, pr.distribution_id, pr.caterer_id, pr.amount
+          FROM payment_reminders pr
+          WHERE pr.distribution_id IS NULL
+        `);
+        generalReminders = reminders;
+      } catch (error) {
+        console.warn("Error querying general reminders (table may not exist or have wrong schema):", error.message);
+        generalReminders = [];
+      }
+
+      console.log("General payment reminders (no distribution_id):", generalReminders);
+
       // Delete payment reminders where the associated distribution is fully paid
+      // More aggressive cleanup: remove if balance_due is 0 or negative, OR status is paid
       const result = await conn.execute(`
         DELETE pr FROM payment_reminders pr
         INNER JOIN distributions d ON pr.distribution_id = d.id
-        WHERE d.status = 'paid' OR d.balance_due <= 0
+        WHERE d.status = 'paid'
+           OR d.balance_due <= 0
+           OR d.balance_due IS NULL
+           OR CAST(d.balance_due AS DECIMAL(10,2)) = 0.00
+           OR d.balance_due = '0.00'
+           OR d.balance_due = '0'
+      `);
+
+      // Also delete payment reminders that don't have a distribution_id but the caterer has no pending bills
+      const catererCleanupResult = await conn.execute(`
+        DELETE pr FROM payment_reminders pr
+        WHERE pr.distribution_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM distributions d
+          WHERE d.caterer_id = pr.caterer_id
+          AND (d.balance_due > 0 AND d.balance_due != '0.00' AND d.status IN ('partial', 'pending', 'active'))
+        )
       `);
 
       const deletedCount = (result as any)[0].affectedRows;
+      const catererDeletedCount = (catererCleanupResult as any)[0].affectedRows;
+
       if (deletedCount > 0) {
         console.log(`Cleaned up ${deletedCount} payment reminders for paid bills`);
-      } else {
+      }
+      if (catererDeletedCount > 0) {
+        console.log(`Cleaned up ${catererDeletedCount} payment reminders for caterers with no pending bills`);
+      }
+      if (deletedCount === 0 && catererDeletedCount === 0) {
         console.log("No payment reminders needed cleanup");
+      }
+
+      // Also clean up any orphaned reminders (where distribution no longer exists)
+      const orphanResult = await conn.execute(`
+        DELETE pr FROM payment_reminders pr
+        LEFT JOIN distributions d ON pr.distribution_id = d.id
+        WHERE pr.distribution_id IS NOT NULL AND d.id IS NULL
+      `);
+
+      const orphanDeletedCount = (orphanResult as any)[0].affectedRows;
+      if (orphanDeletedCount > 0) {
+        console.log(`Cleaned up ${orphanDeletedCount} orphaned payment reminders`);
       }
     } catch (error) {
       console.error("Error cleaning up paid bill reminders:", error);
@@ -5357,7 +5818,7 @@ export class MemStorage implements IStorage {
   }
 
   // Inventory history management
-  async getInventoryHistory(inventoryId?: number, productId?: number): Promise<any[]> {
+  async getInventoryHistory(inventoryId?: number, productId?: number, limit?: number, offset?: number): Promise<any[]> {
     const conn = await this.getConnection();
     try {
       // Check if inventory_history table exists
@@ -5396,6 +5857,19 @@ export class MemStorage implements IStorage {
 
       query += ' ORDER BY ih.created_at DESC';
 
+      // Add pagination if specified
+      if (limit !== undefined && limit > 0) {
+        const safeLimit = Math.max(1, Math.min(10000, parseInt(limit.toString()))); // Limit between 1 and 10000
+        query += ` LIMIT ${safeLimit}`;
+
+        if (offset !== undefined && offset > 0) {
+          const safeOffset = Math.max(0, parseInt(offset.toString()));
+          query += ` OFFSET ${safeOffset}`;
+        }
+      }
+
+      console.log("Executing inventory history query:", query);
+      console.log("With parameters:", params);
       const [rows] = await conn.execute(query, params);
 
       // Map database fields to camelCase for the client
@@ -5430,12 +5904,33 @@ export class MemStorage implements IStorage {
   async createInventoryHistoryEntry(entry: any): Promise<any> {
     const conn = await this.getConnection();
     try {
+      console.log("🔍 createInventoryHistoryEntry called with entry:", entry);
+
       // Check if inventory_history table exists
       const [tables] = await conn.execute(`SHOW TABLES LIKE 'inventory_history'`);
+      console.log("📋 Inventory history table check result:", (tables as any[]).length > 0 ? "EXISTS" : "NOT EXISTS");
+
       if ((tables as any[]).length === 0) {
-        console.log("Inventory history table doesn't exist, skipping history entry");
+        console.log("❌ Inventory history table doesn't exist, skipping history entry");
         return null;
       }
+
+      const insertParams = [
+        entry.inventoryId,
+        entry.productId,
+        entry.supplierId,
+        entry.changeType,
+        entry.fieldChanged || null,
+        entry.oldValue || null,
+        entry.newValue || null,
+        entry.quantityBefore || null,
+        entry.quantityAfter || null,
+        entry.reason || null,
+        entry.userId || null,
+        entry.userName || 'system'
+      ];
+
+      console.log("📝 Executing INSERT with parameters:", insertParams);
 
       const [result] = await conn.execute(
         `INSERT INTO inventory_history (
@@ -5443,27 +5938,25 @@ export class MemStorage implements IStorage {
           field_changed, old_value, new_value, quantity_before,
           quantity_after, reason, user_id, user_name
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          entry.inventoryId,
-          entry.productId,
-          entry.supplierId,
-          entry.changeType,
-          entry.fieldChanged || null,
-          entry.oldValue || null,
-          entry.newValue || null,
-          entry.quantityBefore || null,
-          entry.quantityAfter || null,
-          entry.reason || null,
-          entry.userId || null,
-          entry.userName || 'system'
-        ]
+        insertParams
       );
 
       const id = (result as any).insertId;
+      console.log("✅ Successfully inserted inventory history entry with ID:", id);
+
       const [rows] = await conn.execute('SELECT * FROM inventory_history WHERE id = ?', [id]);
-      return (rows as any[])[0];
+      const createdEntry = (rows as any[])[0];
+      console.log("📄 Created inventory history entry:", createdEntry);
+
+      return createdEntry;
     } catch (error) {
-      console.error("Error creating inventory history entry:", error);
+      console.error("❌ Error creating inventory history entry:", error);
+      console.error("Error details:", {
+        message: error.message,
+        code: error.code,
+        sqlState: error.sqlState,
+        sqlMessage: error.sqlMessage
+      });
       throw error;
     } finally {
       conn.release();
@@ -5482,7 +5975,14 @@ export class MemStorage implements IStorage {
   } = {}): Promise<{ data: CustomerBill[]; pagination: any }> {
     const conn = await this.getConnection();
     try {
-      const { page = 1, limit = 10, offset = 0, search, status, startDate, endDate } = options;
+      const { page = 1, limit = 10, search, status, startDate, endDate } = options;
+
+      // Ensure page and limit are proper numbers with validation
+      const pageNum = Math.max(1, typeof page === 'number' ? page : parseInt(String(page)) || 1);
+      const limitNum = Math.max(1, Math.min(100, typeof limit === 'number' ? limit : parseInt(String(limit)) || 10));
+      const offset = Math.max(0, (pageNum - 1) * limitNum);
+
+      console.log('Customer bills pagination params:', { page, limit, pageNum, limitNum, offset });
 
       // Check if customer_bills table exists
       const [tables] = await conn.execute(`SHOW TABLES LIKE 'customer_bills'`);
@@ -5528,9 +6028,22 @@ export class MemStorage implements IStorage {
       const total = (countResult as any[])[0].total;
 
       // Get bills with pagination
+      // Ensure LIMIT and OFFSET are valid integers for MySQL
+      const limitParam = Math.max(1, Math.min(100, parseInt(String(limitNum)) || 10));
+      const offsetParam = Math.max(0, parseInt(String(offset)) || 0);
+
+      console.log('Executing query with params:', params);
+      console.log('Pagination params:', { limitParam, offsetParam });
+
+      // Validate that we have valid integer parameters
+      if (!Number.isInteger(limitParam) || !Number.isInteger(offsetParam)) {
+        throw new Error(`Invalid pagination parameters: limit=${limitParam}, offset=${offsetParam}`);
+      }
+
+      // Use string interpolation for LIMIT and OFFSET to avoid MySQL parameter issues
       const [rows] = await conn.execute(
-        `SELECT * FROM customer_bills ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-        [...params, limit, offset]
+        `SELECT * FROM customer_bills ${whereClause} ORDER BY created_at DESC LIMIT ${limitParam} OFFSET ${offsetParam}`,
+        params
       );
 
       const bills = (rows as any[]).map(bill => ({
@@ -5554,10 +6067,10 @@ export class MemStorage implements IStorage {
       return {
         data: bills as CustomerBill[],
         pagination: {
-          page,
-          limit,
+          page: pageNum,
+          limit: limitNum,
           total,
-          totalPages: Math.ceil(total / limit),
+          totalPages: Math.ceil(total / limitNum),
         }
       };
     } catch (error) {
@@ -6475,6 +6988,131 @@ export class MemStorage implements IStorage {
     } finally {
       conn.release();
     }
+  }
+
+  // Get payment reminders for notifications
+  async getPaymentReminders(startDate?: string, endDate?: string): Promise<any[]> {
+    const conn = await pool.getConnection();
+
+    try {
+      console.log(`Getting payment reminders between ${startDate} and ${endDate}`);
+
+      // Default date range if not provided
+      const today = new Date().toISOString().split('T')[0];
+      const twoDaysFromNow = new Date();
+      twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
+      const defaultEndDate = twoDaysFromNow.toISOString().split('T')[0];
+
+      const start = startDate || today;
+      const end = endDate || defaultEndDate;
+
+      // Query distributions with pending payments and reminder dates within the range
+      const [rows] = await conn.execute(`
+        SELECT
+          d.id,
+          d.bill_no,
+          d.caterer_id,
+          c.name as caterer_name,
+          d.distribution_date,
+          d.grand_total,
+          d.amount_paid,
+          d.balance_due,
+          d.next_payment_date,
+          d.reminder_date,
+          d.status,
+          d.notes
+        FROM distributions d
+        JOIN caterers c ON d.caterer_id = c.id
+        WHERE d.balance_due > 0
+          AND d.status IN ('partial', 'pending', 'active')
+          AND d.reminder_date IS NOT NULL
+          AND d.reminder_date BETWEEN ? AND ?
+        ORDER BY d.reminder_date ASC, d.balance_due DESC
+      `, [start, end]);
+
+      console.log(`Found ${(rows as any[]).length} payment reminders`);
+
+      // Map database fields to camelCase for the client
+      const reminders = (rows as any[]).map(reminder => ({
+        id: reminder.id,
+        billNo: reminder.bill_no,
+        catererId: reminder.caterer_id,
+        catererName: reminder.caterer_name,
+        distributionDate: reminder.distribution_date,
+        grandTotal: reminder.grand_total,
+        amountPaid: reminder.amount_paid,
+        balanceDue: reminder.balance_due,
+        nextPaymentDate: reminder.next_payment_date,
+        reminderDate: reminder.reminder_date,
+        status: reminder.status,
+        notes: reminder.notes
+      }));
+
+      return reminders;
+    } catch (error) {
+      console.error('Error getting payment reminders:', error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+}
+
+// Standalone function for getting payment reminders (used by notifications API)
+export async function getPaymentReminders(startDate: string, endDate: string): Promise<any[]> {
+  const conn = await pool.getConnection();
+
+  try {
+    console.log(`Getting payment reminders between ${startDate} and ${endDate}`);
+
+    // Query distributions with pending payments and reminder dates within the range
+    const [rows] = await conn.execute(`
+      SELECT
+        d.id,
+        d.bill_no,
+        d.caterer_id,
+        c.name as caterer_name,
+        d.distribution_date,
+        d.grand_total,
+        d.amount_paid,
+        d.balance_due,
+        d.next_payment_date,
+        d.reminder_date,
+        d.status,
+        d.notes
+      FROM distributions d
+      JOIN caterers c ON d.caterer_id = c.id
+      WHERE d.balance_due > 0
+        AND d.status IN ('partial', 'pending', 'active')
+        AND d.reminder_date IS NOT NULL
+        AND d.reminder_date BETWEEN ? AND ?
+      ORDER BY d.reminder_date ASC, d.balance_due DESC
+    `, [startDate, endDate]);
+
+    console.log(`Found ${(rows as any[]).length} payment reminders`);
+
+    // Map database fields to camelCase for the client
+    const reminders = (rows as any[]).map(reminder => ({
+      id: reminder.id,
+      billNo: reminder.bill_no,
+      catererId: reminder.caterer_id,
+      catererName: reminder.caterer_name,
+      distributionDate: reminder.distribution_date,
+      grandTotal: reminder.grand_total,
+      amountPaid: reminder.amount_paid,
+      balanceDue: reminder.balance_due,
+      nextPaymentDate: reminder.next_payment_date,
+      reminderDate: reminder.reminder_date,
+      status: reminder.status,
+      notes: reminder.notes
+    }));
+
+    return reminders;
+  } catch (error) {
+    console.error('Error getting payment reminders:', error);
+    throw error;
+  } finally {
+    conn.release();
   }
 }
 

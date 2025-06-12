@@ -82,24 +82,32 @@ export function clearDismissedNotifications(): void {
 /**
  * Filter notifications based on visibility rules and user interactions
  */
-export function filterVisibleNotifications<T extends { 
-  id: string; 
-  originalDueDate: Date; 
-  isAcknowledged: boolean; 
+export function filterVisibleNotifications<T extends {
+  id: string;
+  originalDueDate: Date;
+  isAcknowledged: boolean;
+  acknowledgedAt?: Date;
 }>(notifications: T[]): T[] {
   const dismissedIds = getDismissedNotifications();
-  
+  const now = new Date();
+
   return notifications.filter(notification => {
-    // Don't show acknowledged notifications
-    if (notification.isAcknowledged) {
-      return false;
+    // Don't show acknowledged notifications that were acknowledged less than 24 hours ago
+    if (notification.isAcknowledged && notification.acknowledgedAt) {
+      const acknowledgedTime = new Date(notification.acknowledgedAt);
+      const hoursSinceAcknowledged = (now.getTime() - acknowledgedTime.getTime()) / (1000 * 60 * 60);
+
+      // Don't show if acknowledged less than 24 hours ago
+      if (hoursSinceAcknowledged < 24) {
+        return false;
+      }
     }
-    
+
     // Don't show dismissed notifications (session-based)
     if (dismissedIds.includes(notification.id)) {
       return false;
     }
-    
+
     // Only show notifications that are exactly 2 days before due date
     const visibility = shouldShowNotification(notification.originalDueDate);
     return visibility.shouldShow;

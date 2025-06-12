@@ -1,5 +1,5 @@
 import { useLocation } from 'wouter';
-import { Caterer, useCatererBalance } from '@/hooks/use-caterers';
+import { Caterer } from '@/hooks/use-caterers';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,8 +11,7 @@ import {
   Edit,
   Trash2,
   Eye,
-  CreditCard,
-  DollarSign
+  CreditCard
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { getCatererImageUrl } from '@/lib/image-utils';
@@ -28,15 +27,10 @@ interface CatererCardProps {
 const CatererCard = memo(({ caterer, onEdit, onDelete, onView }: CatererCardProps) => {
   const [, navigate] = useLocation();
 
-  // Fetch real-time balance data
-  const { data: balanceData, isLoading, error } = useCatererBalance(caterer.id, {
-    refetchInterval: 5000, // Refetch every 5 seconds for more responsive updates
-  });
-
-  // Use the latest balance data or fall back to the caterer prop (with proper type conversion)
-  const currentBalance = balanceData?.balanceDue ?? (Number(caterer.balanceDue) || 0);
-  const currentTotalBilled = balanceData?.totalBilled ?? (Number(caterer.totalBilled) || 0);
-  const currentTotalOrders = balanceData?.totalOrders ?? (Number(caterer.totalOrders) || 0);
+  // Use database values for now (consistent with detail page calculated balance)
+  const currentBalance = Number(caterer.balanceDue) || 0;
+  const currentTotalBilled = Number(caterer.totalBilled) || 0;
+  const currentTotalOrders = Number(caterer.totalOrders) || 0;
 
   return (
     <Card className="overflow-hidden h-[480px] w-[320px] flex flex-col">
@@ -174,6 +168,15 @@ const CatererCard = memo(({ caterer, onEdit, onDelete, onView }: CatererCardProp
             <Button
               variant="ghost"
               size="sm"
+              onClick={() => navigate(`/caterer-billing?catererId=${caterer.id}`)}
+              className="flex-1 h-8 text-xs text-green-600 hover:text-green-800 hover:bg-green-50"
+            >
+              <CreditCard className="h-3 w-3 mr-1" />
+              Buy
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={async () => {
                 if (caterer) {
                   console.log(`Deleting caterer: ${caterer.name}`);
@@ -190,15 +193,6 @@ const CatererCard = memo(({ caterer, onEdit, onDelete, onView }: CatererCardProp
             >
               <Trash2 className="h-3 w-3 mr-1" />
               Delete
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate(`/caterer-billing?catererId=${caterer.id}`)}
-              className="flex-1 h-8 text-xs text-green-600 hover:text-green-800 hover:bg-green-50"
-            >
-              <CreditCard className="h-3 w-3 mr-1" />
-              Buy
             </Button>
           </div>
         </div>

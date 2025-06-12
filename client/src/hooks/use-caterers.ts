@@ -278,3 +278,68 @@ export function useCatererBalance(id: number, options?: { refetchInterval?: numb
     refetchInterval: options?.refetchInterval,
   });
 }
+
+// Sync caterer balance mutation
+export function useSyncCatererBalance() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (catererId: number) => {
+      const response = await apiRequest(`/api/caterers/${catererId}/sync-balance`, {
+        method: 'POST',
+      });
+      return response;
+    },
+    onSuccess: (data, catererId) => {
+      // Invalidate and refetch caterer data
+      queryClient.invalidateQueries({ queryKey: ['caterers'] });
+      queryClient.invalidateQueries({ queryKey: ['caterers', catererId] });
+      queryClient.invalidateQueries({ queryKey: ['caterers', catererId, 'balance'] });
+
+      toast({
+        title: "Balance Synced",
+        description: `Balance updated successfully. New balance: ₹${data.newBalance?.balanceDue?.toLocaleString() || '0'}`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Sync Failed",
+        description: "Failed to sync balance. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+}
+
+// Sync all caterer balances mutation
+export function useSyncAllCatererBalances() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('/api/caterers/sync-all-balances', {
+        method: 'POST',
+      });
+      return response;
+    },
+    onSuccess: (data) => {
+      // Invalidate and refetch all caterer data
+      queryClient.invalidateQueries({ queryKey: ['caterers'] });
+
+      const syncedCount = data.results?.filter((r: any) => r.synced).length || 0;
+      const totalCount = data.results?.length || 0;
+
+      toast({
+        title: "All Balances Synced",
+        description: `Successfully synced ${syncedCount} out of ${totalCount} caterers`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Sync Failed",
+        description: "Failed to sync all balances. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,6 +31,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/use-toast';
 import { Distribution } from '@/hooks/use-distributions';
 import { Caterer } from '@/hooks/use-caterers';
+import PaymentModal from '@/components/caterers/payment-modal';
 
 interface PaymentReminder {
   id: string;
@@ -52,6 +54,7 @@ interface EnhancedPaymentRemindersProps {
 }
 
 export default function EnhancedPaymentReminders({ className }: EnhancedPaymentRemindersProps) {
+  const [, navigate] = useLocation();
   const queryClient = useQueryClient();
 
   // Fetch distributions with pending balances
@@ -86,6 +89,16 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
   const { data: rawPaymentReminders, isLoading: remindersLoading } = useQuery<any[]>({
     queryKey: ['payment-reminders'],
     queryFn: async () => {
+      // First trigger cleanup
+      try {
+        await fetch('/api/payment-reminders/cleanup', {
+          method: 'POST',
+          credentials: 'include',
+        });
+      } catch (error) {
+        console.warn('Cleanup failed, continuing with fetch:', error);
+      }
+
       const response = await fetch('/api/payment-reminders', {
         credentials: 'include',
       });
@@ -122,19 +135,55 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
           isAcknowledged: Boolean(reminder.isAcknowledged)
         }))
         .filter((reminder: any) => {
+          // Check if reminder has a future next reminder date - if so, hide it until that date
+          if (reminder.nextReminderDate) {
+            const nextReminderDate = new Date(reminder.nextReminderDate);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            nextReminderDate.setHours(0, 0, 0, 0);
+
+            // Hide reminder if next reminder date is in the future
+            if (nextReminderDate > today) {
+              console.log(`Hiding reminder ${reminder.id} until next reminder date: ${nextReminderDate.toDateString()}`);
+              return false;
+            }
+          }
+
           // If reminder has a distributionId, check if that distribution is still pending
           if (reminder.distributionId && distributions) {
             const distribution = distributions.find(d => d.id === reminder.distributionId);
             if (distribution) {
               const balanceDue = Number(distribution.balanceDue);
               const status = distribution.status;
-              // Only keep reminder if the distribution still has a balance due
-              return balanceDue > 0 && status !== 'paid';
+
+              // More aggressive filtering: exclude if balance is 0 or negative, or status is paid/cancelled
+              if (balanceDue <= 0 || status === 'paid' || status === 'cancelled') {
+                console.log(`Filtering out reminder for distribution ${distribution.id}: balance=${balanceDue}, status=${status}`);
+                return false;
+              }
+
+              return true;
+            } else {
+              // Distribution not found, filter out this reminder
+              console.log(`Filtering out reminder for non-existent distribution ${reminder.distributionId}`);
+              return false;
             }
-            // If distribution not found, keep the reminder (might be a general reminder)
-            return true;
           }
-          // Keep reminders without distributionId (general reminders)
+
+          // For general reminders (no distributionId), check if caterer has any pending bills
+          if (!reminder.distributionId && distributions) {
+            const catererPendingBills = distributions.filter(d =>
+              d.catererId === reminder.catererId &&
+              Number(d.balanceDue) > 0 &&
+              d.status !== 'paid'
+            );
+
+            if (catererPendingBills.length === 0) {
+              console.log(`Filtering out general reminder for caterer ${reminder.catererId}: no pending bills`);
+              return false;
+            }
+          }
+
           return true;
         })
     : [];
@@ -226,10 +275,34 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
 
   // Get notifications for reminders due within 2 days (including today)
   const urgentNotifications = allReminders.filter(reminder => {
+    // Check if reminder has a future next reminder date - if so, don't show as urgent
+    if (reminder.nextReminderDate) {
+      const nextReminderDate = new Date(reminder.nextReminderDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      nextReminderDate.setHours(0, 0, 0, 0);
+
+      // Don't show as urgent if next reminder date is in the future
+      if (nextReminderDate > today) {
+        return false;
+      }
+    }
+
     const reminderDate = new Date(reminder.reminderDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     reminderDate.setHours(0, 0, 0, 0);
+
+    // Don't show acknowledged notifications that were acknowledged less than 24 hours ago
+    if (reminder.isAcknowledged && reminder.acknowledgedAt) {
+      const acknowledgedTime = new Date(reminder.acknowledgedAt);
+      const hoursSinceAcknowledged = (Date.now() - acknowledgedTime.getTime()) / (1000 * 60 * 60);
+
+      // Don't show if acknowledged less than 24 hours ago
+      if (hoursSinceAcknowledged < 24) {
+        return false;
+      }
+    }
 
     // Show notifications for overdue, due today, or due within 2 days
     return (
@@ -620,7 +693,7 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
                       </Button>
                       <Button
                         variant="outline"
-                        onClick={() => window.location.href = '/distributions'}
+                        onClick={() => window.location.href = '/caterer-payments'}
                         className="border-green-600 text-green-600 hover:bg-green-50"
                       >
                         <FileText className="h-4 w-4 mr-2" />
@@ -646,7 +719,7 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
                     </div>
                     <div className="flex flex-col sm:flex-row gap-3 mt-6">
                       <Button
-                        onClick={() => window.location.href = '/distributions'}
+                        onClick={() => navigate('/caterers/pending-bills')}
                         className="bg-orange-600 hover:bg-orange-700"
                       >
                         <AlertTriangle className="h-4 w-4 mr-2" />
@@ -722,14 +795,47 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
                       </span>
                     </div>
                   </div>
+
+                  {/* Next Reminder Date Display */}
+                  {reminder.nextReminderDate && (
+                    <div className="mt-3 pt-3 border-t border-gray-200">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <Bell className="h-4 w-4 text-blue-500" />
+                          <span className="text-xs text-gray-500">Next Reminder</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                            {format(new Date(reminder.nextReminderDate), "MMM dd, yyyy")}
+                          </Badge>
+                          {(() => {
+                            const nextDate = new Date(reminder.nextReminderDate);
+                            const today = new Date();
+                            const diffDays = Math.ceil((nextDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+                            if (diffDays === 0) {
+                              return <Badge className="text-xs bg-orange-100 text-orange-800 border-orange-200">Today</Badge>;
+                            } else if (diffDays === 1) {
+                              return <Badge className="text-xs bg-yellow-100 text-yellow-800 border-yellow-200">Tomorrow</Badge>;
+                            } else if (diffDays > 1) {
+                              return <Badge variant="secondary" className="text-xs">in {diffDays} days</Badge>;
+                            }
+                            return null;
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                {/* Next Reminder Section */}
-                <div className="p-4 py-3">
+                {/* Set/Update Next Reminder Section */}
+                <div className="p-4 py-3 border-t border-gray-100">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <Bell className="h-4 w-4 text-orange-500" />
-                      <span className="text-sm font-medium text-gray-700">Next Reminder</span>
+                      <span className="text-sm font-medium text-gray-700">
+                        {reminder.nextReminderDate ? "Update Reminder" : "Set Next Reminder"}
+                      </span>
                     </div>
                     <Popover>
                       <PopoverTrigger asChild>
@@ -738,9 +844,7 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
                           size="sm"
                           className="h-8 text-xs px-3 border-orange-200 hover:bg-orange-50"
                         >
-                          {reminder.nextReminderDate
-                            ? format(new Date(reminder.nextReminderDate), "MMM dd, yyyy")
-                            : "Set Reminder"}
+                          {reminder.nextReminderDate ? "Change Date" : "Set Date"}
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0" align="end">
@@ -752,6 +856,7 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
                             handleNextReminderUpdate(reminder.id, date);
                           }}
                           initialFocus
+                          disabled={(date) => date < new Date()}
                         />
                       </PopoverContent>
                     </Popover>
@@ -761,26 +866,27 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
                 {/* Action Buttons Section */}
                 <div className="p-4 pt-0">
                   <div className="flex items-center justify-between space-x-2">
-                    <Button
-                      size="sm"
-                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                      onClick={() => {
-                        // Get the caterer ID from the reminder
-                        const caterer = caterers?.find(c => c.name === reminder.catererName);
-                        const catererId = caterer?.id;
-
-                        if (catererId && reminder.distributionId) {
-                          window.location.href = `/caterer-payments/new?catererId=${catererId}&distributionId=${reminder.distributionId}&amount=${reminder.amount}`;
-                        } else if (catererId) {
-                          window.location.href = `/caterer-payments/new?catererId=${catererId}&amount=${reminder.amount}`;
-                        } else {
-                          window.location.href = `/caterer-payments/new?amount=${reminder.amount}`;
-                        }
+                    <PaymentModal
+                      triggerText="Record Payment"
+                      triggerSize="sm"
+                      triggerClassName="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      preselectedCatererId={caterers?.find(c => c.name === reminder.catererName)?.id?.toString()}
+                      preselectedDistributionId={reminder.distributionId?.toString()}
+                      preselectedAmount={reminder.amount.toString()}
+                      onSuccess={() => {
+                        // Refresh the data
+                        queryClient.invalidateQueries({ queryKey: ['payment-reminders'] });
+                        queryClient.invalidateQueries({ queryKey: ['distributions'] });
                       }}
                     >
-                      <CreditCard className="h-4 w-4 mr-2" />
-                      Record Payment
-                    </Button>
+                      <Button
+                        size="sm"
+                        className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        <CreditCard className="h-4 w-4 mr-2" />
+                        Record Payment
+                      </Button>
+                    </PaymentModal>
                     <div className="flex items-center space-x-1">
                       {!reminder.isRead && (
                         <Button
@@ -811,9 +917,64 @@ export default function EnhancedPaymentReminders({ className }: EnhancedPaymentR
         )}
       </div>
 
+      {/* Hidden Reminders Info */}
+      {(() => {
+        const hiddenReminders = customReminders?.filter((reminder: any) => {
+          if (reminder.nextReminderDate) {
+            const nextReminderDate = new Date(reminder.nextReminderDate);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            nextReminderDate.setHours(0, 0, 0, 0);
+            return nextReminderDate > today;
+          }
+          return false;
+        }) || [];
+
+        if (hiddenReminders.length > 0) {
+          return (
+            <div className="mt-4">
+              <Card className="border-blue-200 bg-blue-50">
+                <CardContent className="p-4">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Bell className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-800">
+                      {hiddenReminders.length} reminder{hiddenReminders.length > 1 ? 's' : ''} scheduled for later
+                    </span>
+                  </div>
+                  <p className="text-xs text-blue-700 mb-3">
+                    These reminders are hidden until their next reminder date arrives.
+                  </p>
+                  <div className="space-y-2">
+                    {hiddenReminders.slice(0, 3).map((reminder: any) => (
+                      <div key={reminder.id} className="flex items-center justify-between bg-white rounded p-2 border border-blue-200">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs font-medium text-gray-900">{reminder.catererName}</span>
+                          <span className="text-xs text-gray-500">₹{reminder.amount.toLocaleString()}</span>
+                        </div>
+                        <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                          {format(new Date(reminder.nextReminderDate), "MMM dd")}
+                        </Badge>
+                      </div>
+                    ))}
+                    {hiddenReminders.length > 3 && (
+                      <div className="text-center">
+                        <span className="text-xs text-blue-600">
+                          +{hiddenReminders.length - 3} more scheduled reminders
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          );
+        }
+        return null;
+      })()}
+
       {/* View All Link */}
       {allReminders.length > 3 && (
-        <div className="text-center">
+        <div className="text-center mt-4">
           <Button variant="link" className="text-sm">
             View All {allReminders.length} Reminders
           </Button>

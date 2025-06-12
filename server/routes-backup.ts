@@ -3,21 +3,17 @@ import { z } from "zod";
 import {
   insertSupplierSchema,
   purchaseWithItemsSchema,
-  insertCatererSchema,
-  distributionWithItemsSchema,
-  insertCatererPaymentSchema,
   customerBillWithItemsSchema,
   insertExpenseSchema,
   insertAssetSchema
 } from "@shared/schema";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./auth";
-import upload, { getCatererImageUrl, getSupplierImageUrl } from "./upload";
+import upload, { getSupplierImageUrl } from "./upload";
 import path from "path";
 import { fileURLToPath } from "url";
 import vendorPaymentsRouter from "./routes/vendor-payments";
 import customerBillsRouter from "./routes/customer-bills";
-import notificationsRouter from "./routes/notifications";
 
 // Get the directory name in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -857,103 +853,6 @@ export async function registerRoutes(app: Express) {
   // Register customer bills router
   app.use("/api/customer-bills", isAuthenticated, customerBillsRouter);
 
-  // Register notifications router
-  app.use("/api/notifications", isAuthenticated, notificationsRouter);
-
-  // Debug endpoint to check payment_reminders table structure
-  app.get("/api/debug/payment-reminders-schema", isAuthenticated, async (_req, res) => {
-    try {
-      const conn = await pool.getConnection();
-      try {
-        // Check if table exists
-        const [tables] = await conn.execute(`SHOW TABLES LIKE 'payment_reminders'`);
-
-        if ((tables as any[]).length === 0) {
-          res.json({ exists: false, message: "payment_reminders table does not exist" });
-          return;
-        }
-
-        // Get table structure
-        const [columns] = await conn.execute(`DESCRIBE payment_reminders`);
-
-        res.json({
-          exists: true,
-          columns: columns,
-          message: "payment_reminders table structure"
-        });
-      } finally {
-        conn.release();
-      }
-    } catch (error) {
-      console.error("Debug payment reminders schema error:", error);
-      res.status(500).json({ message: "Failed to debug payment reminders schema" });
-    }
-  });
-
-  // Debug endpoint to check pending bills data
-  app.get("/api/debug/pending-bills", isAuthenticated, async (_req, res) => {
-    try {
-      const conn = await pool.getConnection();
-      try {
-        // Get all distributions with their details
-        const [distributions] = await conn.execute(`
-          SELECT
-            d.id,
-            d.bill_no,
-            d.caterer_id,
-            c.name as caterer_name,
-            d.distribution_date,
-            d.grand_total,
-            d.amount_paid,
-            d.balance_due,
-            d.status,
-            d.next_payment_date,
-            d.reminder_date
-          FROM distributions d
-          LEFT JOIN caterers c ON d.caterer_id = c.id
-          ORDER BY d.created_at DESC
-        `);
-
-        // Get caterers with their balance_due
-        const [caterers] = await conn.execute(`
-          SELECT id, name, balance_due, total_billed, total_paid
-          FROM caterers
-          ORDER BY balance_due DESC
-        `);
-
-        // Get payment reminders
-        const [reminders] = await conn.execute(`
-          SELECT
-            pr.*,
-            d.bill_no,
-            c.name as caterer_name
-          FROM payment_reminders pr
-          LEFT JOIN distributions d ON pr.distribution_id = d.id
-          LEFT JOIN caterers c ON pr.caterer_id = c.id
-          ORDER BY pr.reminder_date ASC
-        `);
-
-        res.json({
-          distributions,
-          caterers,
-          reminders,
-          summary: {
-            totalDistributions: (distributions as any[]).length,
-            pendingDistributions: (distributions as any[]).filter(d => Number(d.balance_due) > 0).length,
-            totalCaterers: (caterers as any[]).length,
-            caterersWithBalance: (caterers as any[]).filter(c => Number(c.balance_due) > 0).length,
-            totalReminders: (reminders as any[]).length
-          }
-        });
-      } finally {
-        conn.release();
-      }
-    } catch (error) {
-      console.error("Debug pending bills error:", error);
-      res.status(500).json({ message: "Failed to debug pending bills" });
-    }
-  });
-
   // Debug endpoint to check if server is running
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", authenticated: req.isAuthenticated ? req.isAuthenticated() : false });
@@ -1499,8 +1398,7 @@ export async function registerRoutes(app: Express) {
         id: p.id,
         name: p.name,
         marketPrice: p.marketPrice,
-        retailPrice: p.retailPrice,
-        catererPrice: p.catererPrice
+        retailPrice: p.retailPrice
       }));
       res.json(productIds);
     } catch (error) {
@@ -4399,223 +4297,6 @@ export async function registerRoutes(app: Express) {
     } catch (error) {
       console.error("Force cleanup error:", error);
       res.status(500).json({ message: "Failed to force cleanup payment reminders" });
-    }
-  });
-
-  // Fix payment_reminders table schema
-  app.post("/api/debug/fix-payment-reminders-schema", isAuthenticated, async (_req, res) => {
-    try {
-      console.log("Fixing payment_reminders table schema...");
-      const conn = await storage.getConnection();
-      try {
-        // Drop existing table if it exists
-        await conn.execute(`DROP TABLE IF EXISTS payment_reminders`);
-        console.log("Dropped existing payment_reminders table");
-
-        // Create table with correct schema
-        await conn.execute(`
-          CREATE TABLE payment_reminders (
-            id VARCHAR(36) PRIMARY KEY,
-            caterer_id INT NOT NULL,
-            distribution_id INT,
-            amount DECIMAL(10,2) NOT NULL,
-            original_due_date TIMESTAMP NOT NULL,
-            reminder_date TIMESTAMP NOT NULL,
-            next_reminder_date TIMESTAMP,
-            status VARCHAR(50) NOT NULL DEFAULT 'pending',
-            is_read BOOLEAN NOT NULL DEFAULT FALSE,
-            is_acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
-            acknowledged_at TIMESTAMP NULL,
-            notes TEXT,
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-          )
-        `);
-        console.log("Created payment_reminders table with correct schema");
-
-        // Get new table structure
-        const [columns] = await conn.execute(`DESCRIBE payment_reminders`);
-
-        res.json({
-          success: true,
-          message: "payment_reminders table recreated with correct schema",
-          columns: columns
-        });
-      } finally {
-        conn.release();
-      }
-    } catch (error) {
-      console.error("Fix payment reminders schema error:", error);
-      res.status(500).json({ message: "Failed to fix payment reminders schema" });
-    }
-  });
-
-  // Debug endpoint to check payment calculations for a specific distribution
-  app.get("/api/debug/distribution-payments/:distributionId", isAuthenticated, async (req, res) => {
-    try {
-      const distributionId = parseInt(req.params.distributionId);
-      console.log(`Debugging payment calculations for distribution ${distributionId}...`);
-
-      const conn = await storage.getConnection();
-      try {
-        // Get distribution details
-        const [distRows] = await conn.execute(`
-          SELECT id, bill_no, grand_total, amount_paid, balance_due, status
-          FROM distributions
-          WHERE id = ?
-        `, [distributionId]);
-
-        if ((distRows as any[]).length === 0) {
-          return res.status(404).json({ message: "Distribution not found" });
-        }
-
-        const distribution = (distRows as any[])[0];
-
-        // Get all payments for this distribution
-        const [paymentRows] = await conn.execute(`
-          SELECT id, amount, payment_date, payment_mode, notes
-          FROM caterer_payments
-          WHERE distribution_id = ?
-          ORDER BY payment_date ASC
-        `, [distributionId]);
-
-        // Calculate totals
-        const payments = paymentRows as any[];
-        const calculatedTotalPaid = payments.reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0);
-        const grandTotal = parseFloat(distribution.grand_total || '0');
-        const calculatedBalanceDue = Math.max(0, grandTotal - calculatedTotalPaid);
-
-        let calculatedStatus = 'active';
-        if (calculatedBalanceDue <= 0) {
-          calculatedStatus = 'paid';
-        } else if (calculatedTotalPaid > 0) {
-          calculatedStatus = 'partial';
-        }
-
-        res.json({
-          distribution: {
-            id: distribution.id,
-            billNo: distribution.bill_no,
-            grandTotal: parseFloat(distribution.grand_total || '0'),
-            currentAmountPaid: parseFloat(distribution.amount_paid || '0'),
-            currentBalanceDue: parseFloat(distribution.balance_due || '0'),
-            currentStatus: distribution.status
-          },
-          payments: payments.map(p => ({
-            id: p.id,
-            amount: parseFloat(p.amount || '0'),
-            paymentDate: p.payment_date,
-            paymentMode: p.payment_mode,
-            notes: p.notes
-          })),
-          calculations: {
-            calculatedTotalPaid,
-            calculatedBalanceDue,
-            calculatedStatus,
-            isCorrect: {
-              amountPaid: Math.abs(parseFloat(distribution.amount_paid || '0') - calculatedTotalPaid) < 0.01,
-              balanceDue: Math.abs(parseFloat(distribution.balance_due || '0') - calculatedBalanceDue) < 0.01,
-              status: distribution.status === calculatedStatus
-            }
-          },
-          summary: {
-            totalPayments: payments.length,
-            needsCorrection: Math.abs(parseFloat(distribution.amount_paid || '0') - calculatedTotalPaid) > 0.01 ||
-                           Math.abs(parseFloat(distribution.balance_due || '0') - calculatedBalanceDue) > 0.01 ||
-                           distribution.status !== calculatedStatus
-          }
-        });
-      } finally {
-        conn.release();
-      }
-    } catch (error) {
-      console.error("Debug distribution payments error:", error);
-      res.status(500).json({ message: "Failed to debug distribution payments" });
-    }
-  });
-
-  // Manual sync endpoint to force update all distribution balances and statuses
-  app.post("/api/debug/sync-distribution-balances", isAuthenticated, async (_req, res) => {
-    try {
-      console.log("Manually syncing all distribution balances and statuses...");
-      const conn = await storage.getConnection();
-      try {
-        // Get all distributions
-        const [distributions] = await conn.execute(`
-          SELECT id, grand_total, amount_paid, balance_due, status
-          FROM distributions
-          ORDER BY id
-        `);
-
-        const results = [];
-
-        for (const dist of distributions as any[]) {
-          // Calculate total payments for this distribution
-          const [paymentRows] = await conn.execute(`
-            SELECT COALESCE(SUM(amount), 0) as total_paid
-            FROM caterer_payments
-            WHERE distribution_id = ?
-          `, [dist.id]);
-
-          const totalPaid = parseFloat((paymentRows as any[])[0].total_paid || '0');
-          const grandTotal = parseFloat(dist.grand_total || '0');
-          const correctBalanceDue = Math.max(0, grandTotal - totalPaid);
-
-          // Determine correct status
-          let correctStatus = 'active';
-          if (correctBalanceDue <= 0) {
-            correctStatus = 'paid';
-          } else if (totalPaid > 0) {
-            correctStatus = 'partial';
-          }
-
-          const currentAmountPaid = parseFloat(dist.amount_paid || '0');
-          const currentBalanceDue = parseFloat(dist.balance_due || '0');
-
-          // Check if update is needed
-          if (Math.abs(currentAmountPaid - totalPaid) > 0.01 ||
-              Math.abs(currentBalanceDue - correctBalanceDue) > 0.01 ||
-              dist.status !== correctStatus) {
-
-            // Update the distribution
-            await conn.execute(`
-              UPDATE distributions
-              SET
-                amount_paid = ?,
-                balance_due = ?,
-                status = ?
-              WHERE id = ?
-            `, [totalPaid, correctBalanceDue, correctStatus, dist.id]);
-
-            results.push({
-              distributionId: dist.id,
-              updated: true,
-              changes: {
-                amountPaid: { old: currentAmountPaid, new: totalPaid },
-                balanceDue: { old: currentBalanceDue, new: correctBalanceDue },
-                status: { old: dist.status, new: correctStatus }
-              }
-            });
-          } else {
-            results.push({
-              distributionId: dist.id,
-              updated: false,
-              message: "No changes needed"
-            });
-          }
-        }
-
-        res.json({
-          success: true,
-          message: `Synced ${(distributions as any[]).length} distributions`,
-          results: results
-        });
-      } finally {
-        conn.release();
-      }
-    } catch (error) {
-      console.error("Sync distribution balances error:", error);
-      res.status(500).json({ message: "Failed to sync distribution balances" });
     }
   });
 

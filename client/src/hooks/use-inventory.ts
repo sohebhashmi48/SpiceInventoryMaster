@@ -121,6 +121,9 @@ export function useUpdateInventoryItem() {
       queryClient.invalidateQueries({ queryKey: ['inventory', data.id] });
       queryClient.invalidateQueries({ queryKey: ['inventory', 'product', data.productId] });
       queryClient.invalidateQueries({ queryKey: ['spices'] });
+      // Invalidate inventory history since item was updated
+      queryClient.invalidateQueries({ queryKey: ['inventory-history'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory-history-all'] });
       toast({
         title: 'Inventory item updated',
         description: 'The inventory item has been updated successfully.',
@@ -153,6 +156,9 @@ export function useUpdateInventoryQuantity() {
       queryClient.invalidateQueries({ queryKey: ['inventory', data.id] });
       queryClient.invalidateQueries({ queryKey: ['inventory', 'product', data.productId] });
       queryClient.invalidateQueries({ queryKey: ['spices'] });
+      // Invalidate inventory history since quantity was updated
+      queryClient.invalidateQueries({ queryKey: ['inventory-history'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory-history-all'] });
     },
     onError: (error: any) => {
       toast({

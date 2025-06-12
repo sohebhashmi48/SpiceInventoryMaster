@@ -153,6 +153,12 @@ export function useOrderMutations() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       queryClient.invalidateQueries({ queryKey: ['order-details', variables.orderId] });
+      // If order was marked as delivered, inventory was deducted, so refresh inventory history
+      if (variables.status === 'delivered') {
+        queryClient.invalidateQueries({ queryKey: ['inventory'] });
+        queryClient.invalidateQueries({ queryKey: ['inventory-history'] });
+        queryClient.invalidateQueries({ queryKey: ['inventory-history-all'] });
+      }
     }
   });
 

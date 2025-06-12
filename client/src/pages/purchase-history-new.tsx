@@ -6,7 +6,7 @@ import PageHeader from "@/components/common/page-header";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft, Calendar, Package, DollarSign, Store,
-  ChevronDown, ChevronRight, Eye, ShoppingCart
+  ChevronDown, ChevronRight, Eye, ShoppingCart, Filter
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
@@ -18,6 +18,14 @@ import { formatDate, formatCurrency } from "@/lib/utils";
 import { Vendor, Spice } from "@shared/schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 // Define interfaces for the data we expect
 interface PurchaseHistoryItem {
@@ -46,6 +54,16 @@ interface PurchaseHistoryItem {
   gstPercentage: number;
   gstAmount: number;
   totalAmount: number;
+}
+
+interface PurchaseHistoryResponse {
+  data: PurchaseHistoryItem[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 // Interface for grouped purchases by supplier
@@ -83,13 +101,45 @@ export default function PurchaseHistoryNewPage() {
   const [expandedSuppliers, setExpandedSuppliers] = useState<number[]>([]);
   const [expandedPurchases, setExpandedPurchases] = useState<number[]>([]);
   const [activeTab, setActiveTab] = useState<string>("basic");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
 
-  // Fetch all purchase history
-  const { data: purchaseItems, isLoading } = useQuery<PurchaseHistoryItem[]>({
-    queryKey: ["/api/purchase-history"],
+  const limit = 10;
+
+  // Reset filters
+  const resetFilters = () => {
+    setSearchTerm("");
+    setSelectedSupplier(supplierParam || "all");
+    setSelectedProduct("all");
+    setStartDate("");
+    setEndDate("");
+    setCurrentPage(1);
+  };
+
+  // Build query parameters
+  const buildQueryParams = () => {
+    const params = new URLSearchParams({
+      page: currentPage.toString(),
+      limit: limit.toString(),
+    });
+
+    if (searchTerm) params.append('search', searchTerm);
+    if (selectedSupplier !== 'all') params.append('supplierId', selectedSupplier);
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+
+    return params.toString();
+  };
+
+  // Fetch purchase history with pagination and filtering
+  const { data: purchaseResponse, isLoading } = useQuery<PurchaseHistoryResponse>({
+    queryKey: ["/api/purchase-history", currentPage, searchTerm, selectedSupplier, startDate, endDate],
     queryFn: async () => {
       console.log("Fetching purchase history");
-      const response = await fetch("/api/purchase-history", {
+      const queryParams = buildQueryParams();
+      const response = await fetch(`/api/purchase-history?${queryParams}`, {
         credentials: "include",
       });
       if (!response.ok) {
@@ -101,6 +151,10 @@ export default function PurchaseHistoryNewPage() {
       return data;
     },
   });
+
+  // Extract data from response
+  const purchaseItems = purchaseResponse?.data || [];
+  const pagination = purchaseResponse?.pagination;
 
   // Fetch all suppliers for filter
   const { data: suppliers } = useQuery<Vendor[]>({
@@ -172,30 +226,12 @@ export default function PurchaseHistoryNewPage() {
     );
   }, [purchaseItems]);
 
-  // Filter suppliers based on search and selected filters
+  // Filter suppliers based on selected product (client-side filtering for product since it's not in the API)
   const filteredSuppliers = useMemo(() => {
     if (!supplierPurchases) return [];
 
     return supplierPurchases.filter(supplier => {
-      // Filter by selected supplier
-      if (selectedSupplier !== "all" && supplier.supplierId.toString() !== selectedSupplier) {
-        return false;
-      }
-
-      // Filter by search term
-      if (searchTerm && !supplier.supplierName.toLowerCase().includes(searchTerm.toLowerCase())) {
-        // If supplier name doesn't match, check if any purchase items match
-        const hasMatchingItems = supplier.purchases.some(purchase =>
-          purchase.items.some(item =>
-            item.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.billNo?.toLowerCase().includes(searchTerm.toLowerCase())
-          )
-        );
-
-        if (!hasMatchingItems) return false;
-      }
-
-      // Filter by selected product
+      // Filter by selected product (client-side only)
       if (selectedProduct !== "all") {
         const hasSelectedProduct = supplier.purchases.some(purchase =>
           purchase.items.some(item =>
@@ -208,7 +244,7 @@ export default function PurchaseHistoryNewPage() {
 
       return true;
     });
-  }, [supplierPurchases, selectedSupplier, selectedProduct, searchTerm]);
+  }, [supplierPurchases, selectedProduct]);
 
   // Toggle supplier expansion
   const toggleSupplier = (supplierId: number) => {
@@ -262,31 +298,46 @@ export default function PurchaseHistoryNewPage() {
 
       <Card className="mb-6">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Filter Purchases</CardTitle>
-        </CardHeader>
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <div className="px-6 border-b">
-            <TabsList>
-              <TabsTrigger value="basic">Basic Filters</TabsTrigger>
-              <TabsTrigger value="advanced">Advanced Filters</TabsTrigger>
-            </TabsList>
-          </div>
-          <CardContent>
-            <TabsContent value="basic" className="mt-0 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <CardTitle className="text-lg flex items-center justify-between">
+            <div className="flex items-center">
+              <Filter className="h-5 w-5 mr-2 text-blue-600" />
+              Filter Purchases
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-2"
+            >
+              <Filter className="h-4 w-4" />
+              {showFilters ? 'Hide Filters' : 'Show Filters'}
+            </Button>
+          </CardTitle>
+
+          {/* Date and Search Filters */}
+          {showFilters && (
+            <div className="mt-4 p-4 bg-gray-50 rounded-lg border">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div>
                   <Label htmlFor="search">Search</Label>
                   <Input
                     id="search"
                     placeholder="Search by product, bill no, or supplier"
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="mt-1"
                   />
                 </div>
                 <div>
                   <Label htmlFor="supplier">Supplier</Label>
-                  <Select value={selectedSupplier} onValueChange={setSelectedSupplier}>
-                    <SelectTrigger id="supplier">
+                  <Select value={selectedSupplier} onValueChange={(value) => {
+                    setSelectedSupplier(value);
+                    setCurrentPage(1);
+                  }}>
+                    <SelectTrigger id="supplier" className="mt-1">
                       <SelectValue placeholder="All Suppliers" />
                     </SelectTrigger>
                     <SelectContent>
@@ -300,7 +351,57 @@ export default function PurchaseHistoryNewPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="product">Product</Label>
+                  <Label htmlFor="startDate">From Date</Label>
+                  <Input
+                    id="startDate"
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => {
+                      setStartDate(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="endDate">To Date</Label>
+                  <Input
+                    id="endDate"
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => {
+                      setEndDate(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="mt-1"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    variant="outline"
+                    onClick={resetFilters}
+                    className="w-full"
+                  >
+                    Reset Filters
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </CardHeader>
+
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <div className="px-6 border-b">
+            <TabsList>
+              <TabsTrigger value="basic">Basic Filters</TabsTrigger>
+              <TabsTrigger value="advanced">Advanced Filters</TabsTrigger>
+            </TabsList>
+          </div>
+          <CardContent>
+            <TabsContent value="basic" className="mt-0 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-1 gap-4">
+                <div>
+                  <Label htmlFor="product">Product (Client-side filter)</Label>
                   <Select value={selectedProduct} onValueChange={setSelectedProduct}>
                     <SelectTrigger id="product">
                       <SelectValue placeholder="All Products" />
@@ -319,19 +420,6 @@ export default function PurchaseHistoryNewPage() {
             </TabsContent>
           </CardContent>
         </Tabs>
-        <CardFooter className="border-t pt-4">
-          <Button
-            variant="outline"
-            onClick={() => {
-              setSearchTerm("");
-              setSelectedSupplier("all");
-              setSelectedProduct("all");
-            }}
-            className="ml-auto"
-          >
-            Reset Filters
-          </Button>
-        </CardFooter>
       </Card>
       {isLoading ? (
         <div className="space-y-4">
@@ -344,7 +432,10 @@ export default function PurchaseHistoryNewPage() {
           <Package className="h-12 w-12 mx-auto text-gray-400 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">No purchase history found</h3>
           <p className="text-gray-500 dark:text-gray-400 mt-2">
-            Try adjusting your search or filter criteria.
+            {searchTerm || selectedSupplier !== 'all' || startDate || endDate ?
+              "No purchases found for the selected filters. Try adjusting your search or filter criteria." :
+              "No purchase history available. Start by adding some purchases."
+            }
           </p>
         </div>
       ) : (
@@ -493,6 +584,48 @@ export default function PurchaseHistoryNewPage() {
               </CollapsibleContent>
             </Collapsible>
           ))}
+
+          {/* Pagination */}
+          {pagination && pagination.totalPages > 1 && (
+            <div className="mt-8 flex justify-center">
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                      className={currentPage === 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+
+                  {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((page) => (
+                    <PaginationItem key={page}>
+                      <PaginationLink
+                        onClick={() => setCurrentPage(page)}
+                        isActive={currentPage === page}
+                        className="cursor-pointer"
+                      >
+                        {page}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
+
+                  <PaginationItem>
+                    <PaginationNext
+                      onClick={() => setCurrentPage(Math.min(pagination.totalPages, currentPage + 1))}
+                      className={currentPage === pagination.totalPages ? "pointer-events-none opacity-50" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
+
+          {/* Pagination Info */}
+          {pagination && (
+            <div className="mt-4 text-center text-sm text-gray-500">
+              Showing {((currentPage - 1) * limit) + 1} to {Math.min(currentPage * limit, pagination.total)} of {pagination.total} purchases
+            </div>
+          )}
         </div>
       )}
     </Layout>

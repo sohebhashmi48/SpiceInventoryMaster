@@ -29,7 +29,7 @@ export default function CatererHorizontalNavigation({ className }: CatererHorizo
     { name: 'All Caterers', path: '/caterers', icon: <ChefHat className="h-4 w-4" /> },
     { name: 'Billing', path: '/caterer-billing', icon: <CreditCard className="h-4 w-4" /> },
     { name: 'Payments', path: '/caterer-payments', icon: <DollarSign className="h-4 w-4" /> },
-    { name: 'Payment Reminders', path: '/caterers/payment-reminders', icon: <Bell className="h-4 w-4" /> },
+    { name: 'Pending Bills', path: '/caterers/pending-bills', icon: <Bell className="h-4 w-4" /> },
     { name: 'Reports', path: '/caterer-reports', icon: <BarChart2 className="h-4 w-4" /> },
   ];
 

@@ -305,26 +305,53 @@ export default function DistributionDetailsPage({ params }: { params?: { id?: st
               </div>
             </div>
           </CardContent>
-          <CardFooter className="flex flex-col space-y-2 border-t pt-4">
-            <PaymentModal
-              triggerText="Record Payment"
-              triggerClassName="w-full"
-              preselectedCatererId={distribution.catererId.toString()}
-              preselectedDistributionId={distribution.id.toString()}
-              preselectedAmount={distribution.balanceDue.toString()}
-              onSuccess={() => {
-                // Redirect to billing history
-                setLocation('/distributions');
-              }}
-            >
-              <Button
-                className="w-full"
-                disabled={distribution.status === 'paid' || distribution.status === 'cancelled'}
+          <CardFooter className="flex flex-col space-y-3 border-t pt-4">
+            {/* Show prominent Make Payment button for partial payments */}
+            {parseFloat(distribution.balanceDue) > 0 && distribution.status !== 'paid' && distribution.status !== 'cancelled' && (
+              <PaymentModal
+                triggerText="Make Payment"
+                triggerClassName="w-full"
+                preselectedCatererId={distribution.catererId.toString()}
+                preselectedDistributionId={distribution.id.toString()}
+                preselectedAmount={distribution.balanceDue.toString()}
+                onSuccess={() => {
+                  // Refresh the page to show updated data
+                  window.location.reload();
+                }}
               >
-                <DollarSign className="h-4 w-4 mr-2" />
-                Record Payment
-              </Button>
-            </PaymentModal>
+                <Button
+                  className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3"
+                  size="lg"
+                >
+                  <CreditCard className="h-5 w-5 mr-2" />
+                  Make Payment - {formatCurrency(distribution.balanceDue)}
+                </Button>
+              </PaymentModal>
+            )}
+
+            {/* Show Record Payment button for fully paid or when no balance */}
+            {(parseFloat(distribution.balanceDue) === 0 || distribution.status === 'paid') && (
+              <PaymentModal
+                triggerText="Record Additional Payment"
+                triggerClassName="w-full"
+                preselectedCatererId={distribution.catererId.toString()}
+                preselectedDistributionId={distribution.id.toString()}
+                preselectedAmount="0"
+                onSuccess={() => {
+                  // Refresh the page to show updated data
+                  window.location.reload();
+                }}
+              >
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  disabled={distribution.status === 'cancelled'}
+                >
+                  <DollarSign className="h-4 w-4 mr-2" />
+                  Record Additional Payment
+                </Button>
+              </PaymentModal>
+            )}
 
             <div className="w-full flex space-x-2">
               <Button

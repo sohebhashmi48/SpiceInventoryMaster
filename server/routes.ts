@@ -2177,7 +2177,7 @@ export async function registerRoutes(app: Express) {
           });
         }
 
-        // Get today's showcase orders (all statuses) with profit calculation
+        // Get today's showcase orders (only delivered) with profit calculation
         const [todayShowcaseOrders] = await conn.execute(`
           SELECT
             o.id,
@@ -2186,22 +2186,32 @@ export async function registerRoutes(app: Express) {
             o.total_amount as revenue,
             o.created_at,
             o.order_source,
-            SUM(oi.quantity * COALESCE(oi.unit_price * 0.6, 100)) as estimated_cost,
+              SUM(
+                oi.quantity
+                * COALESCE(
+                    (SELECT AVG(unit_price)
+                       FROM inventory
+                       WHERE product_id = oi.product_id
+                         AND status = 'active'
+                    ),
+                    0
+                )
+              ) as total_cost,
             SUM(oi.quantity) as total_quantity
           FROM orders o
           JOIN order_items oi ON o.id = oi.order_id
           WHERE DATE(o.created_at) = ?
             AND o.order_source = 'showcase'
-            AND o.status NOT IN ('cancelled')
+            AND o.status = 'delivered'
           GROUP BY o.id
         `, [today]);
 
         console.log("Today's showcase orders:", (todayShowcaseOrders as any[]).length);
 
-        // If no showcase orders today, get all today's orders
+        // If no delivered showcase orders today, check delivered orders across all sources
         let ordersToUse = todayShowcaseOrders as any[];
         if (ordersToUse.length === 0) {
-          console.log("No showcase orders today, checking all today's orders...");
+          console.log("No delivered showcase orders today, checking all delivered orders...");
 
           const [todayAllOrders] = await conn.execute(`
             SELECT
@@ -2211,34 +2221,54 @@ export async function registerRoutes(app: Express) {
               o.total_amount as revenue,
               o.created_at,
               o.order_source,
-              SUM(oi.quantity * COALESCE(oi.unit_price * 0.6, 100)) as estimated_cost,
+              SUM(
+                oi.quantity
+                * COALESCE(
+                    (SELECT AVG(unit_price)
+                       FROM inventory
+                       WHERE product_id = oi.product_id
+                         AND status = 'active'
+                    ),
+                    0
+                  )
+              ) as total_cost,
               SUM(oi.quantity) as total_quantity
             FROM orders o
             JOIN order_items oi ON o.id = oi.order_id
             WHERE DATE(o.created_at) = ?
-              AND o.status NOT IN ('cancelled')
+              AND o.status = 'delivered'
             GROUP BY o.id
           `, [today]);
 
           ordersToUse = todayAllOrders as any[];
-          console.log("Today's all orders:", ordersToUse.length);
+          console.log("Today's all delivered orders:", ordersToUse.length);
         }
 
-        // Get yesterday's profit for comparison (showcase orders)
+        // Get yesterday's profit for comparison (delivered showcase orders)
         const [yesterdayOrders] = await conn.execute(`
           SELECT
             COALESCE(SUM(o.total_amount), 0) as total_revenue,
-            COALESCE(SUM(oi.quantity * COALESCE(oi.unit_price * 0.6, 100)), 0) as total_cost
+            COALESCE(SUM(
+              oi.quantity
+              * COALESCE(
+                  (SELECT AVG(unit_price)
+                     FROM inventory
+                     WHERE product_id = oi.product_id
+                       AND status = 'active'
+                  ),
+                  0
+              )
+            ), 0) as total_cost
           FROM orders o
           JOIN order_items oi ON o.id = oi.order_id
           WHERE DATE(o.created_at) = ?
             AND o.order_source = 'showcase'
-            AND o.status NOT IN ('cancelled')
+            AND o.status = 'delivered'
         `, [yesterday]);
 
         // Calculate today's metrics
         const totalRevenue = ordersToUse.reduce((sum, order) => sum + parseFloat(order.revenue || 0), 0);
-        const totalCost = ordersToUse.reduce((sum, order) => sum + parseFloat(order.estimated_cost || 0), 0);
+        const totalCost = ordersToUse.reduce((sum, order) => sum + parseFloat(order.total_cost      || 0), 0);
         const totalProfit = totalRevenue - totalCost;
         const ordersProcessed = ordersToUse.length; // Changed from ordersDelivered to ordersProcessed
         const itemsSold = ordersToUse.reduce((sum, order) => sum + parseFloat(order.total_quantity || 0), 0);
@@ -4110,6 +4140,48 @@ export async function registerRoutes(app: Express) {
     } catch (error) {
       console.error("Get payments by caterer error:", error);
       res.status(500).json({ message: "Failed to fetch payments" });
+    }
+  });
+
+  // Get detailed payment history for a caterer (bills with items and payments)
+  app.get("/api/caterers/:id/detailed-payment-history", isAuthenticated, async (req, res) => {
+    try {
+      const catererId = parseInt(req.params.id);
+      if (isNaN(catererId)) {
+        return res.status(400).json({ error: 'Invalid caterer ID' });
+      }
+
+      // Get all distributions for this caterer
+      const distributions = await storage.getDistributionsByCaterer(catererId);
+
+      // For each distribution, get items and payments
+      const detailedHistory = await Promise.all(
+        distributions.map(async (distribution) => {
+          const [items, payments] = await Promise.all([
+            storage.getDistributionItems(distribution.id),
+            storage.getCatererPaymentsByDistribution(distribution.id)
+          ]);
+
+          return {
+            ...distribution,
+            items: items || [],
+            payments: payments.map(payment => ({
+              ...payment,
+              receiptImage: payment.receiptImage || null
+            })) || []
+          };
+        })
+      );
+
+      // Sort by distribution date (latest first)
+      detailedHistory.sort((a, b) =>
+        new Date(b.distributionDate).getTime() - new Date(a.distributionDate).getTime()
+      );
+
+      res.json(detailedHistory);
+    } catch (error) {
+      console.error("Get detailed payment history error:", error);
+      res.status(500).json({ message: "Failed to fetch detailed payment history" });
     }
   });
 

@@ -18,10 +18,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Separator } from '@/components/ui/separator';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Plus, Trash2, Save, ArrowLeft, Calculator, ChefHat, FileText, Package, Image, Upload, AlertTriangle, X, Search } from 'lucide-react';
+import { CalendarIcon, Plus, Trash2, Save, ArrowLeft, Calculator, ChefHat, FileText, Package, Image, Upload, AlertTriangle, X, Search, History } from 'lucide-react';
 import { formatCurrency, formatQuantityWithUnit, UnitType, convertUnit, cn } from '@/lib/utils';
 import UnitSelector from '@/components/ui/unit-selector';
 import InventoryBatchSelector from './inventory-batch-selector';
+import CatererPaymentHistory from './caterer-payment-history';
+import MixBatchSelectorDialog from './mix-batch-selector-dialog';
 import {
   Form,
   FormControl,
@@ -83,7 +85,7 @@ type ProductFormValues = z.infer<typeof productFormSchema>;
 export default function ModernCatererBillingUI() {
   const [location, navigate] = useLocation();
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [selectedBatches, setSelectedBatches] = useState<Record<number, { batchIds: number[], quantities: number[] }>>({});
+  const [selectedBatches, setSelectedBatches] = useState<Record<string | number, { batchIds: number[], quantities: number[] }>>({});
   const [paymentOption, setPaymentOption] = useState<string>('full');
   const [receiptImage, setReceiptImage] = useState<File | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
@@ -98,9 +100,21 @@ export default function ModernCatererBillingUI() {
   // Mix Calculator state
   const [showMixCalculator, setShowMixCalculator] = useState(false);
   const [mixBudget, setMixBudget] = useState<string>('');
-  const [mixSelectedProducts, setMixSelectedProducts] = useState<{id: number, name: string, price: number, allocatedPrice: number, calculatedQuantity: number}[]>([]);
+  const [mixSelectedProducts, setMixSelectedProducts] = useState<{
+    id: number,
+    name: string,
+    price: number,
+    allocatedPrice: number,
+    calculatedQuantity: number,
+    selectedBatches?: {batchId: number, quantity: number, unitPrice: number}[]
+  }[]>([]);
   const [mixSearchQuery, setMixSearchQuery] = useState('');
   const [mixCalculationMode, setMixCalculationMode] = useState<'price' | 'quantity'>('price');
+  const [mixComboName, setMixComboName] = useState<string>('');
+  const [showBatchSelector, setShowBatchSelector] = useState<{productId: number, quantity: number} | null>(null);
+
+  // Payment History state
+  const [showPaymentHistory, setShowPaymentHistory] = useState(false);
 
   // Current toast reference for immediate replacement
   const currentToastRef = useRef<{id: string, dismiss: () => void} | null>(null);
@@ -166,7 +180,7 @@ export default function ModernCatererBillingUI() {
   }, [products]);
 
   // Add product to bill
-  const addProductToBill = (product: any) => {
+  const addProductToBill = (product: any, quantity: number = 1, unit: UnitType = 'kg') => {
     // Validate product before adding
     if (!product || !product.id || !product.name) {
       console.warn('Invalid product data:', product);
@@ -180,28 +194,49 @@ export default function ModernCatererBillingUI() {
     const productRate = product.catererPrice || product.price || 0;
 
     if (existingItemIndex >= 0) {
-      // If product already exists, increment quantity
+      // If product already exists, add to existing quantity
       const currentQuantity = form.getValues(`items.${existingItemIndex}.quantity`) || 0;
-      const newQuantity = currentQuantity + 1;
+      const newQuantity = currentQuantity + quantity;
       form.setValue(`items.${existingItemIndex}.quantity`, newQuantity);
+
+      // Update productBatchQuantities state - add to existing quantity instead of replacing
+      setProductBatchQuantities(prev => {
+        const currentBatchQuantity = prev[product.id] || 0;
+        const updatedQuantity = currentBatchQuantity + quantity;
+        return {
+          ...prev,
+          [product.id]: updatedQuantity
+        };
+      });
 
       // Update amount with proper unit conversion
       const rate = form.getValues(`items.${existingItemIndex}.rate`) || 0;
-      const unit = form.getValues(`items.${existingItemIndex}.unit`) || 'kg';
-      form.setValue(`items.${existingItemIndex}.amount`, calculateItemAmount(newQuantity, unit, rate));
+      const existingUnit = form.getValues(`items.${existingItemIndex}.unit`) || 'kg';
+      form.setValue(`items.${existingItemIndex}.amount`, calculateItemAmount(newQuantity, existingUnit, rate));
     } else {
-      // Add new product to bill with default quantity of 1
-      const defaultQuantity = 1;
-      const defaultUnit = product.unit || 'kg';
+      // Add new product to bill with specified quantity and unit
+      const finalUnit = unit || product.unit || 'kg';
       append({
         productId: product.id,
         productName: product.name, // Ensure product name is set
-        quantity: defaultQuantity,
-        unit: defaultUnit,
+        quantity: quantity,
+        unit: finalUnit,
         rate: productRate,
         gstPercentage: 5, // Default GST percentage
-        amount: calculateItemAmount(defaultQuantity, defaultUnit, productRate), // Calculate initial amount with unit conversion
+        amount: calculateItemAmount(quantity, finalUnit, productRate), // Calculate initial amount with unit conversion
       });
+
+      // Update productBatchQuantities state
+      setProductBatchQuantities(prev => ({
+        ...prev,
+        [product.id]: quantity
+      }));
+
+      // Update productUnits state
+      setProductUnits(prev => ({
+        ...prev,
+        [product.id]: finalUnit
+      }));
     }
 
     // Trigger calculation after adding/updating product
@@ -221,6 +256,8 @@ export default function ModernCatererBillingUI() {
     setMixSelectedProducts([]);
     setMixSearchQuery('');
     setMixCalculationMode('price');
+    setMixComboName('');
+    setShowBatchSelector(null);
   };
 
   const addProductToMix = (product: any) => {
@@ -229,7 +266,8 @@ export default function ModernCatererBillingUI() {
       name: product.name,
       price: Number(product.catererPrice || product.price || 0),
       allocatedPrice: 0,
-      calculatedQuantity: 0
+      calculatedQuantity: 0,
+      selectedBatches: []
     };
     setMixSelectedProducts(prev => [...prev, newProduct]);
     setMixSearchQuery('');
@@ -237,6 +275,46 @@ export default function ModernCatererBillingUI() {
 
   const removeProductFromMix = (productId: number) => {
     setMixSelectedProducts(prev => prev.filter(p => p.id !== productId));
+  };
+
+  // Handle batch selection for mix products
+  const handleMixBatchSelect = useCallback((productId: number, batchIds: number[], quantities: number[], totalQuantity: number, unit: string) => {
+    console.log(`Mix batch select - ProductId: ${productId}, Total: ${totalQuantity}, Batches: ${batchIds.length}`);
+
+    setMixSelectedProducts(prev => prev.map(p =>
+      p.id === productId
+        ? {
+            ...p,
+            selectedBatches: batchIds.map((batchId, index) => ({
+              batchId,
+              quantity: quantities[index],
+              unitPrice: 0 // Will be updated when we get batch details
+            })),
+            calculatedQuantity: totalQuantity // Ensure calculated quantity matches total selected
+          }
+        : p
+    ));
+
+    setShowBatchSelector(null);
+
+    // Only show toast if batches were actually selected
+    if (batchIds.length > 0) {
+      showImmediateToast('Batches Selected', `Selected ${batchIds.length} batches for mix product`);
+    }
+  }, []);
+
+  // Open batch selector for mix product
+  const openMixBatchSelector = (productId: number, quantity: number) => {
+    console.log(`Opening batch selector for product ${productId} with quantity ${quantity}`);
+    console.log(`Current showBatchSelector state:`, showBatchSelector);
+
+    if (quantity > 0) {
+      console.log(`Setting showBatchSelector to:`, { productId, quantity });
+      setShowBatchSelector({ productId, quantity });
+    } else {
+      console.log(`Invalid quantity: ${quantity}, showing error toast`);
+      showImmediateToast('Invalid Quantity', 'Please ensure the product has a valid calculated quantity before selecting batches', 'destructive');
+    }
   };
 
   // Calculate mix quantities when budget or products change
@@ -267,60 +345,84 @@ export default function ModernCatererBillingUI() {
   }, [mixBudget, mixSelectedProducts.length, mixCalculationMode]);
 
   const addMixToCart = () => {
-    mixSelectedProducts.forEach((mixProduct, mixIndex) => {
-      if (mixProduct.calculatedQuantity > 0) {
-        const product = products?.find(p => p.id === mixProduct.id);
-        if (product) {
-          // Check if product already exists in the bill
-          const existingItemIndex = fields.findIndex(field => field.productId === product.id);
+    const comboName = mixComboName.trim() || `Mix Combo ${Date.now()}`;
 
-          if (existingItemIndex !== -1) {
-            // Update existing item quantity
-            const currentQuantity = form.getValues(`items.${existingItemIndex}.quantity`) || 0;
-            const newQuantity = currentQuantity + mixProduct.calculatedQuantity;
+    // Calculate total values for the combo
+    const totalQuantity = mixSelectedProducts.reduce((sum, p) => sum + p.calculatedQuantity, 0);
+    const totalAmount = mixSelectedProducts.reduce((sum, p) => sum + p.allocatedPrice, 0);
+    const averageRate = totalQuantity > 0 ? totalAmount / totalQuantity : 0;
 
-            form.setValue(`items.${existingItemIndex}.quantity`, newQuantity, {
-              shouldDirty: true,
-              shouldTouch: true,
-              shouldValidate: true
-            });
+    // Check if this combo already exists in the bill
+    const existingComboIndex = fields.findIndex(field =>
+      field.productName === comboName
+    );
 
-            // Update productBatchQuantities state
-            setProductBatchQuantities(prev => ({
-              ...prev,
-              [product.id]: newQuantity
-            }));
+    if (existingComboIndex !== -1) {
+      // Update existing combo
+      const currentQuantity = form.getValues(`items.${existingComboIndex}.quantity`) || 0;
+      const newQuantity = currentQuantity + totalQuantity;
 
-            // Update amount
-            const rate = form.getValues(`items.${existingItemIndex}.rate`) || 0;
-            const unit = form.getValues(`items.${existingItemIndex}.unit`) || 'kg';
-            form.setValue(`items.${existingItemIndex}.amount`, calculateItemAmount(newQuantity, unit, rate), {
-              shouldDirty: true
-            });
-          } else {
-            // Add new product to bill first
-            append({
-              productId: product.id,
-              productName: product.name,
-              quantity: mixProduct.calculatedQuantity,
-              unit: product.unit,
-              rate: Number(product.catererPrice || product.price || 0),
-              gstPercentage: 5,
-              amount: calculateItemAmount(mixProduct.calculatedQuantity, product.unit, Number(product.catererPrice || product.price || 0)),
-            });
+      form.setValue(`items.${existingComboIndex}.quantity`, newQuantity, {
+        shouldDirty: true,
+        shouldTouch: true,
+        shouldValidate: true
+      });
 
-            // Update productBatchQuantities state immediately
-            setProductBatchQuantities(prev => ({
-              ...prev,
-              [product.id]: mixProduct.calculatedQuantity
-            }));
-          }
-        }
+      // Update amount
+      const rate = form.getValues(`items.${existingComboIndex}.rate`) || 0;
+      const unit = form.getValues(`items.${existingComboIndex}.unit`) || 'kg';
+      form.setValue(`items.${existingComboIndex}.amount`, calculateItemAmount(newQuantity, unit, rate), {
+        shouldDirty: true
+      });
+    } else {
+      // Add new combo as a single item
+      append({
+        productId: 999999, // Special ID for mix combos
+        productName: comboName,
+        quantity: totalQuantity,
+        unit: 'kg',
+        rate: averageRate,
+        gstPercentage: 5,
+        amount: totalAmount,
+      });
+    }
+
+    // Store all selected batches under the combo name
+    const comboKey = comboName;
+    const allBatchIds: number[] = [];
+    const allBatchQuantities: number[] = [];
+
+    mixSelectedProducts.forEach(mixProduct => {
+      if (mixProduct.selectedBatches && mixProduct.selectedBatches.length > 0) {
+        mixProduct.selectedBatches.forEach(batch => {
+          allBatchIds.push(batch.batchId);
+          allBatchQuantities.push(batch.quantity);
+        });
       }
     });
 
+    // Update productBatchQuantities state
+    setProductBatchQuantities(prev => {
+      const currentBatchQuantity = prev[comboKey] || 0;
+      return {
+        ...prev,
+        [comboKey]: currentBatchQuantity + totalQuantity
+      };
+    });
+
+    // Store all selected batches for the combo
+    if (allBatchIds.length > 0) {
+      setSelectedBatches(prev => ({
+        ...prev,
+        [comboKey]: {
+          batchIds: allBatchIds,
+          quantities: allBatchQuantities
+        }
+      }));
+    }
+
     handleMixCalculatorClose();
-    showImmediateToast('Success', 'Mix products added to bill successfully!');
+    showImmediateToast('Success', `Mix combo "${comboName}" added to bill successfully!`);
 
     // Trigger calculation
     setTimeout(() => {
@@ -361,11 +463,18 @@ export default function ModernCatererBillingUI() {
 
 
 
-  // State to track batch-selected quantities for each product
-  const [productBatchQuantities, setProductBatchQuantities] = useState<Record<number, number>>({});
+  // State to track batch-selected quantities for each product (supports both number and string keys for combos)
+  const [productBatchQuantities, setProductBatchQuantities] = useState<Record<string | number, number>>({});
 
   // State to track units for each product
   const [productUnits, setProductUnits] = useState<Record<number, UnitType>>({});
+
+  // State for Add Product section
+  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [inputMode, setInputMode] = useState<'quantity' | 'price'>('quantity');
+  const [productQuantity, setProductQuantity] = useState<number>(1);
+  const [productPrice, setProductPrice] = useState<number>(0);
+  const [productUnit, setProductUnit] = useState<UnitType>('kg');
 
   // Handle batch selection for a product
   const handleBatchSelect = (productId: number, batchIds: number[], quantities: number[], totalQuantity: number, unit: UnitType) => {
@@ -758,60 +867,69 @@ export default function ModernCatererBillingUI() {
   const handlePaymentOptionChange = (option: string) => {
     setPaymentOption(option);
 
-    // Update amount paid based on selected option
-    switch (option) {
-      case 'full':
-        // Set amount paid to grand total
-        form.setValue('amountPaid', calculatedTotals.grandTotal, {
-          shouldDirty: true,
-          shouldTouch: true,
-          shouldValidate: true
-        });
-        break;
-      case 'half':
-        // Set amount paid to 50% of grand total
-        const halfAmount = calculatedTotals.grandTotal / 2;
-        form.setValue('amountPaid', halfAmount, {
-          shouldDirty: true,
-          shouldTouch: true,
-          shouldValidate: true
-        });
-        // Trigger reminder dialog immediately for partial payment
-        setTimeout(() => {
-          const balanceDue = calculatedTotals.grandTotal - halfAmount;
-          setRemainingBalance(balanceDue);
-          setPaymentDueDate(form.getValues('dueDate')); // Initialize with form's due date
-          setShowReminderDialog(true);
-        }, 100);
-        break;
-      case 'later':
-        // Set amount paid to 0
-        form.setValue('amountPaid', 0, {
-          shouldDirty: true,
-          shouldTouch: true,
-          shouldValidate: true
-        });
-        // Trigger reminder dialog immediately for pay later
-        setTimeout(() => {
-          setRemainingBalance(calculatedTotals.grandTotal);
-          setPaymentDueDate(form.getValues('dueDate')); // Initialize with form's due date
-          setShowReminderDialog(true);
-        }, 100);
-        break;
-      case 'custom':
-        // Keep current value or set to 0 if not set
-        if (form.getValues('amountPaid') === undefined) {
+    // First calculate totals to ensure we have the latest values
+    const currentTotals = calculateTotals();
+
+    // Use a timeout to ensure totals are calculated before updating amount paid
+    setTimeout(() => {
+      const latestTotals = currentTotals.grandTotal > 0 ? currentTotals : calculatedTotals;
+
+      // Update amount paid based on selected option
+      switch (option) {
+        case 'full':
+          // Set amount paid to grand total
+          const fullAmount = Number(latestTotals.grandTotal.toFixed(2));
+          form.setValue('amountPaid', fullAmount, {
+            shouldDirty: true,
+            shouldTouch: true,
+            shouldValidate: true
+          });
+          break;
+        case 'half':
+          // Set amount paid to 50% of grand total
+          const halfAmount = Number((latestTotals.grandTotal / 2).toFixed(2));
+          form.setValue('amountPaid', halfAmount, {
+            shouldDirty: true,
+            shouldTouch: true,
+            shouldValidate: true
+          });
+          // Trigger reminder dialog immediately for partial payment
+          setTimeout(() => {
+            const balanceDue = latestTotals.grandTotal - halfAmount;
+            setRemainingBalance(balanceDue);
+            setPaymentDueDate(form.getValues('dueDate')); // Initialize with form's due date
+            setShowReminderDialog(true);
+          }, 100);
+          break;
+        case 'later':
+          // Set amount paid to 0
           form.setValue('amountPaid', 0, {
             shouldDirty: true,
             shouldTouch: true,
             shouldValidate: true
           });
-        }
-        break;
-    }
+          // Trigger reminder dialog immediately for pay later
+          setTimeout(() => {
+            setRemainingBalance(latestTotals.grandTotal);
+            setPaymentDueDate(form.getValues('dueDate')); // Initialize with form's due date
+            setShowReminderDialog(true);
+          }, 100);
+          break;
+        case 'custom':
+          // Keep current value or set to 0 if not set
+          if (form.getValues('amountPaid') === undefined) {
+            form.setValue('amountPaid', 0, {
+              shouldDirty: true,
+              shouldTouch: true,
+              shouldValidate: true
+            });
+          }
+          break;
+      }
 
-    // Recalculate totals
-    calculateTotals();
+      // Recalculate totals after updating amount paid
+      calculateTotals();
+    }, 50);
   };
 
   // Watch for changes in form fields to recalculate totals
@@ -880,6 +998,32 @@ export default function ModernCatererBillingUI() {
     }, 200);
   }, []); // Only run on mount
 
+  // Update amount paid when totals change and payment option is set
+  useEffect(() => {
+    if (calculatedTotals.grandTotal > 0 && paymentOption) {
+      switch (paymentOption) {
+        case 'full':
+          const fullAmount = Number(calculatedTotals.grandTotal.toFixed(2));
+          if (form.getValues('amountPaid') !== fullAmount) {
+            form.setValue('amountPaid', fullAmount, { shouldDirty: false });
+          }
+          break;
+        case 'half':
+          const halfAmount = Number((calculatedTotals.grandTotal / 2).toFixed(2));
+          if (form.getValues('amountPaid') !== halfAmount) {
+            form.setValue('amountPaid', halfAmount, { shouldDirty: false });
+          }
+          break;
+        case 'later':
+          if (form.getValues('amountPaid') !== 0) {
+            form.setValue('amountPaid', 0, { shouldDirty: false });
+          }
+          break;
+        // Don't auto-update for 'custom' option
+      }
+    }
+  }, [calculatedTotals.grandTotal, paymentOption, form]);
+
   // Handle form submission with improved error handling
   const onSubmit = async (data: BillFormValues) => {
     console.log("onSubmit function called with data:", data);
@@ -930,10 +1074,18 @@ export default function ModernCatererBillingUI() {
       // Check if all products have batch selections (warning only, not blocking)
       console.log("Checking batch selections...");
       const missingBatchSelections = data.items.some(item => {
-        const hasBatches = selectedBatches[item.productId];
+        // For mix combos (productId 999999), use product name as key, otherwise use productId
+        const batchKey = item.productId === 999999 ? item.productName : item.productId;
+        const hasBatches = selectedBatches[batchKey];
         const batchQuantity = hasBatches
-          ? Number(selectedBatches[item.productId].quantities.reduce((sum, qty) => Number(sum) + Number(qty), 0).toFixed(2))
+          ? Number(selectedBatches[batchKey].quantities.reduce((sum, qty) => Number(sum) + Number(qty), 0).toFixed(2))
           : 0;
+
+        // Mix combos (productId 999999) always have batches pre-selected, so skip validation for them
+        if (item.productId === 999999) {
+          return false; // Don't consider mix combos as missing batch selections
+        }
+
         return !hasBatches || batchQuantity < item.quantity;
       });
 
@@ -1095,9 +1247,12 @@ export default function ModernCatererBillingUI() {
 
       // Process each product's batches
       for (const item of data.items) {
-        const productBatches = selectedBatches[item.productId];
+        // For mix combos (productId 999999), use product name as key, otherwise use productId
+        const batchKey = item.productId === 999999 ? item.productName : item.productId;
+        const productBatches = selectedBatches[batchKey];
+
         if (productBatches && productBatches.batchIds && productBatches.batchIds.length > 0) {
-          console.log(`Updating inventory for product ${item.productId} (${item.productName})`);
+          console.log(`Updating inventory for ${item.productId === 999999 ? 'mix combo' : 'product'} ${batchKey} (${item.productName})`);
 
           // Update each batch's quantity
           for (let i = 0; i < productBatches.batchIds.length; i++) {
@@ -1123,7 +1278,7 @@ export default function ModernCatererBillingUI() {
             }
           }
         } else {
-          console.log(`No batches selected for product ${item.productId} (${item.productName}), skipping inventory update`);
+          console.log(`No batches selected for ${item.productId === 999999 ? 'mix combo' : 'product'} ${batchKey} (${item.productName}), skipping inventory update`);
         }
       }
 
@@ -1178,10 +1333,9 @@ export default function ModernCatererBillingUI() {
     }
   };
 
-  // Handle adding a new product
+  // Handle adding a new product (placeholder - not currently used)
   const handleAddProduct = (data: ProductFormValues) => {
-    setNewProduct(data);
-    productForm.reset();
+    console.log('Add product functionality not implemented yet:', data);
   };
 
   // Handle skipping reminder
@@ -1264,7 +1418,10 @@ export default function ModernCatererBillingUI() {
       let updatedInventory = false;
 
       for (const item of data.items) {
-        const productBatches = selectedBatches[item.productId];
+        // For mix combos (productId 999999), use product name as key, otherwise use productId
+        const batchKey = item.productId === 999999 ? item.productName : item.productId;
+        const productBatches = selectedBatches[batchKey];
+
         if (productBatches && productBatches.batchIds && productBatches.batchIds.length > 0) {
           for (let i = 0; i < productBatches.batchIds.length; i++) {
             const batchId = productBatches.batchIds[i];
@@ -1516,16 +1673,17 @@ export default function ModernCatererBillingUI() {
                       const productId = parseInt(value);
                       const product = products?.find(p => p.id === productId);
                       if (product) {
-                        addProductToBill(product);
+                        setSelectedProduct(product);
                       }
                     }}
+                    value={selectedProduct?.id.toString() || ""}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="— Select Product" />
                     </SelectTrigger>
                     <SelectContent>
                       {products
-                        ?.filter(product => selectedCategory === 'all' || product.categoryId.toString() === selectedCategory)
+                        ?.filter(product => selectedCategory === 'all' || (product.category?.toString() === selectedCategory))
                         .map((product: any) => (
                           <SelectItem key={product.id} value={product.id.toString()}>
                             {product.name} - {formatCurrency(product.catererPrice || product.price || 0)} / {product.unit}
@@ -1535,6 +1693,107 @@ export default function ModernCatererBillingUI() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Quantity/Price Input Section */}
+                {selectedProduct && (
+                  <div className="space-y-4 p-4 border rounded-lg bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium">Input Mode</Label>
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          type="button"
+                          variant={inputMode === 'quantity' ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setInputMode('quantity')}
+                          className="text-xs"
+                        >
+                          By Quantity
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={inputMode === 'price' ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setInputMode('price')}
+                          className="text-xs"
+                        >
+                          By Price
+                        </Button>
+                      </div>
+                    </div>
+
+                    {inputMode === 'quantity' ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="quantity">Quantity</Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id="quantity"
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={productQuantity}
+                            onChange={(e) => setProductQuantity(parseFloat(e.target.value) || 0)}
+                            placeholder="Enter quantity"
+                            className="flex-1"
+                          />
+                          <UnitSelector
+                            value={productUnit}
+                            onChange={(newUnit, convertedQuantity) => {
+                              setProductUnit(newUnit);
+                              if (convertedQuantity !== undefined) {
+                                setProductQuantity(convertedQuantity);
+                              }
+                            }}
+                            quantity={productQuantity}
+                          />
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          Total: {formatCurrency((productQuantity || 0) * (selectedProduct.catererPrice || selectedProduct.price || 0))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <Label htmlFor="price">Price Amount</Label>
+                        <Input
+                          id="price"
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={productPrice}
+                          onChange={(e) => setProductPrice(parseFloat(e.target.value) || 0)}
+                          placeholder="Enter price amount"
+                        />
+                        <div className="text-xs text-gray-600">
+                          Quantity: {((productPrice || 0) / (selectedProduct.catererPrice || selectedProduct.price || 1)).toFixed(2)} {selectedProduct.unit}
+                        </div>
+                      </div>
+                    )}
+
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        if (selectedProduct) {
+                          const finalQuantity = inputMode === 'quantity'
+                            ? productQuantity
+                            : (productPrice || 0) / (selectedProduct.catererPrice || selectedProduct.price || 1);
+
+                          if (finalQuantity > 0) {
+                            addProductToBill(selectedProduct, finalQuantity, productUnit);
+                            // Reset form
+                            setSelectedProduct(null);
+                            setProductQuantity(1);
+                            setProductPrice(0);
+                            setProductUnit('kg');
+                          }
+                        }
+                      }}
+                      disabled={!selectedProduct || (inputMode === 'quantity' ? productQuantity <= 0 : productPrice <= 0)}
+                      className="w-full"
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add to Bill
+                    </Button>
+                  </div>
+                )}
               </div>
 
               {/* Mix Calculator Button */}
@@ -1546,6 +1805,19 @@ export default function ModernCatererBillingUI() {
                 >
                   <Calculator className="h-4 w-4 mr-2" />
                   Mix Calculator
+                </Button>
+              </div>
+
+              {/* Payment History Button */}
+              <div className="mt-3">
+                <Button
+                  type="button"
+                  onClick={() => setShowPaymentHistory(!showPaymentHistory)}
+                  variant="outline"
+                  className="w-full border-blue-500 text-blue-600 hover:bg-blue-50"
+                >
+                  <History className="h-4 w-4 mr-2" />
+                  {showPaymentHistory ? 'Hide Payment History' : 'View Payment History'}
                 </Button>
               </div>
             </CardContent>
@@ -1589,26 +1861,39 @@ export default function ModernCatererBillingUI() {
                       <TableCell className="py-2">
                         <div className="flex flex-col">
                           <span className="font-medium text-sm">{field.productName}</span>
-                          <div className="mt-4">
-                            <InventoryBatchSelector
-                              productId={field.productId}
-                              quantity={field.quantity}
-                              unit={productUnits[field.productId] || field.unit as UnitType}
-                              onBatchSelect={(batchIds, quantities, totalQuantity, unit) =>
-                                handleBatchSelect(field.productId, batchIds, quantities, totalQuantity, unit)
-                              }
-                              onQuantityChange={(totalQuantity) =>
-                                handleQuantityChange(field.productId, totalQuantity)
-                              }
-                              onRequiredQuantityChange={(requiredQuantity) =>
-                                handleRequiredQuantityChange(field.productId, requiredQuantity)
-                              }
-                              onUnitChange={(unit, convertedQuantity) =>
-                                handleUnitChange(field.productId, unit, convertedQuantity)
-                              }
-                              disabled={createDistribution.isPending}
-                            />
-                          </div>
+                          {/* Only show batch selector for regular products, not mix combos */}
+                          {field.productId !== 999999 ? (
+                            <div className="mt-4">
+                              <InventoryBatchSelector
+                                productId={field.productId}
+                                quantity={field.quantity}
+                                unit={productUnits[field.productId] || field.unit as UnitType}
+                                onBatchSelect={(batchIds, quantities, totalQuantity, unit) =>
+                                  handleBatchSelect(field.productId, batchIds, quantities, totalQuantity, unit)
+                                }
+                                onQuantityChange={(totalQuantity) =>
+                                  handleQuantityChange(field.productId, totalQuantity)
+                                }
+                                onRequiredQuantityChange={(requiredQuantity) =>
+                                  handleRequiredQuantityChange(field.productId, requiredQuantity)
+                                }
+                                onUnitChange={(unit, convertedQuantity) =>
+                                  handleUnitChange(field.productId, unit, convertedQuantity)
+                                }
+                                disabled={createDistribution.isPending}
+                              />
+                            </div>
+                          ) : (
+                            <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+                              <div className="flex items-center text-green-700">
+                                <Package className="h-4 w-4 mr-2" />
+                                <span className="text-sm font-medium">Mix Combo - Batches Already Selected</span>
+                              </div>
+                              <p className="text-xs text-green-600 mt-1">
+                                Inventory batches were selected during mix calculation
+                              </p>
+                            </div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-center py-2">
@@ -1889,9 +2174,9 @@ export default function ModernCatererBillingUI() {
                         type="number"
                         min="0"
                         step="0.01"
-                        {...form.register('amountPaid', { valueAsNumber: true })}
+                        value={form.watch('amountPaid') || 0}
                         onChange={(e) => {
-                          const value = parseFloat(e.target.value) || 0;
+                          const value = Number((parseFloat(e.target.value) || 0).toFixed(2));
                           form.setValue('amountPaid', value, {
                             shouldDirty: true,
                             shouldTouch: true,
@@ -1912,7 +2197,7 @@ export default function ModernCatererBillingUI() {
                             }, 500); // Delay to allow calculation to complete
                           }
                         }}
-                        disabled={paymentOption !== 'custom' && paymentOption !== 'full' && paymentOption !== 'half'}
+                        disabled={paymentOption === 'later'}
                         className={cn(
                           paymentOption === 'later' ? 'bg-gray-100' : '',
                           form.formState.errors.amountPaid && "border-red-500"
@@ -2076,13 +2361,17 @@ export default function ModernCatererBillingUI() {
                     ) : (
                       <div className="space-y-2">
                         {fields.map((field, index) => {
-                          const hasBatches = selectedBatches[field.productId] &&
-                            selectedBatches[field.productId].quantities.reduce((sum, qty) => sum + qty, 0) >= field.quantity;
+                          // For mix combos (productId 999999), check if batches exist using product name as key
+                          const batchKey = field.productId === 999999 ? field.productName : field.productId;
+                          const hasBatches = selectedBatches[batchKey] &&
+                            selectedBatches[batchKey].quantities.reduce((sum, qty) => sum + qty, 0) >= field.quantity;
 
                           return (
                             <div key={field.id} className="flex items-center justify-between">
                               <span>{field.productName}</span>
-                              {hasBatches ? (
+                              {field.productId === 999999 ? (
+                                <span className="text-green-600 font-medium">✓ Mix Combo (Batches Pre-selected)</span>
+                              ) : hasBatches ? (
                                 <span className="text-green-600 font-medium">✓ Batches Selected</span>
                               ) : (
                                 <span className="text-red-600 font-medium">⚠ Batches Required</span>
@@ -2325,135 +2614,6 @@ export default function ModernCatererBillingUI() {
           </DialogHeader>
 
           <div className="space-y-6">
-            {/* Budget Input */}
-            <div className="space-y-2">
-              <Label htmlFor="mixBudget">Total Budget (₹)</Label>
-              <Input
-                id="mixBudget"
-                type="number"
-                placeholder="Enter your total budget"
-                value={mixBudget}
-                onChange={(e) => setMixBudget(e.target.value)}
-                className="text-lg"
-              />
-            </div>
-
-            {/* Product Search */}
-            <div className="space-y-2">
-              <Label>Add Products to Mix</Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                <Input
-                  placeholder="Search products..."
-                  value={mixSearchQuery}
-                  onChange={(e) => setMixSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-
-              {/* Search Results */}
-              {mixSearchQuery && (
-                <div className="border rounded-lg max-h-40 overflow-y-auto">
-                  {filteredMixProducts.map((product) => (
-                    <div
-                      key={product.id}
-                      className="p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0"
-                      onClick={() => addProductToMix(product)}
-                    >
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium">{product.name}</span>
-                        <span className="text-sm text-gray-600">
-                          {formatCurrency(product.catererPrice || product.price || 0)}/{product.unit}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                  {filteredMixProducts.length === 0 && (
-                    <div className="p-3 text-center text-gray-500">
-                      No products found
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Selected Products */}
-            {mixSelectedProducts.length > 0 && (
-              <div className="space-y-3">
-                <Label>Selected Products</Label>
-                <div className="border rounded-lg">
-                  <div className="grid grid-cols-5 gap-4 p-3 bg-gray-50 font-medium text-sm">
-                    <div>Product</div>
-                    <div>Price/Unit</div>
-                    <div>Allocated Budget</div>
-                    <div>Calculated Qty</div>
-                    <div>Action</div>
-                  </div>
-                  {mixSelectedProducts.map((product) => (
-                    <div key={product.id} className="grid grid-cols-5 gap-4 p-3 border-t">
-                      <div className="font-medium">{product.name}</div>
-                      <div>{formatCurrency(product.price)}</div>
-                      <div>{formatCurrency(product.allocatedPrice)}</div>
-                      <div>{product.calculatedQuantity.toFixed(2)} kg</div>
-                      <div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeProductFromMix(product.id)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Summary */}
-                {mixBudget && (
-                  <div className="bg-green-50 p-4 rounded-lg">
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium">Total Budget:</span>
-                      <span className="text-lg font-bold text-green-700">
-                        {formatCurrency(parseFloat(mixBudget) || 0)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center mt-2">
-                      <span>Products Selected:</span>
-                      <span>{mixSelectedProducts.length}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-end space-x-3 pt-4">
-            <Button variant="outline" onClick={handleMixCalculatorClose}>
-              Cancel
-            </Button>
-            <Button
-              onClick={addMixToCart}
-              disabled={!mixBudget || mixSelectedProducts.length === 0}
-              className="bg-purple-600 hover:bg-purple-700"
-            >
-              Add Mix to Bill
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Mix Calculator Modal */}
-      <Dialog open={showMixCalculator} onOpenChange={setShowMixCalculator}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center text-purple-700">
-              <Calculator className="h-5 w-5 mr-2" />
-              Mix Calculator
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-6">
             {/* Calculation Mode Toggle */}
             <div className="space-y-2">
               <Label>Calculation Mode</Label>
@@ -2481,6 +2641,19 @@ export default function ModernCatererBillingUI() {
                   <Label htmlFor="quantity-mode" className="text-sm font-normal">By Quantity</Label>
                 </div>
               </div>
+            </div>
+
+            {/* Combo Name Input */}
+            <div className="space-y-2">
+              <Label htmlFor="mixComboName">Combo Name (Optional)</Label>
+              <Input
+                id="mixComboName"
+                type="text"
+                placeholder="Enter a special name for this mix combo"
+                value={mixComboName}
+                onChange={(e) => setMixComboName(e.target.value)}
+                className="text-lg"
+              />
             </div>
 
             {/* Budget/Quantity Input */}
@@ -2542,19 +2715,34 @@ export default function ModernCatererBillingUI() {
               <div className="space-y-3">
                 <Label>Selected Products</Label>
                 <div className="border rounded-lg">
-                  <div className="grid grid-cols-5 gap-4 p-3 bg-gray-50 font-medium text-sm">
+                  <div className="grid grid-cols-6 gap-4 p-3 bg-gray-50 font-medium text-sm">
                     <div>Product</div>
                     <div>Price/Unit</div>
                     <div>{mixCalculationMode === 'price' ? 'Allocated Budget' : 'Total Cost'}</div>
                     <div>Calculated Qty</div>
+                    <div>Batches</div>
                     <div>Action</div>
                   </div>
                   {mixSelectedProducts.map((product) => (
-                    <div key={product.id} className="grid grid-cols-5 gap-4 p-3 border-t">
+                    <div key={product.id} className="grid grid-cols-6 gap-4 p-3 border-t">
                       <div className="font-medium">{product.name}</div>
                       <div>{formatCurrency(product.price)}</div>
                       <div>{formatCurrency(product.allocatedPrice)}</div>
                       <div>{product.calculatedQuantity.toFixed(2)} kg</div>
+                      <div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openMixBatchSelector(product.id, product.calculatedQuantity)}
+                          className="text-xs"
+                        >
+                          <Package className="h-3 w-3 mr-1" />
+                          {product.selectedBatches && product.selectedBatches.length > 0
+                            ? `${product.selectedBatches.length} Selected`
+                            : 'Select Batches'
+                          }
+                        </Button>
+                      </div>
                       <div>
                         <Button
                           variant="ghost"
@@ -2615,6 +2803,47 @@ export default function ModernCatererBillingUI() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Batch Selector Dialog for Mix Products */}
+      <MixBatchSelectorDialog
+        open={!!showBatchSelector}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowBatchSelector(null);
+          }
+        }}
+        productId={showBatchSelector?.productId || 0}
+        quantity={showBatchSelector?.quantity || 0}
+        unit="kg"
+        onBatchSelect={(batchIds, quantities, totalQuantity, unit) => {
+          console.log(`Mix batch selection - ProductId: ${showBatchSelector?.productId}, Batches: ${batchIds.length}`);
+
+          if (showBatchSelector) {
+            setMixSelectedProducts(prev => prev.map(p =>
+              p.id === showBatchSelector.productId
+                ? {
+                    ...p,
+                    selectedBatches: batchIds.map((batchId, index) => ({
+                      batchId,
+                      quantity: quantities[index],
+                      unitPrice: 0 // Placeholder for unit price
+                    })),
+                    calculatedQuantity: totalQuantity
+                  }
+                : p
+            ));
+          }
+
+          setShowBatchSelector(null);
+
+          // Only show toast if batches were actually selected
+          if (batchIds.length > 0) {
+            showImmediateToast('Batches Selected', `Selected ${batchIds.length} batches for mix product`);
+          }
+        }}
+      />
+
+
     </div>
   );
 }

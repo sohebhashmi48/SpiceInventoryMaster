@@ -286,6 +286,16 @@ export const distributionItems = pgTable("distribution_items", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Distribution item batches table schema - to track which batches were used for each item
+export const distributionItemBatches = pgTable("distribution_item_batches", {
+  id: serial("id").primaryKey(),
+  distributionItemId: integer("distribution_item_id").notNull(),
+  inventoryBatchId: integer("inventory_batch_id").notNull(),
+  quantityUsed: numeric("quantity_used").notNull(),
+  unitPrice: numeric("unit_price").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Caterer payments table schema
 export const catererPayments = pgTable("caterer_payments", {
   id: serial("id").primaryKey(),
@@ -465,6 +475,8 @@ export const insertDistributionSchema = createInsertSchema(distributions)
   .omit({ id: true, createdAt: true });
 export const insertDistributionItemSchema = createInsertSchema(distributionItems)
   .omit({ id: true, createdAt: true });
+export const insertDistributionItemBatchSchema = createInsertSchema(distributionItemBatches)
+  .omit({ id: true, createdAt: true });
 export const insertCatererPaymentSchema = createInsertSchema(catererPayments)
   .omit({ id: true, createdAt: true })
   .extend({
@@ -536,6 +548,7 @@ export const insertCustomerBillItemSchema = createInsertSchema(customerBillItems
 export type InsertCaterer = z.infer<typeof insertCatererSchema>;
 export type InsertDistribution = z.infer<typeof insertDistributionSchema>;
 export type InsertDistributionItem = z.infer<typeof insertDistributionItemSchema>;
+export type InsertDistributionItemBatch = z.infer<typeof insertDistributionItemBatchSchema>;
 export type InsertCatererPayment = z.infer<typeof insertCatererPaymentSchema>;
 export type InsertCustomerBill = z.infer<typeof insertCustomerBillSchema>;
 export type InsertCustomerBillItem = z.infer<typeof insertCustomerBillItemSchema>;
@@ -543,6 +556,7 @@ export type InsertCustomerBillItem = z.infer<typeof insertCustomerBillItemSchema
 export type Caterer = typeof caterers.$inferSelect;
 export type Distribution = typeof distributions.$inferSelect;
 export type DistributionItem = typeof distributionItems.$inferSelect;
+export type DistributionItemBatch = typeof distributionItemBatches.$inferSelect;
 export type CatererPayment = typeof catererPayments.$inferSelect;
 export type CustomerBill = typeof customerBills.$inferSelect;
 export type CustomerBillItem = typeof customerBillItems.$inferSelect;

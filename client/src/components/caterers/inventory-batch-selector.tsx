@@ -45,6 +45,8 @@ interface InventoryBatchSelectorProps {
   onRequiredQuantityChange?: (requiredQuantity: number) => void;
   onUnitChange?: (unit: UnitType, convertedQuantity: number) => void;
   disabled?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export default function InventoryBatchSelector({
@@ -55,7 +57,9 @@ export default function InventoryBatchSelector({
   onQuantityChange,
   onRequiredQuantityChange,
   onUnitChange,
-  disabled = false
+  disabled = false,
+  open,
+  onOpenChange
 }: InventoryBatchSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedBatches, setSelectedBatches] = useState<Record<number, number>>({});
@@ -264,14 +268,17 @@ export default function InventoryBatchSelector({
         return newBatches;
       });
     } else if (newValue > maxQuantity) {
-      showImmediateToast("Maximum Reached", "Cannot exceed available quantity.", "destructive");
+      // Only show toast if user is trying to exceed maximum, not on every adjustment
+      if (currentValue < maxQuantity) {
+        showImmediateToast("Maximum Reached", "Cannot exceed available quantity.", "destructive");
+      }
     } else {
       setSelectedBatches(prev => ({
         ...prev,
         [batchId]: newValue
       }));
     }
-  }, [selectedBatches, convertedBatchQuantities, toast]);
+  }, [selectedBatches, convertedBatchQuantities]);
 
   // Optimized batch selection
   const selectBatch = useCallback((batchId: number, quantityToSelect: number) => {
@@ -303,37 +310,64 @@ export default function InventoryBatchSelector({
 
   const handleConfirm = useCallback(() => {
     const { totalSelected, batchIds, quantities } = calculatedTotals;
-    
+
     if (onRequiredQuantityChange && totalSelected > 0) {
       onRequiredQuantityChange(totalSelected);
     }
 
     onBatchSelect(batchIds, quantities, totalSelected, currentUnit);
-    setIsOpen(false);
-    
-    showImmediateToast("Batches Selected", `Selected ${batchIds.length} batches with total quantity ${totalSelected} ${currentUnit}`);
-  }, [calculatedTotals, currentUnit, onBatchSelect, onRequiredQuantityChange, toast]);
+
+    // Close dialog using the appropriate method
+    if (onOpenChange) {
+      onOpenChange(false);
+    } else {
+      setIsOpen(false);
+    }
+
+    // Only show toast if batches were actually selected
+    if (batchIds.length > 0) {
+      showImmediateToast("Batches Selected", `Selected ${batchIds.length} batches with total quantity ${totalSelected} ${currentUnit}`);
+    }
+  }, [calculatedTotals, currentUnit, onBatchSelect, onRequiredQuantityChange, onOpenChange]);
 
   const isQuantityMet = calculatedTotals.totalSelected >= localQuantity;
   const isInsufficientStock = totalAvailable < localQuantity;
 
+  // Use external open state if provided, otherwise use internal state
+  const dialogOpen = open !== undefined ? open : isOpen;
+  const handleOpenChange = (newOpen: boolean) => {
+    console.log(`InventoryBatchSelector handleOpenChange called with: ${newOpen}, open prop: ${open}, isOpen: ${isOpen}`);
+    if (onOpenChange) {
+      onOpenChange(newOpen);
+    } else {
+      setIsOpen(newOpen);
+    }
+  };
+
+  // Debug logging
+  React.useEffect(() => {
+    console.log(`InventoryBatchSelector rendered - productId: ${productId}, quantity: ${quantity}, open: ${open}, dialogOpen: ${dialogOpen}`);
+  }, [productId, quantity, open, dialogOpen]);
+
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant={selectedBatchDetails.length > 0 ? "default" : "outline"}
-          size="sm"
-          disabled={disabled || isLoading}
-          className="w-full"
-        >
-          <Package className="h-4 w-4 mr-2" />
-          {isLoading ? 'Loading...' : (
-            selectedBatchDetails.length > 0
-              ? `${selectedBatchDetails.length} Batch${selectedBatchDetails.length > 1 ? 'es' : ''} Selected (${formatQuantityWithUnit(calculatedTotals.totalSelected, currentUnit, false)})`
-              : 'Select Batches'
-          )}
-        </Button>
-      </DialogTrigger>
+    <Dialog open={dialogOpen} onOpenChange={handleOpenChange}>
+      {open === undefined && (
+        <DialogTrigger asChild>
+          <Button
+            variant={selectedBatchDetails.length > 0 ? "default" : "outline"}
+            size="sm"
+            disabled={disabled || isLoading}
+            className="w-full"
+          >
+            <Package className="h-4 w-4 mr-2" />
+            {isLoading ? 'Loading...' : (
+              selectedBatchDetails.length > 0
+                ? `${selectedBatchDetails.length} Batch${selectedBatchDetails.length > 1 ? 'es' : ''} Selected (${formatQuantityWithUnit(calculatedTotals.totalSelected, currentUnit, false)})`
+                : 'Select Batches'
+            )}
+          </Button>
+        </DialogTrigger>
+      )}
 
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -346,33 +380,16 @@ export default function InventoryBatchSelector({
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium">Required Quantity:</span>
                 <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min="0.01"
-                    step="0.5"
-                    value={localQuantity}
-                    onChange={(e) => {
-                      const newQuantity = Number((parseFloat(e.target.value) || 0).toFixed(2));
-                      if (newQuantity > 0) {
-                        setLocalQuantity(newQuantity);
-                        onRequiredQuantityChange?.(newQuantity);
-                      }
-                    }}
-                    className="w-24 h-9"
-                  />
-                  <UnitSelector
-                    value={currentUnit}
-                    onChange={(newUnit, convertedQuantity) => {
-                      setCurrentUnit(newUnit);
-                      if (convertedQuantity !== undefined) {
-                        setLocalQuantity(convertedQuantity);
-                        onUnitChange?.(newUnit, convertedQuantity);
-                      }
-                    }}
-                    quantity={localQuantity}
-                    className="h-9"
-                  />
+                  <div className="w-24 h-9 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-medium text-gray-700 flex items-center justify-center">
+                    {Number(localQuantity.toFixed(2))}
+                  </div>
+                  <div className="h-9 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-medium text-gray-700 flex items-center justify-center min-w-[60px]">
+                    {currentUnit}
+                  </div>
                 </div>
+                <span className="text-xs text-gray-500 ml-2">
+                  (Set quantity in Add Product section)
+                </span>
               </div>
             </div>
             
@@ -380,14 +397,14 @@ export default function InventoryBatchSelector({
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium">Selected:</span>
                 <span className={`text-lg font-bold ${
-                  calculatedTotals.totalSelected > localQuantity ? 'text-orange-500' : 
+                  calculatedTotals.totalSelected > localQuantity ? 'text-orange-500' :
                   isQuantityMet ? 'text-green-600' : 'text-red-600'
                 }`}>
-                  {calculatedTotals.totalSelected >= 100 ? Math.round(calculatedTotals.totalSelected) : calculatedTotals.totalSelected} {currentUnit}
+                  {Number(calculatedTotals.totalSelected.toFixed(2))} {currentUnit}
                 </span>
                 <span>/</span>
                 <span className="text-lg font-bold">
-                  {localQuantity >= 100 ? Math.round(localQuantity) : localQuantity} {currentUnit}
+                  {Number(localQuantity.toFixed(2))} {currentUnit}
                 </span>
               </div>
               

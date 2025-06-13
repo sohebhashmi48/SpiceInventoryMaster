@@ -1,1664 +1,343 @@
-import { useState, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { format } from 'date-fns';
-import { useProducts } from '@/hooks/use-products';
-import { useCreateCustomerBill } from '@/hooks/use-customer-bills';
-
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-
-import { toast } from '@/hooks/use-toast';
-import { getFormattedAddress, getBusinessEmail, getDisplayPhoneNumber } from '@/config/business';
-import {
-  ShoppingCart,
-  Plus,
-  Minus,
-  Trash2,
-  User,
-  Phone,
-  Mail,
-  MapPin,
-  Package,
-  Scale,
-  Printer,
-  History,
-  Tag,
-  ToggleLeft,
-  ToggleRight,
-  IndianRupee,
-  Calculator,
-  X,
-  Search
-} from 'lucide-react';
-import Layout from '@/components/layout/layout';
-import PageHeader from '@/components/common/page-header';
-import { useLocation } from 'wouter';
-import CustomerBatchSelector from '@/components/customer-billing/customer-batch-selector';
-
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-  AlertDialogAction,
-} from '@/components/ui/alert-dialog';
-
-// Form validation schema
-const customerBillingSchema = z.object({
-  clientName: z.string().min(1, 'Client name is required'),
-  clientMobile: z.string().min(10, 'Valid mobile number is required'),
-  clientEmail: z.string().email().optional().or(z.literal('')),
-  clientAddress: z.string().optional(),
-  paymentMethod: z.enum(['Cash', 'Card', 'Bank Transfer', 'Credit', 'UPI']),
-  items: z.array(z.object({
-    productId: z.number(),
-    productName: z.string(),
-    quantity: z.number().min(0.01, 'Quantity must be greater than 0'),
-    unit: z.enum(['kg', 'g', 'pcs']),
-    pricePerKg: z.number(),
-    marketPricePerKg: z.number(),
-    total: z.number(),
-  })),
-});
-
-type CustomerBillingForm = z.infer<typeof customerBillingSchema>;
-
-interface CartItem {
-  productId: number;
-  productName: string;
-  quantity: number;
-  unit: 'kg' | 'g' | 'pcs';
-  pricePerKg: number;
-  marketPricePerKg: number;
-  total: number;
-  displayQuantity: string;
-  selectedBatches?: {
-    batchIds: number[];
-    quantities: number[];
-  };
-}
+import React, { useState } from 'react';
+import { Plus, Trash2, Save, User, Phone, CreditCard, ShoppingCart, Receipt, Package } from 'lucide-react';
 
 export default function CustomerBillingPage() {
-  const { data: products, isLoading: productsLoading } = useProducts();
-  const createCustomerBill = useCreateCustomerBill();
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [selectedProduct, setSelectedProduct] = useState<string>('');
-  const [quantity, setQuantity] = useState<string>('');
-  const [unit, setUnit] = useState<'kg' | 'g' | 'pcs'>('kg');
-  const [inputMode, setInputMode] = useState<'quantity' | 'price'>('quantity');
-  const [priceAmount, setPriceAmount] = useState<string>('');
-  const [billNumber] = useState(() => {
-    const timestamp = Date.now().toString().slice(-6); // Last 6 digits of timestamp
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0'); // 3 digit random
-    return parseInt(timestamp + random);
+  // Mock data for demonstration
+  const products = [
+    { id: 1, name: 'Premium Coffee Beans', retailPrice: 25.99 },
+    { id: 2, name: 'Organic Tea Leaves', retailPrice: 18.50 },
+    { id: 3, name: 'Artisan Chocolate', retailPrice: 12.75 },
+    { id: 4, name: 'Fresh Pastries', retailPrice: 8.99 },
+    { id: 5, name: 'Energy Drink', retailPrice: 4.50 }
+  ];
+
+  const [formData, setFormData] = useState({
+    clientName: '',
+    clientMobile: '',
+    paymentMethod: 'Cash'
   });
-  const [currentTime, setCurrentTime] = useState(new Date());
-  const [, setLocation] = useLocation();
+  
+  const [cart, setCart] = useState([]);
+  const [selectedProduct, setSelectedProduct] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [errors, setErrors] = useState({});
 
-  // Mix Calculator state
-  const [showMixCalculator, setShowMixCalculator] = useState(false);
-  const [mixBudget, setMixBudget] = useState<string>('');
-  const [mixSelectedProducts, setMixSelectedProducts] = useState<{id: number, name: string, price: number, allocatedPrice: number, calculatedQuantity: number}[]>([]);
-  const [mixSearchQuery, setMixSearchQuery] = useState('');
-
-  const form = useForm<CustomerBillingForm>({
-    resolver: zodResolver(customerBillingSchema),
-    defaultValues: {
-      clientName: '',
-      clientMobile: '',
-      clientEmail: '',
-      clientAddress: '',
-      paymentMethod: 'Cash',
-      items: [],
-    },
-  });
-
-  // Update time every second
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // Mix Calculator functions
-  const handleMixCalculatorOpen = () => {
-    setShowMixCalculator(true);
-  };
-
-  const handleMixCalculatorClose = () => {
-    setShowMixCalculator(false);
-    setMixBudget('');
-    setMixSelectedProducts([]);
-    setMixSearchQuery('');
-  };
-
-  const addProductToMix = (product: any) => {
-    const newProduct = {
-      id: product.id,
-      name: product.name,
-      price: Number(product.retailPrice || product.price || 0),
-      allocatedPrice: 0,
-      calculatedQuantity: 0
-    };
-    setMixSelectedProducts(prev => [...prev, newProduct]);
-    setMixSearchQuery('');
-  };
-
-  const removeProductFromMix = (productId: number) => {
-    setMixSelectedProducts(prev => prev.filter(p => p.id !== productId));
-  };
-
-  // Calculate mix quantities when budget or products change
-  useEffect(() => {
-    if (mixBudget && mixSelectedProducts.length > 0) {
-      const budget = parseFloat(mixBudget);
-      const pricePerProduct = budget / mixSelectedProducts.length;
-
-      setMixSelectedProducts(prev => prev.map(p => ({
-        ...p,
-        allocatedPrice: Math.round(pricePerProduct * 100) / 100,
-        calculatedQuantity: Math.round((pricePerProduct / p.price) * 100) / 100
-      })));
+  const validateForm = () => {
+    const newErrors = {};
+    if (!formData.clientName.trim()) newErrors.clientName = 'Client name is required';
+    if (!formData.clientMobile.trim() || formData.clientMobile.length < 10) {
+      newErrors.clientMobile = 'Valid mobile number required';
     }
-  }, [mixBudget, mixSelectedProducts.length]);
-
-  const addMixToCart = () => {
-    mixSelectedProducts.forEach(mixProduct => {
-      if (mixProduct.calculatedQuantity > 0) {
-        const product = products?.find(p => p.id === mixProduct.id);
-        if (product) {
-          const productPrice = Number(product.retailPrice || product.price || 0);
-          const marketPrice = Number(product.marketPrice || productPrice * 1.2);
-
-          const newItem: CartItem = {
-            productId: product.id,
-            productName: product.name,
-            quantity: mixProduct.calculatedQuantity,
-            unit: 'kg',
-            displayQuantity: `${mixProduct.calculatedQuantity.toFixed(2)} kg`,
-            pricePerKg: productPrice,
-            marketPricePerKg: marketPrice,
-            total: mixProduct.calculatedQuantity * productPrice,
-            selectedBatches: undefined
-          };
-
-          setCart(prev => [...prev, newItem]);
-        }
-      }
-    });
-
-    handleMixCalculatorClose();
-    toast({
-      title: 'Success',
-      description: 'Mix products added to cart successfully!',
-    });
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
-  // Filter products for mix calculator
-  const filteredMixProducts = products?.filter(product =>
-    product.name.toLowerCase().includes(mixSearchQuery.toLowerCase()) &&
-    !mixSelectedProducts.some(mp => mp.id === product.id)
-  ) || [];
-
-
-
-  // Save bill functionality - only saves, doesn't print
-  const saveBill = async () => {
-    const formValidationErrors = validateForm();
-
-    if (formValidationErrors.length > 0) {
-      toast({
-        title: '⚠️ Validation Error',
-        description: (
-          <div className="space-y-1">
-            <p className="font-medium">Please fix the following issues:</p>
-            <ul className="list-disc list-inside space-y-1">
-              {formValidationErrors.map((error, index) => (
-                <li key={index} className="text-sm">{error}</li>
-              ))}
-            </ul>
-          </div>
-        ),
-        variant: 'destructive',
-        duration: 6000,
-      });
-      return;
-    }
-
-    try {
-      const formData = form.getValues();
-      const { total, savings, itemCount } = calculateTotals();
-
-      const billData = {
-        billNo: billNumber.toString().padStart(6, '0'),
-        billDate: currentTime.toISOString(),
-        clientName: formData.clientName,
-        clientMobile: formData.clientMobile,
-        clientEmail: formData.clientEmail || undefined,
-        clientAddress: formData.clientAddress || undefined,
-        totalAmount: total,
-        marketTotal: total + savings,
-        savings: savings,
-        itemCount: itemCount,
-        paymentMethod: formData.paymentMethod,
-        status: 'completed' as const,
-        items: cart.map(item => ({
-          productId: item.productId,
-          productName: item.productName,
-          quantity: item.quantity,
-          unit: item.unit,
-          pricePerKg: item.pricePerKg,
-          marketPricePerKg: item.marketPricePerKg,
-          total: item.total,
-        })),
-        // Include selected batches for inventory deduction
-        selectedBatches: cart.reduce((acc, item) => {
-          if (item.selectedBatches) {
-            acc[item.productId] = item.selectedBatches;
-          }
-          return acc;
-        }, {} as Record<number, { batchIds: number[]; quantities: number[] }>)
-      };
-
-      console.log('Sending bill data:', billData);
-      await createCustomerBill.mutateAsync(billData);
-
-      toast({
-        title: 'Success',
-        description: 'Bill saved successfully and inventory updated!',
-      });
-
-      // Reset form and cart after successful save
-      form.reset();
-      setCart([]);
-      setSelectedProduct('');
-      setQuantity('');
-      setPriceAmount('');
-
-    } catch (error) {
-      console.error('Error saving bill:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to save bill. Please try again.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  // Calculate quantity from price
-  const calculateQuantityFromPrice = (price: number, productPrice: number, unit: 'kg' | 'g' | 'pcs'): number => {
-    if (productPrice <= 0) return 0;
-
-    const quantityInKg = price / productPrice;
-
-    if (unit === 'g') {
-      return quantityInKg * 1000; // Convert kg to grams
-    } else if (unit === 'pcs') {
-      return quantityInKg; // For pieces, assume 1 piece = 1 kg equivalent
-    } else {
-      return quantityInKg; // kg
-    }
-  };
-
-  // Handle input mode toggle
-  const toggleInputMode = () => {
-    setInputMode(prev => prev === 'quantity' ? 'price' : 'quantity');
-    setQuantity('');
-    setPriceAmount('');
-  };
-
-  // Handle batch selection for cart items
-  const handleBatchSelect = (cartIndex: number, batchIds: number[], quantities: number[], totalQuantity: number) => {
-    const updatedCart = [...cart];
-    updatedCart[cartIndex].selectedBatches = {
-      batchIds,
-      quantities
-    };
-    // Update the cart item quantity to match selected batches
-    updatedCart[cartIndex].quantity = totalQuantity;
-    updatedCart[cartIndex].total = totalQuantity * updatedCart[cartIndex].pricePerKg;
-    updatedCart[cartIndex].displayQuantity = `${totalQuantity.toFixed(2)}${updatedCart[cartIndex].unit}`;
-    setCart(updatedCart);
-  };
-
-  // Add product to cart
   const addToCart = () => {
-    if (!selectedProduct) {
-      toast({
-        title: 'Error',
-        description: 'Please select a product',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    const product = products?.find(p => p.id.toString() === selectedProduct);
+    if (!selectedProduct) return;
+    
+    const product = products.find(p => p.id.toString() === selectedProduct);
     if (!product) return;
 
-    const productPrice = Number(product.retailPrice || product.price || 0);
+    const total = quantity * product.retailPrice;
+    const cartItem = {
+      ...product,
+      quantity,
+      total,
+      cartId: Date.now() // Simple unique ID for cart items
+    };
 
-    let qty: number;
-
-    if (inputMode === 'price') {
-      const price = parseFloat(priceAmount);
-      if (!price || price <= 0) {
-        toast({
-          title: 'Error',
-          description: 'Please enter a valid price amount',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      if (productPrice <= 0) {
-        toast({
-          title: 'Error',
-          description: 'Product price not available',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      qty = calculateQuantityFromPrice(price, productPrice, unit);
-    } else {
-      qty = parseFloat(quantity);
-      if (!qty || qty <= 0) {
-        toast({
-          title: 'Error',
-          description: 'Please enter a valid quantity',
-          variant: 'destructive',
-        });
-        return;
-      }
-    }
-
-    // Convert quantity to kg for calculation
-    let quantityInKg: number;
-    let displayQuantity: string;
-
-    if (unit === 'g') {
-      quantityInKg = qty / 1000;
-      displayQuantity = `${qty.toFixed(2)}g`;
-    } else if (unit === 'kg') {
-      quantityInKg = qty;
-      displayQuantity = `${qty.toFixed(2)}kg`;
-    } else { // pieces
-      quantityInKg = qty;
-      displayQuantity = `${qty.toFixed(2)}pcs`;
-    }
-
-    const pricePerKg = Number(product.retailPrice || product.price || 0);
-    const marketPricePerKg = Number(product.marketPrice || pricePerKg * 1.1); // Use market price or 10% markup
-    const total = quantityInKg * pricePerKg;
-
-    // Check if product already exists in cart
-    const existingItemIndex = cart.findIndex(item => item.productId === product.id);
-
-    if (existingItemIndex !== -1) {
-      // Update existing item
-      const updatedCart = [...cart];
-      updatedCart[existingItemIndex].quantity += quantityInKg;
-      updatedCart[existingItemIndex].total = updatedCart[existingItemIndex].quantity * pricePerKg;
-      updatedCart[existingItemIndex].displayQuantity = `${updatedCart[existingItemIndex].quantity.toFixed(2)}${unit === 'pcs' ? 'pcs' : 'kg'}`;
-      setCart(updatedCart);
-
-      toast({
-        title: 'Success',
-        description: `Updated ${product.name} quantity in cart`,
-      });
-    } else {
-      // Add new item
-      const newItem: CartItem = {
-        productId: product.id,
-        productName: product.name,
-        quantity: quantityInKg,
-        unit: unit === 'pcs' ? 'pcs' : 'kg',
-        pricePerKg,
-        marketPricePerKg,
-        total,
-        displayQuantity,
-      };
-
-      setCart([...cart, newItem]);
-
-      toast({
-        title: 'Success',
-        description: `${product.name} added to cart`,
-      });
-    }
-
-    // Reset form
+    setCart(prev => [...prev, cartItem]);
     setSelectedProduct('');
-    setQuantity('');
-    setPriceAmount('');
+    setQuantity(1);
   };
 
-  // Update quantity in cart
-  const updateQuantity = (index: number, change: number) => {
-    const updatedCart = [...cart];
-    updatedCart[index].quantity += change;
+  const removeFromCart = (cartId) => {
+    setCart(prev => prev.filter(item => item.cartId !== cartId));
+  };
 
-    if (updatedCart[index].quantity <= 0) {
-      removeFromCart(index);
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+    if (cart.length === 0) {
+      alert('Please add items to cart');
       return;
     }
-
-    updatedCart[index].total = updatedCart[index].quantity * updatedCart[index].pricePerKg;
-    updatedCart[index].displayQuantity = `${updatedCart[index].quantity.toFixed(2)}${updatedCart[index].unit}`;
-    setCart(updatedCart);
-  };
-
-  // Remove item from cart
-  const removeFromCart = (index: number) => {
-    const productName = cart[index].productName;
-    const updatedCart = cart.filter((_, i) => i !== index);
-    setCart(updatedCart);
-
-    toast({
-      title: 'Info',
-      description: `${productName} removed from cart`,
+    
+    console.log('Bill submitted:', {
+      ...formData,
+      items: cart,
+      total: cart.reduce((sum, item) => sum + item.total, 0)
     });
+    alert('Bill created successfully!');
   };
 
-  // Clear entire cart
-  const clearCart = () => {
-    if (cart.length === 0) {
-      toast({
-        title: 'Info',
-        description: 'Cart is already empty',
-      });
-      return;
-    }
-
-    setCart([]);
-    toast({
-      title: 'Info',
-      description: 'Cart cleared successfully',
-    });
-  };
-
-
-
-  // Calculate totals
-  const calculateTotals = () => {
-    const total = cart.reduce((sum, item) => sum + item.total, 0);
-    const marketTotal = cart.reduce((sum, item) => sum + (item.quantity * item.marketPricePerKg), 0);
-    const savings = marketTotal - total;
-
-    return { total, savings, itemCount: cart.length };
-  };
-
-  const { total, savings, itemCount } = calculateTotals();
-
-  // Enhanced form validation with detailed warnings
-  const validateForm = () => {
-    const formData = form.getValues();
-    const errors = [];
-
-    // Check required fields
-    if (!formData.clientName.trim()) {
-      errors.push('Client name is required');
-    }
-
-    if (!formData.clientMobile.trim()) {
-      errors.push('Client mobile number is required');
-    } else if (formData.clientMobile.length < 10) {
-      errors.push('Mobile number must be at least 10 digits');
-    }
-
-    if (!formData.paymentMethod) {
-      errors.push('Payment method is required');
-    }
-
-    if (cart.length === 0) {
-      errors.push('Please add items to the cart before saving');
-    }
-
-    // Check if all cart items have selected batches
-    const itemsWithoutBatches = cart.filter(item => !item.selectedBatches || item.selectedBatches.batchIds.length === 0);
-    if (itemsWithoutBatches.length > 0) {
-      errors.push(`Please select inventory batches for: ${itemsWithoutBatches.map(item => item.productName).join(', ')}`);
-    }
-
-    return errors;
-  };
-
-
-
-  // Print current bill functionality - only prints, doesn't save
-  const printCurrentBill = () => {
-    const formValidationErrors = validateForm();
-
-    if (formValidationErrors.length > 0) {
-      toast({
-        title: '⚠️ Cannot Print',
-        description: 'Please fix validation errors before printing.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    if (cart.length === 0) {
-      toast({
-        title: '⚠️ Cannot Print',
-        description: 'Please add items to the cart before printing.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    window.print();
-  };
+  const total = cart.reduce((sum, item) => sum + item.total, 0);
 
   return (
-    <Layout>
-      {/* Print-specific styles */}
-      <style jsx global>{`
-        @media print {
-          .no-print {
-            display: none !important;
-          }
-          .print-only {
-            display: block !important;
-            position: static !important;
-            width: 100% !important;
-            height: auto !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          body {
-            font-size: 12px;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: white !important;
-            color: black !important;
-            overflow: visible !important;
-          }
-          html {
-            overflow: visible !important;
-          }
-          .print-container {
-            max-width: none !important;
-            margin: 0 !important;
-            padding: 20px !important;
-            background: white !important;
-            font-family: Arial, sans-serif !important;
-            overflow: visible !important;
-            height: auto !important;
-          }
-
-          /* Hide all scroll bars during print */
-          * {
-            overflow: visible !important;
-            scrollbar-width: none !important;
-            -ms-overflow-style: none !important;
-          }
-          *::-webkit-scrollbar {
-            display: none !important;
-            width: 0 !important;
-            height: 0 !important;
-          }
-
-          /* Compact single-page layout */
-          .print-invoice-container {
-            display: block !important;
-            position: relative !important;
-            width: 100% !important;
-            height: auto !important;
-            overflow: visible !important;
-            margin: 0 !important;
-            padding: 15px !important;
-            background: white !important;
-            page-break-inside: avoid !important;
-          }
-
-          /* Compact sections with minimal spacing */
-          .print-company-header {
-            display: block !important;
-            width: 100% !important;
-            margin-bottom: 8px !important;
-            page-break-inside: avoid !important;
-            page-break-after: avoid !important;
-          }
-
-          .print-customer-section {
-            display: block !important;
-            width: 100% !important;
-            margin-bottom: 8px !important;
-            page-break-inside: avoid !important;
-            page-break-after: avoid !important;
-          }
-
-          .print-table-container {
-            display: block !important;
-            width: 100% !important;
-            margin-bottom: 8px !important;
-            overflow: visible !important;
-            page-break-inside: avoid !important;
-          }
-
-          .print-savings-section {
-            display: block !important;
-            width: 100% !important;
-            margin-bottom: 8px !important;
-            page-break-inside: avoid !important;
-            page-break-before: avoid !important;
-          }
-
-          .print-total-section {
-            display: block !important;
-            width: 100% !important;
-            margin-bottom: 8px !important;
-            page-break-inside: avoid !important;
-            page-break-before: avoid !important;
-          }
-
-          .print-footer {
-            display: block !important;
-            width: 100% !important;
-            margin-bottom: 0 !important;
-            page-break-inside: avoid !important;
-            page-break-before: avoid !important;
-          }
-
-          /* 1. Compact Company Header Section */
-          .print-company-header {
-            background: linear-gradient(135deg, #8B4513 0%, #D2691E 100%);
-            color: white;
-            padding: 15px;
-            margin: -15px -15px 10px -15px;
-            border-radius: 0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          }
-          .print-company-logo {
-            width: 50px;
-            height: 50px;
-            background: white;
-            color: #8B4513;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            font-weight: bold;
-            margin-right: 15px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-          }
-          .print-company-info h1 {
-            font-size: 24px;
-            font-weight: bold;
-            margin: 0;
-            color: white;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
-          }
-          .print-company-tagline {
-            font-size: 12px;
-            margin: 2px 0;
-            color: #FFE4B5;
-            font-style: italic;
-          }
-          .print-company-contact {
-            font-size: 10px;
-            margin: 4px 0 0 0;
-            color: #FFE4B5;
-            line-height: 1.2;
-          }
-          .print-invoice-title {
-            text-align: right;
-          }
-          .print-invoice-title h2 {
-            font-size: 28px;
-            font-weight: bold;
-            margin: 0;
-            color: white;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
-          }
-          .print-invoice-details {
-            font-size: 11px;
-            margin: 4px 0 0 0;
-            color: #FFE4B5;
-            line-height: 1.2;
-          }
-
-          /* 2. Compact Customer Details Section */
-          .print-customer-section {
-            background: #FFF8DC;
-            border: 1px solid #8B4513;
-            border-radius: 5px;
-            padding: 12px;
-            margin: 8px 0;
-          }
-          .print-customer-title {
-            color: #8B4513;
-            font-size: 14px;
-            font-weight: bold;
-            margin: 0 0 8px 0;
-            border-bottom: 1px solid #D2691E;
-            padding-bottom: 4px;
-          }
-          .print-customer-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-          }
-          .print-customer-field {
-            margin: 4px 0;
-            font-size: 11px;
-            line-height: 1.3;
-          }
-          .print-customer-label {
-            font-weight: bold;
-            color: #8B4513;
-            display: inline-block;
-            min-width: 60px;
-          }
-
-          /* 3. Compact Product Items Table */
-          .print-table {
-            border-collapse: collapse;
-            width: 100%;
-            margin: 8px 0;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-            page-break-inside: auto;
-          }
-          .print-table th {
-            background: linear-gradient(135deg, #8B4513 0%, #D2691E 100%);
-            color: white;
-            font-weight: bold;
-            padding: 8px 6px;
-            text-align: center;
-            font-size: 11px;
-            border: 1px solid #654321;
-            page-break-inside: avoid;
-            page-break-after: avoid;
-          }
-          .print-table td {
-            border: 1px solid #D2691E;
-            padding: 6px 4px;
-            text-align: center;
-            font-size: 10px;
-            background: white;
-            page-break-inside: avoid;
-          }
-          .print-table tr {
-            page-break-inside: avoid;
-            page-break-after: auto;
-          }
-          .print-table tr:nth-child(even) td {
-            background: #FFF8DC;
-          }
-          .print-table .product-name {
-            text-align: left;
-            font-weight: 600;
-            color: #8B4513;
-          }
-          .print-table .total-amount {
-            font-weight: bold;
-            color: #8B4513;
-          }
-
-          /* Ensure table header repeats on new pages */
-          .print-table thead {
-            display: table-header-group;
-          }
-
-          /* Compact table for many items */
-          .print-table-compact {
-            font-size: 11px;
-          }
-          .print-table-compact th {
-            padding: 8px 6px;
-            font-size: 12px;
-          }
-          .print-table-compact td {
-            padding: 6px 4px;
-            font-size: 11px;
-          }
-
-          /* Ultra compact for very many items */
-          .print-table-ultra-compact {
-            font-size: 10px;
-          }
-          .print-table-ultra-compact th {
-            padding: 6px 4px;
-            font-size: 11px;
-          }
-          .print-table-ultra-compact td {
-            padding: 4px 3px;
-            font-size: 10px;
-          }
-
-          /* Ensure critical sections always appear */
-          .print-critical-section {
-            page-break-inside: avoid !important;
-            page-break-before: auto !important;
-          }
-
-          /* Force new page for totals if needed */
-          .print-totals-group {
-            page-break-before: auto;
-            page-break-inside: avoid;
-          }
-
-          /* 4. Compact Savings Section */
-          .print-savings-section {
-            background: linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
-            color: #8B4513;
-            padding: 12px;
-            border-radius: 5px;
-            margin: 8px 0;
-            text-align: center;
-            border: 2px solid #8B4513;
-          }
-          .print-savings-title {
-            font-size: 12px;
-            font-weight: bold;
-            margin: 0 0 4px 0;
-          }
-          .print-savings-amount {
-            font-size: 18px;
-            font-weight: bold;
-            margin: 2px 0;
-          }
-          .print-savings-details {
-            font-size: 10px;
-            margin: 4px 0 0 0;
-            opacity: 0.8;
-          }
-
-          /* 5. Compact Total Amount Section */
-          .print-total-section {
-            background: linear-gradient(135deg, #8B4513 0%, #D2691E 100%);
-            color: white;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 8px 0;
-            text-align: center;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-          }
-          .print-total-title {
-            font-size: 14px;
-            font-weight: bold;
-            margin: 0 0 6px 0;
-          }
-          .print-total-amount {
-            font-size: 24px;
-            font-weight: bold;
-            margin: 6px 0;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
-          }
-          .print-total-items {
-            font-size: 11px;
-            margin: 4px 0 0 0;
-            color: #FFE4B5;
-          }
-
-          /* 6. Compact Footer Section */
-          .print-footer {
-            background: #FFF8DC;
-            border: 1px solid #8B4513;
-            border-radius: 5px;
-            padding: 10px;
-            margin: 8px 0 0 0;
-            text-align: center;
-          }
-          .print-footer-message {
-            font-size: 12px;
-            font-weight: bold;
-            color: #8B4513;
-            margin: 0 0 4px 0;
-          }
-          .print-footer-branding {
-            font-size: 11px;
-            color: #D2691E;
-            margin: 4px 0;
-            font-weight: 600;
-          }
-          .print-footer-contact {
-            font-size: 9px;
-            color: #666;
-            margin: 4px 0 0 0;
-            line-height: 1.2;
-          }
-        }
-        .print-only {
-          display: none;
-        }
-      `}</style>
-
-      {/* Print-only Professional Invoice Layout - MUST BE FIRST */}
-      <div className="print-only print-invoice-container">
-        {/* SECTION 1: Company Header - ALWAYS FIRST */}
-        <div className="print-company-header">
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <div className="print-company-logo">R</div>
-            <div className="print-company-info">
-              <h1>RoyalSpicyMasala</h1>
-              <div className="print-company-tagline">Premium Quality Spices & Masalas</div>
-              <div className="print-company-contact">
-                📍 {getFormattedAddress()}<br/>
-                📞 {getDisplayPhoneNumber()} | ✉️ {getBusinessEmail()}<br/>
-                🌐 www.royalspicymasala.com | GST: 27ABCDE1234F1Z5
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      {/* Header */}
+      <div className="bg-white shadow-sm border-b border-gray-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="py-6">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <Receipt className="w-6 h-6 text-blue-600" />
               </div>
-            </div>
-          </div>
-          <div className="print-invoice-title">
-            <h2>INVOICE</h2>
-            <div className="print-invoice-details">
-              Bill #: {billNumber.toString().padStart(6, '0')}<br/>
-              Date: {format(currentTime, 'dd/MM/yyyy')}<br/>
-              Time: {format(currentTime, 'HH:mm:ss')}
-            </div>
-          </div>
-        </div>
-
-        {/* SECTION 2: Customer Details */}
-        <div className="print-customer-section">
-          <h3 className="print-customer-title">Bill To:</h3>
-          <div className="print-customer-grid">
-            <div>
-              <div className="print-customer-field">
-                <span className="print-customer-label">Name:</span> {form.getValues('clientName') || 'N/A'}
-              </div>
-              <div className="print-customer-field">
-                <span className="print-customer-label">Mobile:</span> {form.getValues('clientMobile') || 'N/A'}
-              </div>
-              <div className="print-customer-field">
-                <span className="print-customer-label">Payment:</span> {form.getValues('paymentMethod') || 'Cash'}
-              </div>
-            </div>
-            <div>
-              <div className="print-customer-field">
-                <span className="print-customer-label">Email:</span> {form.getValues('clientEmail') || 'N/A'}
-              </div>
-              <div className="print-customer-field">
-                <span className="print-customer-label">Address:</span> {form.getValues('clientAddress') || 'N/A'}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* SECTION 3: Product Items Table */}
-        <div className="print-table-container">
-          <table className={`print-table ${
-            cart.length > 15 ? 'print-table-ultra-compact' :
-            cart.length > 5 ? 'print-table-compact' : ''
-          }`}>
-            <thead>
-              <tr>
-                <th style={{ width: '8%' }}>S.No.</th>
-                <th style={{ width: '40%' }}>Product Name</th>
-                <th style={{ width: '15%' }}>Quantity</th>
-                <th style={{ width: '17%' }}>Unit Price</th>
-                <th style={{ width: '20%' }}>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cart.map((item, index) => (
-                <tr key={index}>
-                  <td>{index + 1}</td>
-                  <td className="product-name">
-                    {item.productName}<br/>
-                    <small style={{
-                      color: '#666',
-                      fontSize: cart.length > 20 ? '9px' : cart.length > 10 ? '10px' : '11px'
-                    }}>₹{item.pricePerKg.toFixed(2)}/kg</small>
-                  </td>
-                  <td>{item.displayQuantity}</td>
-                  <td>₹{item.pricePerKg.toFixed(2)}</td>
-                  <td className="total-amount">₹{item.total.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* SECTIONS 4-6: Critical Totals and Footer Group */}
-        <div className="print-totals-group print-critical-section">
-          {/* SECTION 4: Savings Section */}
-          {savings > 0 && (
-            <div className="print-savings-section">
-              <div className="print-savings-title">🎉 Congratulations! You Saved</div>
-              <div className="print-savings-amount">₹{savings.toFixed(2)}</div>
-              <div className="print-savings-details">
-                Market Price: ₹{(total + savings).toFixed(2)} | Your Price: ₹{total.toFixed(2)}
-              </div>
-            </div>
-          )}
-
-          {/* SECTION 5: Total Amount Section */}
-          <div className="print-total-section">
-            <div className="print-total-title">Grand Total</div>
-            <div className="print-total-amount">₹{total.toFixed(2)}</div>
-            <div className="print-total-items">Total Items: {itemCount}</div>
-          </div>
-
-          {/* SECTION 6: Footer Section - ALWAYS LAST */}
-          <div className="print-footer">
-            <div className="print-footer-message">🙏 Thank you for shopping with us! 🙏</div>
-            <div className="print-footer-branding">RoyalSpicyMasala - Your Trusted Spice Partner</div>
-            <div className="print-footer-contact">
-              For queries: {getDisplayPhoneNumber()} | Visit: www.royalspicymasala.com<br/>
-              Follow us: @RoyalSpicyMasala | Quality Guaranteed Since 1995
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="no-print">
-        <PageHeader
-          title="Customer Billing"
-          description="Create bills for customer purchases"
-        />
-      </div>
-
-      <div className="space-y-6 print-container no-print">
-        {/* Company & Client Info Section */}
-        <Card className="shadow-lg">
-          <CardContent className="p-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Company Information */}
-              <div className="border-r border-gray-200 pr-6">
-                <div className="flex items-center mb-4">
-                  <div className="w-15 h-15 bg-primary rounded-xl flex items-center justify-center text-white text-2xl font-bold mr-4">
-                    S
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-800">RoyalSpicyMasala</h2>
-                    <p className="text-primary font-medium">Premium Quality Spices</p>
-                  </div>
-                </div>
-                <div className="text-sm text-gray-600 space-y-2">
-                  <p className="flex items-center"><MapPin className="w-4 h-4 mr-2 text-primary" /> {getFormattedAddress()}</p>
-                  <p className="flex items-center"><Phone className="w-4 h-4 mr-2 text-primary" /> {getDisplayPhoneNumber()}</p>
-                  <p className="flex items-center"><Mail className="w-4 h-4 mr-2 text-primary" /> {getBusinessEmail()}</p>
-                </div>
-              </div>
-
-              {/* Client Information */}
               <div>
-                <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-                  <User className="text-primary mr-2" />
-                  Client Information
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="clientName">Client Name *</Label>
-                    <Input
-                      id="clientName"
-                      placeholder="Enter client name"
-                      {...form.register('clientName')}
+                <h1 className="text-2xl font-bold text-gray-900">Customer Billing</h1>
+                <p className="text-gray-600">Create and manage customer invoices</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="space-y-8">
+          
+          {/* Customer Details Card */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-100">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <User className="w-5 h-5 text-green-600" />
+                </div>
+                <h2 className="text-lg font-semibold text-gray-900">Customer Details</h2>
+              </div>
+            </div>
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Customer Name
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      value={formData.clientName}
+                      onChange={(e) => setFormData(prev => ({ ...prev, clientName: e.target.value }))}
+                      className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                      placeholder="Enter customer name"
                     />
                   </div>
-                  <div>
-                    <Label htmlFor="clientMobile">Mobile Number *</Label>
-                    <Input
-                      id="clientMobile"
+                  {errors.clientName && (
+                    <p className="text-sm text-red-600">{errors.clientName}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Mobile Number
+                  </label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="tel"
+                      value={formData.clientMobile}
+                      onChange={(e) => setFormData(prev => ({ ...prev, clientMobile: e.target.value }))}
+                      className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                       placeholder="Enter mobile number"
-                      {...form.register('clientMobile')}
                     />
                   </div>
-                  <div>
-                    <Label htmlFor="clientEmail">Email (Optional)</Label>
-                    <Input
-                      id="clientEmail"
-                      type="email"
-                      placeholder="Enter email address"
-                      {...form.register('clientEmail')}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="clientAddress">Address (Optional)</Label>
-                    <Input
-                      id="clientAddress"
-                      placeholder="Enter address"
-                      {...form.register('clientAddress')}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="paymentMethod">Payment Method *</Label>
-                    <Select
-                      value={form.watch('paymentMethod')}
-                      onValueChange={(value) => form.setValue('paymentMethod', value as any)}
+                  {errors.clientMobile && (
+                    <p className="text-sm text-red-600">{errors.clientMobile}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Payment Method
+                  </label>
+                  <div className="relative">
+                    <CreditCard className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <select
+                      value={formData.paymentMethod}
+                      onChange={(e) => setFormData(prev => ({ ...prev, paymentMethod: e.target.value }))}
+                      className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors appearance-none bg-white"
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select payment method" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Cash">💵 Cash</SelectItem>
-                        <SelectItem value="Card">💳 Card</SelectItem>
-                        <SelectItem value="Bank Transfer">🏦 Bank Transfer</SelectItem>
-                        <SelectItem value="Credit">📝 Credit</SelectItem>
-                        <SelectItem value="UPI">📱 UPI</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      <option value="Cash">Cash</option>
+                      <option value="Card">Card</option>
+                      <option value="Bank Transfer">Bank Transfer</option>
+                      <option value="UPI">UPI</option>
+                    </select>
                   </div>
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Bill Info */}
-            <div className="flex flex-col md:flex-row justify-between items-center mt-6 pt-6 border-t border-gray-200">
-              <div className="bg-gray-100 px-6 py-3 rounded-xl mb-4 md:mb-0">
-                <div className="flex space-x-6">
-                  <div>
-                    <p className="text-sm text-gray-500">Date</p>
-                    <p className="font-medium">{format(currentTime, 'dd/MM/yyyy')}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Time</p>
-                    <p className="font-medium">{format(currentTime, 'HH:mm:ss')}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Bill #</p>
-                    <p className="font-medium">{billNumber.toString().padStart(6, '0')}</p>
-                  </div>
+          {/* Add Products Card */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-100">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <Package className="w-5 h-5 text-purple-600" />
                 </div>
-              </div>
-
-              <div className="flex space-x-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-orange-500 text-orange-600 hover:bg-orange-500 hover:text-white"
-                  onClick={handleMixCalculatorOpen}
-                >
-                  <Calculator className="w-4 h-4 mr-1" />
-                  Mix Calculator
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-primary"
-                  onClick={() => setLocation('/customer-transaction-history')}
-                >
-                  <History className="w-4 h-4 mr-1" />
-                  Transaction History
-                </Button>
-                <Button variant="ghost" size="sm" className="text-primary">
-                  <Tag className="w-4 h-4 mr-1" />
-                  Special Offers
-                </Button>
+                <h2 className="text-lg font-semibold text-gray-900">Add Products</h2>
               </div>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Product Selection Form */}
-        <Card className="shadow-lg no-print">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <ShoppingCart className="text-primary mr-3" />
-              Add Products to Cart
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div>
-                <Label htmlFor="productSelect">
-                  <Package className="w-4 h-4 inline mr-2" />
-                  Select Product
-                </Label>
-                <Select value={selectedProduct} onValueChange={setSelectedProduct} disabled={productsLoading}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={productsLoading ? "Loading products..." : "Choose Product..."} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {products?.map((product) => (
-                      <SelectItem key={product.id} value={product.id.toString()}>
-                        {product.name} - ₹{Number(product.retailPrice || product.price || 0).toFixed(2)}/kg
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <Label htmlFor="quantityInput">
-                    {inputMode === 'quantity' ? (
-                      <>
-                        <Scale className="w-4 h-4 inline mr-2" />
-                        Quantity
-                      </>
-                    ) : (
-                      <>
-                        <IndianRupee className="w-4 h-4 inline mr-2" />
-                        Price Amount
-                      </>
-                    )}
-                  </Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={toggleInputMode}
-                    className="h-8 px-3"
+            <div className="p-6">
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="flex-1 space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Select Product
+                  </label>
+                  <select
+                    value={selectedProduct}
+                    onChange={(e) => setSelectedProduct(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                   >
-                    {inputMode === 'quantity' ? (
-                      <>
-                        <ToggleLeft className="w-4 h-4 mr-1" />
-                        By Qty
-                      </>
-                    ) : (
-                      <>
-                        <ToggleRight className="w-4 h-4 mr-1" />
-                        By Price
-                      </>
-                    )}
-                  </Button>
+                    <option value="">Choose a product...</option>
+                    {products.map(product => (
+                      <option key={product.id} value={product.id.toString()}>
+                        {product.name} - ${product.retailPrice}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                {inputMode === 'quantity' ? (
-                  <Input
-                    id="quantityInput"
+                <div className="w-full sm:w-32 space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Quantity
+                  </label>
+                  <input
                     type="number"
-                    placeholder="Enter quantity"
-                    min="0.01"
-                    step="0.01"
+                    min="1"
                     value={quantity}
-                    onChange={(e) => setQuantity(e.target.value)}
+                    onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                   />
-                ) : (
-                  <Input
-                    id="priceInput"
-                    type="number"
-                    placeholder="Enter price amount (₹)"
-                    min="0.01"
-                    step="0.01"
-                    value={priceAmount}
-                    onChange={(e) => setPriceAmount(e.target.value)}
-                  />
-                )}
+                </div>
 
-                {inputMode === 'price' && selectedProduct && priceAmount && (
-                  <div className="mt-2 text-sm text-gray-600">
-                    {(() => {
-                      const product = products?.find(p => p.id.toString() === selectedProduct);
-                      const productPrice = Number(product?.retailPrice || product?.price || 0);
-                      const price = parseFloat(priceAmount);
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={addToCart}
+                    disabled={!selectedProduct}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add to Cart</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
 
-                      if (productPrice > 0 && price > 0) {
-                        const calculatedQty = calculateQuantityFromPrice(price, productPrice, unit);
-                        return `≈ ${calculatedQty.toFixed(2)} ${unit}`;
-                      }
-                      return '';
-                    })()}
+          {/* Cart and Summary */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            {/* Cart Items */}
+            <div className="lg:col-span-2">
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="px-6 py-5 border-b border-gray-100">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2 bg-orange-100 rounded-lg">
+                      <ShoppingCart className="w-5 h-5 text-orange-600" />
+                    </div>
+                    <h2 className="text-lg font-semibold text-gray-900">
+                      Cart Items ({cart.length})
+                    </h2>
                   </div>
-                )}
-              </div>
-
-              <div>
-                <Label htmlFor="unitSelect">
-                  <Scale className="w-4 h-4 inline mr-2" />
-                  Unit
-                </Label>
-                <Select value={unit} onValueChange={(value: 'kg' | 'g' | 'pcs') => setUnit(value)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="kg">Kilogram (kg)</SelectItem>
-                    <SelectItem value="g">Gram (g)</SelectItem>
-                    <SelectItem value="pcs">Pieces (pcs)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-end">
-                <Button onClick={addToCart} className="w-full">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add to Cart
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-
-
-        {/* Cart Display */}
-        <Card className="shadow-lg">
-          <CardHeader className="bg-primary text-white">
-            <CardTitle className="flex items-center">
-              <ShoppingCart className="mr-3" />
-              Shopping Cart
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table className="print-table">
-                <TableHeader>
-                  <TableRow className="bg-gray-50">
-                    <TableHead className="text-center">S.No.</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead className="text-center">Quantity</TableHead>
-                    <TableHead className="text-center">Unit Price</TableHead>
-                    <TableHead className="text-center">Total</TableHead>
-                    <TableHead className="text-center no-print">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-              </Table>
-            </div>
-
-            {/* Scrollable Table Body */}
-            <div className="overflow-x-auto max-h-96 overflow-y-auto">
-              <Table className="print-table">
-                <TableBody>
+                </div>
+                <div className="overflow-x-auto">
                   {cart.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-12 text-gray-500">
-                        <ShoppingCart className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                        <p className="text-lg">Your cart is empty</p>
-                        <p className="text-sm">Add products to get started</p>
-                      </TableCell>
-                    </TableRow>
+                    <div className="p-12 text-center">
+                      <ShoppingCart className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                      <p className="text-gray-500">No items in cart</p>
+                      <p className="text-sm text-gray-400">Add products to get started</p>
+                    </div>
                   ) : (
-                    cart.map((item, index) => (
-                      <TableRow key={index} className="hover:bg-gray-50">
-                        <TableCell className="text-center font-medium">{index + 1}</TableCell>
-                        <TableCell>
-                          <div className="space-y-2">
-                            <div>
-                              <div className="font-medium">{item.productName}</div>
-                              <div className="text-sm text-gray-500">₹{item.pricePerKg.toFixed(2)}/kg</div>
-                            </div>
-                            <div className="no-print">
-                              <CustomerBatchSelector
-                                productId={item.productId}
-                                productName={item.productName}
-                                requiredQuantity={item.quantity}
-                                unit={item.unit}
-                                onBatchSelect={(batchIds, quantities, totalQuantity) =>
-                                  handleBatchSelect(index, batchIds, quantities, totalQuantity)
-                                }
-                              />
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex items-center justify-center space-x-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => updateQuantity(index, -0.1)}
-                              className="w-8 h-8 p-0 rounded-full no-print"
-                            >
-                              <Minus className="w-3 h-3" />
-                            </Button>
-                            <span className="px-3 font-medium">{item.displayQuantity}</span>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => updateQuantity(index, 0.1)}
-                              className="w-8 h-8 p-0 rounded-full no-print"
-                            >
-                              <Plus className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center">₹{item.pricePerKg.toFixed(2)}</TableCell>
-                        <TableCell className="text-center font-semibold">₹{item.total.toFixed(2)}</TableCell>
-                        <TableCell className="text-center no-print">
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => removeFromCart(index)}
-                            className="w-8 h-8 p-0"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-
-            {/* Cart Summary */}
-            <div className="border-t border-gray-200 p-6">
-              <div className="flex flex-col md:flex-row justify-between items-center">
-                <div className="flex flex-col md:flex-row gap-4 mb-4 md:mb-0 no-print">
-                  <Button
-                    onClick={saveBill}
-                    disabled={createCustomerBill.isPending || cart.length === 0}
-                    className={`px-6 py-3 text-lg ${
-                      cart.length === 0
-                        ? 'bg-gray-400 hover:bg-gray-400 text-gray-600 cursor-not-allowed'
-                        : 'bg-primary hover:bg-primary/90 text-white'
-                    }`}
-                  >
-                    {createCustomerBill.isPending ? (
-                      <div className="flex items-center">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Processing...
-                      </div>
-                    ) : cart.length === 0 ? (
-                      <>
-                        <Tag className="w-5 h-5 mr-2" />
-                        Add Items to Save Bill
-                      </>
-                    ) : (
-                      <>
-                        <Tag className="w-5 h-5 mr-2" />
-                        Save Bill
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    onClick={printCurrentBill}
-                    disabled={cart.length === 0}
-                    variant="outline"
-                    className="px-6 py-3 text-lg"
-                  >
-                    <Printer className="w-5 h-5 mr-2" />
-                    {cart.length === 0 ? 'Add Items to Print' : 'Print Bill'}
-                  </Button>
-                  <Button variant="destructive" onClick={clearCart}>
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Clear Cart
-                  </Button>
-                </div>
-
-                <div className="flex flex-col md:flex-row items-center gap-4">
-                  <Badge variant="secondary" className="bg-yellow-500 text-white px-4 py-2">
-                    <div className="text-center">
-                      <p className="text-xs font-medium">You Saved</p>
-                      <p className="text-xl font-bold">₹{savings.toFixed(2)}</p>
-                    </div>
-                  </Badge>
-
-                  <div className="bg-primary text-white px-8 py-4 rounded-2xl">
-                    <div className="text-center">
-                      <p className="text-lg font-medium">Total Amount</p>
-                      <p className="text-3xl font-bold">₹{total.toFixed(2)}</p>
-                      <p className="text-sm opacity-90">Items: {itemCount}</p>
-                    </div>
-                  </div>
-                </div>
-
-
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-
-
-
-
-
-
-      </div>
-
-      {/* Mix Calculator Modal */}
-      {showMixCalculator && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-4xl max-h-[90vh] overflow-hidden">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Calculator className="h-5 w-5 text-primary" />
-                <CardTitle>Mix Calculator</CardTitle>
-              </div>
-              <Button variant="ghost" size="sm" onClick={handleMixCalculatorClose}>
-                <X className="h-4 w-4" />
-              </Button>
-            </CardHeader>
-
-            <CardContent className="space-y-6 overflow-y-auto max-h-[calc(90vh-120px)]">
-              {/* Budget Input */}
-              <div className="space-y-2">
-                <Label htmlFor="mixBudget">Total Budget</Label>
-                <Input
-                  id="mixBudget"
-                  type="number"
-                  placeholder="Enter your total budget (₹)"
-                  value={mixBudget}
-                  onChange={(e) => setMixBudget(e.target.value)}
-                  className="text-lg"
-                />
-              </div>
-
-              {/* Product Search */}
-              <div className="space-y-2">
-                <Label htmlFor="mixSearch">Add Products</Label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                  <Input
-                    id="mixSearch"
-                    placeholder="Search products to add..."
-                    value={mixSearchQuery}
-                    onChange={(e) => setMixSearchQuery(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-
-                {/* Search Results */}
-                {mixSearchQuery && (
-                  <div className="max-h-40 overflow-y-auto border rounded-lg">
-                    {filteredMixProducts.length > 0 ? (
-                      filteredMixProducts.slice(0, 5).map(product => (
-                        <div
-                          key={product.id}
-                          className="p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0 flex justify-between items-center"
-                          onClick={() => addProductToMix(product)}
-                        >
-                          <div>
-                            <span className="font-medium">{product.name}</span>
-                            <span className="text-sm text-gray-500 ml-2">
-                              ₹{Number(product.retailPrice || product.price || 0).toFixed(2)} per kg
-                            </span>
-                          </div>
-                          <Plus className="h-4 w-4 text-primary" />
-                        </div>
-                      ))
-                    ) : (
-                      <div className="p-3 text-gray-500 text-center">No products found</div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Selected Products */}
-              {mixSelectedProducts.length > 0 && (
-                <div className="space-y-4">
-                  <h4 className="font-semibold">Selected Products ({mixSelectedProducts.length})</h4>
-
-                  <div className="space-y-3">
-                    {mixSelectedProducts.map((mixProduct) => (
-                      <Card key={mixProduct.id} className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-3">
-                              <span className="font-medium">{mixProduct.name}</span>
-                              <Badge variant="outline">
-                                ₹{mixProduct.price.toFixed(2)} per kg
-                              </Badge>
-                            </div>
-
-                            {mixBudget && mixSelectedProducts.length > 0 && (
-                              <div className="mt-2 text-sm text-gray-600 space-y-1">
-                                <div>Allocated Budget: ₹{mixProduct.allocatedPrice.toFixed(2)}</div>
-                                <div className="font-medium text-primary">
-                                  Quantity: {mixProduct.calculatedQuantity.toFixed(2)} kg
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => removeProductFromMix(mixProduct.id)}
-                            className="text-red-600 border-red-200 hover:bg-red-50"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-
-                  {/* Summary */}
-                  {mixBudget && mixSelectedProducts.length > 0 && (
-                    <Card className="bg-green-50 border-green-200">
-                      <CardContent className="p-4">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <h4 className="font-semibold text-green-800">Mix Summary</h4>
-                            <p className="text-sm text-green-700">
-                              Total Budget: ₹{parseFloat(mixBudget).toFixed(2)} |
-                              Products: {mixSelectedProducts.length} |
-                              Avg per product: ₹{(parseFloat(mixBudget) / mixSelectedProducts.length).toFixed(2)}
-                            </p>
-                          </div>
-                          <Button
-                            onClick={addMixToCart}
-                            className="bg-green-600 hover:bg-green-700"
-                          >
-                            <ShoppingCart className="h-4 w-4 mr-2" />
-                            Add Mix to Cart
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Product
+                          </th>
+                          <th className="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Qty
+                          </th>
+                          <th className="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Price
+                          </th>
+                          <th className="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Total
+                          </th>
+                          <th className="px-6 py-4 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Action
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {cart.map((item) => (
+                          <tr key={item.cartId} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="font-medium text-gray-900">{item.name}</div>
+                            </td>
+                            <td className="px-6 py-4 text-right text-gray-700">
+                              {item.quantity}
+                            </td>
+                            <td className="px-6 py-4 text-right text-gray-700">
+                              ${item.retailPrice.toFixed(2)}
+                            </td>
+                            <td className="px-6 py-4 text-right font-medium text-gray-900">
+                              ${item.total.toFixed(2)}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <button
+                                type="button"
+                                onClick={() => removeFromCart(item.cartId)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   )}
                 </div>
-              )}
+              </div>
+            </div>
 
-              {/* Instructions */}
-              {mixSelectedProducts.length === 0 && (
-                <Card className="bg-blue-50 border-blue-200">
-                  <CardContent className="p-4">
-                    <h4 className="font-semibold text-blue-800 mb-2">How to use Mix Calculator:</h4>
-                    <ol className="text-sm text-blue-700 space-y-1 list-decimal list-inside">
-                      <li>Enter your total budget amount</li>
-                      <li>Search and select the products you want to mix</li>
-                      <li>The calculator will divide your budget equally among selected products</li>
-                      <li>View the calculated quantities for each product</li>
-                      <li>Add all products to your cart with calculated quantities</li>
-                    </ol>
-                  </CardContent>
-                </Card>
-              )}
-            </CardContent>
-          </Card>
+            {/* Summary */}
+            <div className="space-y-6">
+              <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl border border-blue-100 overflow-hidden">
+                <div className="px-6 py-5 border-b border-blue-200">
+                  <h3 className="text-lg font-semibold text-gray-900">Order Summary</h3>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div className="flex justify-between text-gray-600">
+                    <span>Total Items:</span>
+                    <span className="font-medium">{cart.length}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-600">
+                    <span>Subtotal:</span>
+                    <span className="font-medium">${total.toFixed(2)}</span>
+                  </div>
+                  <hr className="border-blue-200" />
+                  <div className="flex justify-between text-xl font-bold text-gray-900">
+                    <span>Total:</span>
+                    <span>${total.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={cart.length === 0}
+                className="w-full px-6 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center space-x-2 text-lg font-semibold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+              >
+                <Save className="w-5 h-5" />
+                <span>Create Bill</span>
+              </button>
+            </div>
+          </div>
+
         </div>
-      )}
-    </Layout>
+      </div>
+    </div>
   );
 }

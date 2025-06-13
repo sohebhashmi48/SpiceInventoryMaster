@@ -10,14 +10,10 @@ import {
   DeleteCatererOptions,
   RelatedRecordsError
 } from '../../hooks/use-caterers';
-import {
-  useDistributionsByCaterer
-} from '../../hooks/use-distributions';
-import {
-  useCatererPaymentsByCaterer
-} from '../../hooks/use-caterer-payments';
+
 import CatererDeleteDialog from '../../components/caterers/caterer-delete-dialog';
 import CatererLayout from '../../components/caterers/caterer-layout';
+import CatererDetailedPaymentHistory from '../../components/caterers/caterer-detailed-payment-history';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
@@ -25,7 +21,7 @@ import { Textarea } from '../../components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Badge } from '../../components/ui/badge';
-import { Separator } from '../../components/ui/separator';
+
 import { useToast } from '../../hooks/use-toast';
 import {
   ArrowLeft,
@@ -37,21 +33,13 @@ import {
   MapPin,
   CreditCard,
   DollarSign,
-  Calendar,
-  FileText,
-  User,
-  Building,
   Hash,
-  Eye,
   ShoppingBag,
-
-  TrendingUp,
   AlertCircle,
   CheckCircle
 } from 'lucide-react';
 import { formatCurrency } from '../../lib/utils';
-import { getCatererImageUrl } from '../../lib/image-utils';
-import { format } from 'date-fns';
+
 
 // Form validation schema
 const catererFormSchema = z.object({
@@ -79,8 +67,6 @@ export default function CatererDetailsPage() {
 
   // Hooks
   const { data: caterer, isLoading: catererLoading } = useCaterer(id);
-  const { data: distributions, isLoading: distributionsLoading } = useDistributionsByCaterer(id);
-  const { data: payments, isLoading: paymentsLoading } = useCatererPaymentsByCaterer(id);
   const updateCaterer = useUpdateCaterer();
   const deleteCaterer = useDeleteCaterer();
 
@@ -202,7 +188,6 @@ export default function CatererDetailsPage() {
   }
 
   // Calculate stats
-  const pendingDistributions = distributions?.filter(dist => Number(dist.balanceDue) > 0) || [];
   const totalBilled = Number(caterer.totalBilled) || 0;
   const totalPaid = Number(caterer.totalPaid) || 0;
   const balanceDue = Number(caterer.balanceDue) || 0;
@@ -475,7 +460,7 @@ export default function CatererDetailsPage() {
             </Card>
 
             {/* Financial Summary */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card>
                 <CardContent className="p-4">
                   <div className="flex items-center space-x-2">
@@ -512,113 +497,23 @@ export default function CatererDetailsPage() {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center space-x-2">
-                    <FileText className="h-5 w-5 text-orange-600" />
-                    <span className="text-sm font-medium text-gray-600">Pending Bills</span>
-                  </div>
-                  <p className="text-2xl font-bold text-orange-600 mt-1">
-                    {pendingDistributions.length}
-                  </p>
-                </CardContent>
-              </Card>
+
             </div>
 
             {/* Tabs for detailed information */}
-            <Tabs defaultValue="distributions" className="w-full">
+            <Tabs defaultValue="payment-history" className="w-full">
               <TabsList>
-                <TabsTrigger value="distributions">Recent Distributions</TabsTrigger>
-                <TabsTrigger value="payments">Recent Payments</TabsTrigger>
+                <TabsTrigger value="payment-history">Payment History</TabsTrigger>
                 {caterer.notes && <TabsTrigger value="notes">Notes</TabsTrigger>}
               </TabsList>
 
-              <TabsContent value="distributions" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Recent Distributions</CardTitle>
-                    <CardDescription>Latest distribution records for this caterer</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {distributionsLoading ? (
-                      <div className="flex justify-center py-8">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-                      </div>
-                    ) : distributions && distributions.length > 0 ? (
-                      <div className="space-y-3">
-                        {distributions.slice(0, 5).map((distribution) => (
-                          <div key={distribution.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <div>
-                              <p className="font-medium">Bill #{distribution.billNo}</p>
-                              <p className="text-sm text-gray-600">
-                                {format(new Date(distribution.distributionDate), 'MMM dd, yyyy')}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-semibold">{formatCurrency(Number(distribution.grandTotal))}</p>
-                              <Badge variant={Number(distribution.balanceDue) > 0 ? "destructive" : "default"}>
-                                {Number(distribution.balanceDue) > 0 ? 'Pending' : 'Paid'}
-                              </Badge>
-                            </div>
-                          </div>
-                        ))}
-                        {distributions.length > 5 && (
-                          <Button variant="outline" className="w-full" onClick={() => navigate('/distributions')}>
-                            View All Distributions
-                          </Button>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <FileText className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-                        <p className="text-gray-500">No distributions found</p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+              <TabsContent value="payment-history" className="space-y-4">
+                <CatererDetailedPaymentHistory catererId={id} />
               </TabsContent>
 
-              <TabsContent value="payments" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Recent Payments</CardTitle>
-                    <CardDescription>Latest payment records for this caterer</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {paymentsLoading ? (
-                      <div className="flex justify-center py-8">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-                      </div>
-                    ) : payments && payments.length > 0 ? (
-                      <div className="space-y-3">
-                        {payments.slice(0, 5).map((payment) => (
-                          <div key={payment.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <div>
-                              <p className="font-medium">Payment #{payment.id}</p>
-                              <p className="text-sm text-gray-600">
-                                {format(new Date(payment.paymentDate), 'MMM dd, yyyy')} • {payment.paymentMode}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-semibold text-green-600">{formatCurrency(Number(payment.amount))}</p>
-                            </div>
-                          </div>
-                        ))}
-                        {payments.length > 5 && (
-                          <Button variant="outline" className="w-full" onClick={() => navigate('/caterer-payments')}>
-                            View All Payments
-                          </Button>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <Receipt className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-                        <p className="text-gray-500">No payments found</p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
+
+
+
 
               {caterer.notes && (
                 <TabsContent value="notes">

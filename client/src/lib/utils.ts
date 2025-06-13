@@ -284,15 +284,9 @@ export function formatQuantityWithUnit(
 
   // Format the primary unit with consistent 2 decimal places max
   let formattedQuantity: string;
-  if (Math.abs(numQuantity) >= 1000) {
-    // For large values, don't show decimal places
-    formattedQuantity = Math.round(numQuantity).toString();
-  } else {
-    // For all other values, show max 2 decimal places and remove trailing zeros
-    formattedQuantity = numQuantity.toFixed(2);
-    // Remove trailing zeros after decimal point
-    formattedQuantity = parseFloat(formattedQuantity).toString();
-  }
+  // Always format to 2 decimal places, then remove trailing zeros
+  const fixedQuantity = Number(numQuantity.toFixed(2));
+  formattedQuantity = fixedQuantity.toString();
 
   // If not showing alternate unit or unit is not weight-based, just return the primary format
   if (!showAlternateUnit || !['kg', 'g', 'lb', 'oz', 'l', 'ml'].includes(unit)) {

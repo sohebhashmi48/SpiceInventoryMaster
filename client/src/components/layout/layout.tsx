@@ -20,12 +20,12 @@ export default function Layout({ children }: LayoutProps) {
   };
 
   return (
-    <div className="flex flex-col h-screen">
+      <div className="flex flex-col h-screen w-full">
       <div className="no-print">
         <Header toggleSidebar={toggleSidebar} />
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden w-full">
         <div className="no-print">
           <Sidebar
             isMobileOpen={sidebarOpen}
@@ -34,7 +34,7 @@ export default function Layout({ children }: LayoutProps) {
         </div>
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto bg-neutral-100 p-4">
+        <main className="flex-1 overflow-y-auto bg-neutral-100 min-w-0 transition-all duration-300 p-4">
           {children}
         </main>
       </div>

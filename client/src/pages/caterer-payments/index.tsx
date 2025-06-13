@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/popover';
 import {
   FileText, Plus, Search, Filter, ArrowUpDown, ChevronDown, ChevronRight, DollarSign, Image, Printer,
-  Calendar, TrendingUp, AlertCircle, Clock, Target, Download, CalendarIcon, CreditCard, Receipt
+  Calendar, TrendingUp, AlertCircle, Clock, Target, Download, CalendarIcon, CreditCard, Receipt, Package
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -41,6 +41,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { useEffect } from 'react';
+import PaymentModal from '@/components/caterers/payment-modal';
 
 export default function CatererPaymentsPage() {
   const [, setLocation] = useLocation();
@@ -105,45 +106,29 @@ export default function CatererPaymentsPage() {
           .map(payment => payment.distributionId)
       )];
 
-      console.log('🔍 Distribution IDs to fetch:', distributionIds);
-      console.log('🔍 Payments with distribution IDs:', payments.filter(p => p.distributionId));
-
       // Fetch details for each distribution
       await Promise.all(
         distributionIds.map(async (distributionId) => {
           try {
-            console.log(`📡 Fetching distribution ${distributionId}...`);
             const response = await fetch(`/api/distributions/${distributionId}`, {
               credentials: 'include',
             });
 
             if (response.ok) {
               const distributionDetails = await response.json();
-              console.log(`✅ Distribution ${distributionId} response:`, {
-                id: distributionDetails.id,
-                billNo: distributionDetails.billNo,
-                hasItems: !!(distributionDetails.items),
-                itemsCount: distributionDetails.items?.length || 0,
-                items: distributionDetails.items
-              });
 
               // Find all payments for this distribution
               const paymentsForDistribution = payments.filter(p => p.distributionId === distributionId);
-              console.log(`📋 Payments for distribution ${distributionId}:`, paymentsForDistribution.map(p => p.id));
 
               paymentsForDistribution.forEach(payment => {
-                const itemsCopy = [...(distributionDetails.items || [])];
-                console.log(`💾 Setting ${itemsCopy.length} items for payment ${payment.id}`);
                 newPaymentDetails[payment.id] = {
                   distributionDetails: { ...distributionDetails },
-                  distributionItems: itemsCopy
+                  distributionItems: [...(distributionDetails.items || [])]
                 };
               });
-            } else {
-              console.error(`❌ Failed to fetch distribution ${distributionId}: ${response.status}`);
             }
           } catch (error) {
-            console.error(`❌ Error fetching distribution ${distributionId}:`, error);
+            console.error(`Failed to fetch distribution details for ${distributionId}:`, error);
           }
         })
       );
@@ -897,34 +882,10 @@ export default function CatererPaymentsPage() {
               </div>
             </DialogContent>
           </Dialog>
-          <div className="flex gap-2">
-            <Button onClick={() => navigate('/caterer-payments/new')}>
-              <Plus className="h-4 w-4 mr-2" />
-              Record Payment
-            </Button>
-            <Button
-              variant="outline"
-              onClick={async () => {
-                try {
-                  const response = await fetch('/api/distributions/35', {
-                    credentials: 'include',
-                  });
-                  if (response.ok) {
-                    const data = await response.json();
-                    console.log('🧪 Test API Response for Distribution 35:', data);
-                    alert(`Distribution 35 has ${data.items?.length || 0} items: ${data.items?.map(i => i.itemName).join(', ') || 'None'}`);
-                  } else {
-                    alert(`API Error: ${response.status}`);
-                  }
-                } catch (error) {
-                  console.error('Test API Error:', error);
-                  alert('API Test Failed');
-                }
-              }}
-            >
-              Test API
-            </Button>
-          </div>
+          <Button onClick={() => navigate('/caterer-payments/new')}>
+            <Plus className="h-4 w-4 mr-2" />
+            Record Payment
+          </Button>
         </div>
       </PageHeader>
 
@@ -1200,17 +1161,7 @@ export default function CatererPaymentsPage() {
                 const isExpanded = expandedPayments.includes(payment.id);
                 const details = paymentDetails[payment.id];
 
-                // Debug each payment's data
-                if (payment.distributionId) {
-                  console.log(`🎯 Rendering Payment ${payment.id} (Distribution ${payment.distributionId}):`, {
-                    hasDetails: !!details,
-                    hasDistributionDetails: !!(details?.distributionDetails),
-                    hasDistributionItems: !!(details?.distributionItems),
-                    itemsCount: details?.distributionItems?.length || 0,
-                    isExpanded,
-                    items: details?.distributionItems
-                  });
-                }
+
 
                 return (
                   <Collapsible
@@ -1312,224 +1263,250 @@ export default function CatererPaymentsPage() {
                             )}
                           </div>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            printPaymentReceipt(payment);
-                          }}
-                          className="flex items-center gap-1 hover:bg-primary/10"
-                          disabled={isLoading}
-                        >
-                          <Printer className="h-4 w-4" />
-                          Print
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {/* Show Make Payment button for partial payments */}
+                          {payment.distributionId && details && details.distributionDetails &&
+                           parseFloat(details.distributionDetails.balanceDue || '0') > 0 && (
+                            <PaymentModal
+                              triggerText="Make Payment"
+                              triggerSize="sm"
+                              triggerClassName="bg-green-600 hover:bg-green-700 text-white"
+                              preselectedCatererId={payment.catererId.toString()}
+                              preselectedDistributionId={payment.distributionId.toString()}
+                              preselectedAmount={details.distributionDetails.balanceDue.toString()}
+                              onSuccess={() => {
+                                // Refresh the page to show updated data
+                                window.location.reload();
+                              }}
+                            >
+                              <Button
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <CreditCard className="h-4 w-4 mr-1" />
+                                Pay
+                              </Button>
+                            </PaymentModal>
+                          )}
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              printPaymentReceipt(payment);
+                            }}
+                            className="flex items-center gap-1 hover:bg-primary/10"
+                            disabled={isLoading}
+                          >
+                            <Printer className="h-4 w-4" />
+                            Print
+                          </Button>
+                        </div>
                       </div>
                     </div>
 
                     {/* Detailed Payment Information */}
-                    <CollapsibleContent className="p-6 bg-white border-t">
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Payment Details */}
-                        <div className="space-y-4">
-                          <div className="flex items-center space-x-2 mb-3">
-                            <Receipt className="h-5 w-5 text-blue-600" />
-                            <h3 className="text-lg font-semibold text-gray-900">Payment Details</h3>
+                    <CollapsibleContent className="p-4 bg-gradient-to-br from-gray-50 to-white border-t">
+                      {/* Compact Header Cards */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+                        {/* Payment Details Card */}
+                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                          <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-3">
+                            <div className="flex items-center space-x-2">
+                              <Receipt className="h-4 w-4 text-white" />
+                              <h3 className="text-sm font-semibold text-white">Payment Details</h3>
+                            </div>
                           </div>
-
-                          <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Receipt No:</span>
-                              <span className="font-medium">#PAY-{payment.id.toString().padStart(6, '0')}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Date:</span>
-                              <span className="font-medium">{formatDate(payment.paymentDate)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Payment Mode:</span>
-                              <Badge variant="outline" className="capitalize">
-                                {payment.paymentMode}
-                              </Badge>
-                            </div>
-                            {payment.referenceNo && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Reference:</span>
-                                <span className="font-medium">{payment.referenceNo}</span>
+                          <div className="p-4 space-y-2">
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div>
+                                <span className="text-gray-500 text-xs">Receipt No:</span>
+                                <p className="font-medium">#PAY-{payment.id.toString().padStart(6, '0')}</p>
                               </div>
-                            )}
-                            <div className="flex justify-between border-t pt-3">
-                              <span className="text-gray-600">Amount Paid:</span>
-                              <span className="text-xl font-bold text-green-600">{formatCurrency(payment.amount)}</span>
+                              <div>
+                                <span className="text-gray-500 text-xs">Date:</span>
+                                <p className="font-medium">{formatDate(payment.paymentDate)}</p>
+                              </div>
+                              <div>
+                                <span className="text-gray-500 text-xs">Payment Mode:</span>
+                                <Badge variant="secondary" className="text-xs capitalize mt-1">
+                                  {payment.paymentMode}
+                                </Badge>
+                              </div>
+                              {payment.referenceNo && (
+                                <div>
+                                  <span className="text-gray-500 text-xs">Reference:</span>
+                                  <p className="font-medium text-xs">{payment.referenceNo}</p>
+                                </div>
+                              )}
                             </div>
-                            {/* Show bill total if available */}
-                            {details && details.distributionDetails && (
-                              <>
-                                <div className="flex justify-between">
-                                  <span className="text-gray-600">Bill Total:</span>
-                                  <span className="font-medium">{formatCurrency(details.distributionDetails.grandTotal)}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-gray-600">Balance Due:</span>
-                                  <span className={`font-medium ${parseFloat(details.distributionDetails.balanceDue || '0') > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                    {formatCurrency(details.distributionDetails.balanceDue || '0')}
-                                  </span>
-                                </div>
-                              </>
-                            )}
+                            <div className="border-t pt-3 mt-3">
+                              <div className="flex justify-between items-center">
+                                <span className="text-gray-600 text-sm">Amount Paid:</span>
+                                <span className="text-lg font-bold text-green-600">{formatCurrency(payment.amount)}</span>
+                              </div>
+                              {details && details.distributionDetails && (
+                                <>
+                                  <div className="flex justify-between items-center mt-1">
+                                    <span className="text-gray-500 text-xs">Bill Total:</span>
+                                    <span className="text-sm font-medium">{formatCurrency(details.distributionDetails.grandTotal)}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-gray-500 text-xs">Balance Due:</span>
+                                    <span className={`text-sm font-medium ${parseFloat(details.distributionDetails.balanceDue || '0') > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                      {formatCurrency(details.distributionDetails.balanceDue || '0')}
+                                    </span>
+                                  </div>
+                                </>
+                              )}
+                            </div>
                           </div>
+                        </div>
 
+                        {/* Caterer Information Card */}
+                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                          <div className="bg-gradient-to-r from-purple-500 to-purple-600 px-4 py-3">
+                            <div className="flex items-center space-x-2">
+                              <DollarSign className="h-4 w-4 text-white" />
+                              <h3 className="text-sm font-semibold text-white">Caterer Information</h3>
+                            </div>
+                          </div>
+                          <div className="p-4 space-y-3">
+                            <div>
+                              <span className="text-gray-500 text-xs">Caterer Name:</span>
+                              <Button
+                                variant="link"
+                                className="p-0 h-auto font-medium text-sm block text-left"
+                                onClick={() => navigate(`/caterers/${payment.catererId}`)}
+                              >
+                                {catererName}
+                              </Button>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <span className="text-gray-500 text-xs">Caterer ID:</span>
+                                <p className="font-medium text-sm">#{payment.catererId}</p>
+                              </div>
+                              {payment.distributionId && (
+                                <div>
+                                  <span className="text-gray-500 text-xs">Bill Reference:</span>
+                                  <Button
+                                    variant="link"
+                                    className="p-0 h-auto font-medium text-sm"
+                                    onClick={() => navigate(`/distributions/${payment.distributionId}`)}
+                                  >
+                                    #DIST-{payment.distributionId}
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Additional Information */}
+                      {(payment.notes || payment.receiptImage) && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
                           {payment.notes && (
-                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
                               <div className="flex items-center space-x-2 mb-2">
-                                <AlertCircle className="h-4 w-4 text-yellow-600" />
-                                <span className="font-medium text-yellow-800">Notes</span>
+                                <AlertCircle className="h-4 w-4 text-amber-600" />
+                                <span className="font-medium text-amber-800 text-sm">Notes</span>
                               </div>
-                              <p className="text-yellow-700">{payment.notes}</p>
+                              <p className="text-amber-700 text-sm">{payment.notes}</p>
                             </div>
                           )}
-
                           {payment.receiptImage && (
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                               <div className="flex items-center space-x-2 mb-2">
                                 <Image className="h-4 w-4 text-blue-600" />
-                                <span className="font-medium text-blue-800">Receipt Image</span>
+                                <span className="font-medium text-blue-800 text-sm">Receipt Image</span>
                               </div>
                               <a
                                 href={`/api/uploads/receipts/${payment.receiptImage}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-blue-600 hover:text-blue-800 underline"
+                                className="text-blue-600 hover:text-blue-800 underline text-sm"
                               >
                                 View Receipt Image
                               </a>
                             </div>
                           )}
                         </div>
-
-                        {/* Caterer Details */}
-                        <div className="space-y-4">
-                          <div className="flex items-center space-x-2 mb-3">
-                            <DollarSign className="h-5 w-5 text-purple-600" />
-                            <h3 className="text-lg font-semibold text-gray-900">Caterer Information</h3>
-                          </div>
-
-                          <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Caterer Name:</span>
-                              <Button
-                                variant="link"
-                                className="p-0 h-auto font-medium"
-                                onClick={() => navigate(`/caterers/${payment.catererId}`)}
-                              >
-                                {catererName}
-                              </Button>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Caterer ID:</span>
-                              <span className="font-medium">#{payment.catererId}</span>
-                            </div>
-                            {payment.distributionId && (
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Bill Reference:</span>
-                                <Button
-                                  variant="link"
-                                  className="p-0 h-auto font-medium"
-                                  onClick={() => navigate(`/distributions/${payment.distributionId}`)}
-                                >
-                                  #DIST-{payment.distributionId}
-                                </Button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                      )}
 
                       {/* Bill Details Section */}
                       {details && details.distributionDetails && (
-                        <div className="mt-6 border-t pt-6">
-                          <div className="flex items-center space-x-2 mb-4">
-                            <FileText className="h-5 w-5 text-orange-600" />
-                            <h3 className="text-lg font-semibold text-gray-900">
-                              Bill Details - {details.distributionDetails.billNo}
-                            </h3>
+                        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                          <div className="bg-gradient-to-r from-orange-500 to-orange-600 px-4 py-3">
+                            <div className="flex items-center space-x-2">
+                              <FileText className="h-4 w-4 text-white" />
+                              <h3 className="text-sm font-semibold text-white">
+                                Bill Details - {details.distributionDetails.billNo}
+                              </h3>
+                            </div>
                           </div>
 
-                          {/* Bill Summary */}
-                          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {/* Compact Bill Summary */}
+                          <div className="p-4 bg-gradient-to-r from-orange-50 to-amber-50 border-b">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                               <div className="text-center">
-                                <div className="text-sm text-gray-600">Subtotal</div>
-                                <div className="text-lg font-semibold">₹{parseFloat(details.distributionDetails.totalAmount).toFixed(2)}</div>
+                                <div className="text-xs text-gray-600 mb-1">Subtotal</div>
+                                <div className="text-sm font-semibold text-gray-800">₹{parseFloat(details.distributionDetails.totalAmount).toFixed(2)}</div>
                               </div>
                               <div className="text-center">
-                                <div className="text-sm text-gray-600">GST Amount</div>
-                                <div className="text-lg font-semibold">₹{parseFloat(details.distributionDetails.totalGstAmount).toFixed(2)}</div>
+                                <div className="text-xs text-gray-600 mb-1">GST Amount</div>
+                                <div className="text-sm font-semibold text-gray-800">₹{parseFloat(details.distributionDetails.totalGstAmount).toFixed(2)}</div>
                               </div>
                               <div className="text-center">
-                                <div className="text-sm text-gray-600">Grand Total</div>
-                                <div className="text-lg font-bold text-orange-600">₹{parseFloat(details.distributionDetails.grandTotal).toFixed(2)}</div>
+                                <div className="text-xs text-gray-600 mb-1">Grand Total</div>
+                                <div className="text-sm font-bold text-orange-600">₹{parseFloat(details.distributionDetails.grandTotal).toFixed(2)}</div>
                               </div>
                               <div className="text-center">
-                                <div className="text-sm text-gray-600">Balance Due</div>
-                                <div className={`text-lg font-bold ${parseFloat(details.distributionDetails.balanceDue || '0') > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                <div className="text-xs text-gray-600 mb-1">Balance Due</div>
+                                <div className={`text-sm font-bold ${parseFloat(details.distributionDetails.balanceDue || '0') > 0 ? 'text-red-600' : 'text-green-600'}`}>
                                   ₹{parseFloat(details.distributionDetails.balanceDue || '0').toFixed(2)}
                                 </div>
                               </div>
                             </div>
                           </div>
 
-                          {/* Debug Info - Only show for payments that should have items */}
-                          {payment.distributionId === 35 && (
-                            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded text-xs">
-                              <strong>🎯 Payment {payment.id} (Should have items):</strong><br/>
-                              Distribution ID: {payment.distributionId}<br/>
-                              Has Details: {details ? 'Yes' : 'No'}<br/>
-                              Has Items: {details?.distributionItems ? 'Yes' : 'No'}<br/>
-                              Items Count: {details?.distributionItems?.length || 0}<br/>
-                              Items: {details?.distributionItems ? details.distributionItems.map(i => i.itemName).join(', ') : 'None'}
-                            </div>
-                          )}
-                          {payment.distributionId && payment.distributionId !== 35 && (
-                            <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded text-xs">
-                              <strong>Payment {payment.id} (Should be empty):</strong><br/>
-                              Distribution ID: {payment.distributionId}<br/>
-                              Items Count: {details?.distributionItems?.length || 0}
-                            </div>
-                          )}
 
-                          {/* Items Table */}
+
+                          {/* Compact Items Table */}
                           {details && details.distributionItems && Array.isArray(details.distributionItems) && details.distributionItems.length > 0 ? (
-                            <div key={`items-${payment.id}-${payment.distributionId}`} className="border rounded-lg overflow-hidden">
-                              <div className="bg-gray-50 px-4 py-3 border-b">
-                                <h4 className="font-medium text-gray-900">
-                                  Items Purchased ({details.distributionItems.length} items) - Distribution #{payment.distributionId}
+                            <div key={`items-${payment.id}-${payment.distributionId}`} className="p-4">
+                              <div className="mb-3">
+                                <h4 className="text-sm font-medium text-gray-700 flex items-center">
+                                  <Package className="h-4 w-4 mr-2 text-orange-600" />
+                                  Items Purchased ({details.distributionItems.length} items)
                                 </h4>
                               </div>
                               <div className="overflow-x-auto">
-                                <table className="w-full">
-                                  <thead className="bg-gray-50">
-                                    <tr>
-                                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">#</th>
-                                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Name</th>
-                                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Rate</th>
-                                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">GST%</th>
-                                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="border-b border-gray-200">
+                                      <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th>
+                                      <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase">Item Name</th>
+                                      <th className="px-2 py-2 text-center text-xs font-medium text-gray-500 uppercase">Quantity</th>
+                                      <th className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th>
+                                      <th className="px-2 py-2 text-center text-xs font-medium text-gray-500 uppercase">GST%</th>
+                                      <th className="px-2 py-2 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
                                     </tr>
                                   </thead>
-                                  <tbody className="bg-white divide-y divide-gray-200">
+                                  <tbody className="divide-y divide-gray-100">
                                     {details.distributionItems.map((item: any, index: number) => (
-                                      <tr key={`${payment.id}-${item.id || index}`} className="hover:bg-gray-50">
-                                        <td className="px-4 py-3 text-sm text-center">{index + 1}</td>
-                                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{item.itemName}</td>
-                                        <td className="px-4 py-3 text-sm text-center">
+                                      <tr key={`${payment.id}-${item.id || index}`} className="hover:bg-gray-50 transition-colors">
+                                        <td className="px-2 py-2 text-center text-gray-600">{index + 1}</td>
+                                        <td className="px-2 py-2 font-medium text-gray-900">{item.itemName}</td>
+                                        <td className="px-2 py-2 text-center text-gray-700">
                                           {parseFloat(item.quantity).toFixed(2)} {item.unit}
                                         </td>
-                                        <td className="px-4 py-3 text-sm text-right">₹{parseFloat(item.rate).toFixed(2)}</td>
-                                        <td className="px-4 py-3 text-sm text-center">{parseFloat(item.gstPercentage).toFixed(1)}%</td>
-                                        <td className="px-4 py-3 text-sm font-medium text-right">₹{parseFloat(item.amount).toFixed(2)}</td>
+                                        <td className="px-2 py-2 text-right text-gray-700">₹{parseFloat(item.rate).toFixed(2)}</td>
+                                        <td className="px-2 py-2 text-center text-gray-600">{parseFloat(item.gstPercentage).toFixed(1)}%</td>
+                                        <td className="px-2 py-2 font-medium text-right text-gray-900">₹{parseFloat(item.amount).toFixed(2)}</td>
                                       </tr>
                                     ))}
                                   </tbody>
